@@ -1,7 +1,12 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 
 const ALGORITHM = 'aes-256-gcm';
-const KEY = Buffer.from(process.env.ENCRYPTION_KEY ?? '', 'hex');
+
+const _encKey = process.env.ENCRYPTION_KEY
+if (!_encKey || !/^[0-9a-fA-F]{64}$/.test(_encKey)) {
+  throw new Error('ENCRYPTION_KEY env var must be a 64-character hex string (32 bytes for AES-256-GCM)')
+}
+const KEY = Buffer.from(_encKey, 'hex');
 
 export function encryptKey(plaintext: string): string {
   const iv = randomBytes(12);

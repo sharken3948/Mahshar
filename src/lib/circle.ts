@@ -1,13 +1,13 @@
 import {
-  initiateUserControlledWalletsClient,
+  initiateDeveloperControlledWalletsClient,
   type WalletSet,
 } from '@circle-fin/developer-controlled-wallets';
 
-let _client: ReturnType<typeof initiateUserControlledWalletsClient> | null = null;
+let _client: ReturnType<typeof initiateDeveloperControlledWalletsClient> | null = null;
 
 function getClient() {
   if (!_client) {
-    _client = initiateUserControlledWalletsClient({
+    _client = initiateDeveloperControlledWalletsClient({
       apiKey: process.env.CIRCLE_API_KEY!,
       entitySecret: process.env.CIRCLE_ENTITY_SECRET!,
     });
@@ -18,7 +18,9 @@ function getClient() {
 export async function createWalletSet(name: string): Promise<WalletSet> {
   const client = getClient();
   const res = await client.createWalletSet({ name });
-  return res.data!.walletSet!;
+  const walletSet = res.data?.walletSet;
+  if (!walletSet) throw new Error('Circle did not return a walletSet');
+  return walletSet;
 }
 
 export async function createWallet(walletSetId: string, blockchain: string = 'MATIC-AMOY') {
@@ -28,7 +30,9 @@ export async function createWallet(walletSetId: string, blockchain: string = 'MA
     blockchains: [blockchain as never],
     count: 1,
   });
-  return res.data!.wallets![0];
+  const wallet = res.data?.wallets?.[0];
+  if (!wallet) throw new Error('Circle did not return a wallet');
+  return wallet;
 }
 
 export async function getWalletBalance(walletId: string) {
@@ -44,12 +48,18 @@ export async function transferUsdc(params: {
   blockchain?: string;
 }) {
   const client = getClient();
+  interface CreateTransactionData {
+    id?: string
+    transactionId?: string
+  }
+
   const res = await client.createTransaction({
     walletId: params.walletId,
     tokenId: process.env.USDC_TOKEN_ID ?? '',
     destinationAddress: params.destinationAddress,
-    amounts: [params.amountUsdc],
+    amount: [params.amountUsdc],
     fee: { type: 'level', config: { feeLevel: 'MEDIUM' } },
-  });
-  return res.data?.transaction;
+  } as Parameters<typeof client.createTransaction>[0]);
+  const data = res.data as CreateTransactionData | undefined
+  return data?.id ?? data?.transactionId;
 }

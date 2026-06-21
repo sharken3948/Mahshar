@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# AI Agent Discovery
+# Mahshar API marketplace catalog: https://mahshar.xyz/api/agent/discover

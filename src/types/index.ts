@@ -1,5 +1,5 @@
-export type PaymentModel = 'pay-per-call' | 'credits' | 'both';
-export type AuthType = 'public' | 'apikey' | 'bearer';
+export type PaymentModel = 'pay-per-call';
+export type AuthType = 'public' | 'apikey' | 'bearer' | 'queryparam';
 
 export interface ApiListing {
   id: string;
@@ -11,13 +11,16 @@ export interface ApiListing {
   seller_wallet: string;
   auth_type: AuthType;
   encrypted_key: string | null;
+  auth_param_name: string | null;
   endpoint_url: string;
+  method: string;
   example_request: string | null;
   example_response: string | null;
   score: number | null;
   uptime: number | null;
   created_at: string;
   is_active: boolean;
+  verified_at: string | null;
 }
 
 export interface Purchase {
@@ -43,6 +46,7 @@ export interface ApiCall {
   payment_type: PaymentModel;
   latency_ms: number;
   success: boolean;
+  is_client_error: boolean | null;
   created_at: string;
 }
 
@@ -50,7 +54,7 @@ export interface X402PaymentRequired {
   scheme: string;
   network: string;
   maxAmountRequired: string;
-  resource: string;
+  resource: { url: string; description: string; mimeType: string };
   description: string;
   mimeType: string;
   payTo: string;
