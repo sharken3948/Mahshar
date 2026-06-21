@@ -66,6 +66,31 @@ function needsRequestBody(exampleRequest: string | null | undefined): boolean {
   }
 }
 
+function renderHighlightedSnippet(snippet: string) {
+  return snippet.split('\n').map((line, i, arr) => {
+    const nl = i < arr.length - 1 ? '\n' : ''
+
+    // Lines with a JSON-quoted key (came from JSON.stringify — these are user body fields)
+    const jsonKv = line.match(/^(\s*"[^"]+": )(.+)$/)
+    if (jsonKv) {
+      return (
+        <span key={i}>{jsonKv[1]}<span className="text-[#FBBF24]">{jsonKv[2]}</span>{nl}</span>
+      )
+    }
+
+    // process.env.WALLET_PRIVATE_KEY — buyer must set this env var
+    if (line.includes('process.env.WALLET_PRIVATE_KEY')) {
+      const env = 'process.env.WALLET_PRIVATE_KEY'
+      const idx = line.indexOf(env)
+      return (
+        <span key={i}>{line.slice(0, idx)}<span className="text-[#86EFAC]">{env}</span>{line.slice(idx + env.length)}{nl}</span>
+      )
+    }
+
+    return <span key={i}>{line}{nl}</span>
+  })
+}
+
 function ApiRow({ api, avgLatency, calling, paymentStep, onUse }: {
   api: ApiCardFields
   avgLatency: number | null
@@ -525,7 +550,7 @@ export default function BuyerPage() {
               </div>
               <div className="p-6">
                 <pre className="bg-[#0D0D0D] text-[#E2E4E9] text-xs rounded-xl p-4 overflow-x-auto whitespace-pre leading-relaxed">
-                  {codeSnippet}
+                  {renderHighlightedSnippet(codeSnippet)}
                 </pre>
                 <button
                   onClick={() => {
