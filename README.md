@@ -9,7 +9,7 @@ AI-powered API marketplace on Arc Testnet. Sellers list APIs and earn USDC per c
 ## Features
 
 ### For Sellers
-- **AI listing review with live endpoint test** — `/api/ai/score` uses Groq (llama-3.3-70b-versatile) to score submissions. It makes a real GET request to the seller's actual endpoint during review, not just static text analysis. SSRF protection blocks private IP ranges and redirects.
+- **AI listing review with live endpoint test** — `/api/ai/score` uses Groq (llama-3.3-70b-versatile) to score submissions. It makes a real test call to the seller's endpoint during review and surfaces diagnostics (method, URL, body sent, status code, response snippet) directly in the submission UI — sellers can debug failures without leaving the form. Groq also screens the actual response body for harmful or illegal content before scoring. SSRF protection blocks private IP ranges and redirects.
 - **Endpoint verification** — `/api/apis/[id]/verify` pings the seller's endpoint using the real decrypted auth credentials and sets a verified badge on success.
 - **AES-256-GCM encrypted credential storage** — Seller API keys are encrypted at rest with authenticated encryption (random 12-byte IV + auth tag per record). Credentials are never stored or transmitted in plaintext.
 - **Real-time seller dashboard** — Earnings breakdown by API, per-API call analytics (avg latency, success rate, call history), and live Circle Gateway USDC balance.
@@ -17,6 +17,8 @@ AI-powered API marketplace on Arc Testnet. Sellers list APIs and earn USDC per c
 ### For Buyers
 - **AI-powered semantic search** — `/api/ai/match` takes a natural-language query and returns the best-matching active APIs using Groq.
 - **x402 nanopayment flow** — Buyers pay per call via EIP-3009 `TransferWithAuthorization` signed messages, settled through Circle Gateway on Arc Testnet. Gasless — USDC is the gas token on Arc.
+- **Request body editor** — POST and PUT APIs show a JSON editor pre-filled with the listing's example request. Buyers can modify the payload before calling.
+- **Smart retry messaging** — consecutive transient failures (rate limits, 503s) surface a helpful retry prompt rather than a generic error.
 - **Optional prepaid credits** — `/api/payments/credits` supports a prepaid credit balance as an alternative to per-call x402 payments.
 
 ### Platform
@@ -29,12 +31,12 @@ AI-powered API marketplace on Arc Testnet. Sellers list APIs and earn USDC per c
 
 ### Sellers
 1. Connect wallet and fill the listing form (name, description, category, endpoint URL, auth credentials, example request/response).
-2. Submit for AI review — Groq scores the listing and makes a live test call to the endpoint. Blocked if critical issues are found.
+2. Submit for AI review — Groq scores the listing and makes a live test call to the endpoint. Live diagnostics (status, response snippet) are shown inline. Blocked if critical issues or unsafe content are found.
 3. Set a price per call in USDC and activate. The listing appears in the marketplace immediately.
 
 ### Buyers
 1. Search by natural language ("wallet risk scoring for Ethereum addresses") or browse by category.
-2. Click **Use API** — the browser probes `/api/proxy`, receives a 402 with a `PAYMENT-REQUIRED` header, signs a `TransferWithAuthorization` EIP-712 message in the connected wallet, and submits the payment.
+2. Click **Use API** — POST and PUT APIs open a JSON editor pre-filled from the listing's example request. The browser then probes `/api/proxy`, receives a 402 with a `PAYMENT-REQUIRED` header, signs a `TransferWithAuthorization` EIP-712 message in the connected wallet, and submits the payment.
 3. Mahshar verifies and settles the payment via Circle Gateway, then proxies the request to the seller's endpoint and returns the response. The seller's URL and credentials are never exposed to the buyer.
 
 ---
@@ -42,7 +44,7 @@ AI-powered API marketplace on Arc Testnet. Sellers list APIs and earn USDC per c
 ## Architecture
 
 ### Proxy pattern
-Every buyer request goes through `/api/proxy`. Mahshar fetches the seller's endpoint URL and decrypted auth credentials from the database server-side, injects the appropriate auth headers (`x-api-key` or `Authorization: Bearer`), forwards the request, and returns the response. Buyers never see seller credentials or the real endpoint URL.
+Every buyer request goes through `/api/proxy`. Mahshar fetches the seller's endpoint URL and decrypted auth credentials from the database server-side, injects the appropriate auth — `x-api-key` header, `Authorization: Bearer` header, or `?key=VALUE` URL query parameter — depending on the listing's auth type, forwards the request, and returns the response. Responses are capped at 5 MB; larger upstream payloads are rejected before forwarding. Buyers never see seller credentials or the real endpoint URL.
 
 ### Payment flow
 ```
@@ -62,7 +64,7 @@ After each call, `checkAndAutoDeactivate` runs asynchronously:
 - Also triggers if the success rate drops below 80% over the last 20 non-client-fault calls from ≥2 distinct buyer wallets
 
 ### AI review pipeline
-`/api/ai/score` makes a real HTTP GET to the seller's endpoint (5-second timeout, redirects blocked) before passing the result to Groq. The model sees the actual live response body, not just the description. The score is written back to the database and used for ranking.
+`/api/ai/score` makes a real HTTP test call to the seller's endpoint (5-second timeout, redirects blocked) before passing the result to Groq. The model sees the actual live response body, not just the description. Diagnostics — method, URL, body sent, HTTP status, and a response snippet — are returned alongside the score so sellers see exactly what the test call did. Groq also checks the response body for harmful or illegal content; listings are blocked if the safety check fails. The score is written back to the database and used for ranking.
 
 ---
 
@@ -95,7 +97,7 @@ Send a GET to `/api/agent/discover` to get the full marketplace catalog in machi
 }
 ```
 
-`scripts/test-integration.mts` demonstrates a fully autonomous agent (using `@circle-fin/x402-batching`) that discovers, pays for, and calls a real listed API — [Ioscope](https://ioscope.xyz), a wallet risk-scoring service for Arc/Soneium — with zero human interaction. In testing: 7/7 successful x402 payments end-to-end.
+`scripts/test-integration.mts` demonstrates a fully autonomous agent (using `@circle-fin/x402-batching`) that discovers, pays for, and calls a real listed API — [Ioscope](https://ioscope.xyz), a wallet risk-scoring service for Arc/Soneium — with zero human interaction. In testing: 7/7 successful x402 payments end-to-end. The generated integration code snippet uses syntax highlighting: buyer-supplied input values appear in amber, and `WALLET_PRIVATE_KEY` appears in green to draw attention to the sensitive credential.
 
 ---
 
