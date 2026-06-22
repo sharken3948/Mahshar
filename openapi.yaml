@@ -1,0 +1,327 @@
+openapi: 3.0.3
+
+info:
+  title: Mahshar API Marketplace
+  description: |
+    AI-powered API marketplace. Agents discover APIs via /api/agent/discover and pay per call
+    via /api/proxy using Circle x402 USDC micropayments on Arc.
+
+    ## x402 Payment Flow
+
+    `/api/proxy` implements the [x402 micropayment protocol](https://x402.org):
+
+    1. **Probe** — send the request body without a `Payment-Signature` header. The server returns
+       `402 Payment Required` with a base64-encoded `PAYMENT-REQUIRED` response header containing
+       the EIP-712 domain, required USDC amount, and verifying contract address.
+    2. **Sign** — sign a `TransferWithAuthorization` EIP-3009 message with the buyer wallet on
+       Arc Testnet (chainId `5042002`).
+    3. **Pay** — re-send the identical request body with the `Payment-Signature` header containing
+       the signed authorization. Mahshar settles the USDC transfer via Circle Gateway, proxies the
+       call to the seller's endpoint, and returns the upstream response.
+
+    The seller's real endpoint URL and credentials are never exposed to the buyer.
+  version: 1.0.0
+  contact:
+    url: https://mahshar.xyz
+    x-github: https://github.com/sharken3948/Mahshar
+
+servers:
+  - url: https://mahshar.xyz
+    description: Production (Arc Testnet)
+
+tags:
+  - name: Discovery
+    description: Browse and search active API listings
+  - name: Proxy
+    description: Pay for and call a listed API via x402
+
+components:
+  schemas:
+
+    Listing:
+      type: object
+      required: [id, name, description, category, price_per_call, method, auth_type, is_active]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 550e8400-e29b-41d4-a716-446655440000
+        name:
+          type: string
+          example: Wallet Risk Scoring
+        description:
+          type: string
+          example: Returns a risk score for any EVM wallet address.
+        category:
+          type: string
+          example: Security
+        price_per_call:
+          type: number
+          format: float
+          description: Price in USDC per API call.
+          example: 0.01
+        method:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE]
+          example: GET
+        auth_type:
+          type: string
+          enum: [none, api_key, bearer, queryparam]
+          description: |
+            Authentication mechanism used by the upstream endpoint.
+            `queryparam` means the seller's API key is injected as a URL query parameter.
+          example: api_key
+        endpoint_url:
+          type: string
+          description: Upstream endpoint URL. Omitted from all responses to protect seller privacy.
+          readOnly: true
+          nullable: true
+        avg_latency_ms:
+          type: number
+          format: float
+          nullable: true
+          example: 1240
+        is_active:
+          type: boolean
+          example: true
+        score:
+          type: number
+          format: float
+          nullable: true
+          description: AI quality score assigned during listing review (0–10).
+          example: 8.5
+
+    MarketplaceStats:
+      type: object
+      required: [total_listings, total_calls, total_volume_usdc]
+      properties:
+        total_listings:
+          type: integer
+          example: 12
+        total_calls:
+          type: integer
+          example: 4821
+        total_volume_usdc:
+          type: number
+          format: float
+          example: 48.21
+
+    DiscoverResponse:
+      type: object
+      required: [listings, marketplace_stats]
+      properties:
+        listings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Listing'
+        marketplace_stats:
+          $ref: '#/components/schemas/MarketplaceStats'
+
+    ProxyRequest:
+      type: object
+      required: [api_id, buyer_wallet]
+      properties:
+        api_id:
+          type: string
+          format: uuid
+          description: ID of the listing to call (from /api/agent/discover).
+          example: 550e8400-e29b-41d4-a716-446655440000
+        buyer_wallet:
+          type: string
+          description: EVM wallet address of the buyer (0x-prefixed).
+          example: "0xAbCd1234000000000000000000000000000000AB"
+        method:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE]
+          description: HTTP method for the upstream call. Defaults to the listing's configured method.
+        body:
+          type: object
+          additionalProperties: true
+          description: Request body forwarded to the upstream API. Used for POST and PUT listings.
+          example:
+            address: "0xAbCd1234000000000000000000000000000000AB"
+
+    PaymentRequiredBody:
+      type: object
+      description: Payment requirements returned alongside a 402 response.
+      properties:
+        x402Version:
+          type: integer
+          example: 1
+        accepts:
+          type: array
+          items:
+            type: object
+            properties:
+              scheme:
+                type: string
+                example: exact
+              network:
+                type: string
+                description: CAIP-2 chain identifier.
+                example: eip155:5042002
+              maxAmountRequired:
+                type: string
+                description: Required USDC amount in base units (6 decimals).
+                example: "10000"
+              asset:
+                type: string
+                description: USDC contract address on Arc Testnet.
+                example: "0x3600000000000000000000000000000000000000"
+              extra:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    example: GatewayWalletBatched
+                  version:
+                    type: string
+                    example: "1"
+                  verifyingContract:
+                    type: string
+                    example: "0x0077777d7EBA4688BDeF3E311b846F25870A19B9"
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: API listing not found or inactive.
+
+  securitySchemes:
+    x402Payment:
+      type: apiKey
+      in: header
+      name: Payment-Signature
+      description: |
+        EIP-3009 `TransferWithAuthorization` signed message authorizing a USDC transfer on
+        Arc Testnet (chainId 5042002). Obtain the required parameters by calling `/api/proxy`
+        once without this header — the 402 response contains the EIP-712 domain, amount, and
+        asset address needed to construct the signature.
+
+paths:
+
+  /api/agent/discover:
+    get:
+      operationId: discoverAPIs
+      summary: List all active API listings
+      description: |
+        Returns the full marketplace catalog — active listings with pricing, method, auth type,
+        latency, AI score, and aggregate stats. No authentication required.
+
+        Use this endpoint first to find the `id` and `price_per_call` of an API before calling
+        it via `/api/proxy`.
+      tags: [Discovery]
+      responses:
+        '200':
+          description: Full marketplace catalog.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscoverResponse'
+              example:
+                listings:
+                  - id: 550e8400-e29b-41d4-a716-446655440000
+                    name: Wallet Risk Scoring
+                    description: Returns a risk score for any EVM wallet address.
+                    category: Security
+                    price_per_call: 0.01
+                    method: GET
+                    auth_type: api_key
+                    avg_latency_ms: 1240
+                    is_active: true
+                    score: 8.5
+                marketplace_stats:
+                  total_listings: 12
+                  total_calls: 4821
+                  total_volume_usdc: 48.21
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/proxy:
+    post:
+      operationId: proxyCall
+      summary: Pay for and call a listed API (x402)
+      description: |
+        Executes a two-step x402 micropayment flow (see top-level description).
+
+        **Step 1 — probe:** send without `Payment-Signature` → receive `402` with payment
+        requirements in the `PAYMENT-REQUIRED` response header (base64-encoded JSON).
+
+        **Step 2 — pay:** re-send with `Payment-Signature` set to a valid EIP-3009
+        `TransferWithAuthorization` signature → receive the upstream API response.
+
+        Typical callers using `@circle-fin/x402-batching` handle both steps automatically.
+      tags: [Proxy]
+      security:
+        - {}            # Step 1: no header required (returns 402)
+        - x402Payment: []  # Step 2: payment header required (returns 200)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProxyRequest'
+            example:
+              api_id: 550e8400-e29b-41d4-a716-446655440000
+              buyer_wallet: "0xAbCd1234000000000000000000000000000000AB"
+              method: GET
+      responses:
+        '200':
+          description: |
+            Upstream API response body, forwarded after successful USDC payment and settlement.
+            Schema varies per listing.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '402':
+          description: |
+            Payment required. Decode the `PAYMENT-REQUIRED` response header (base64 → JSON) to
+            extract the EIP-712 domain, required USDC amount (`maxAmountRequired`), and asset
+            address. Sign a `TransferWithAuthorization` message and retry with `Payment-Signature`.
+          headers:
+            PAYMENT-REQUIRED:
+              description: Base64-encoded JSON payment requirements.
+              schema:
+                type: string
+                format: byte
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentRequiredBody'
+        '400':
+          description: Missing or invalid request fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: API listing not found or inactive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Upstream response exceeded the 5 MB size limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Upstream API returned an error or timed out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
