@@ -4,7 +4,7 @@ info:
   title: Mahshar API Marketplace
   description: |
     AI-powered API marketplace. Agents discover APIs via /api/agent/discover and pay per call
-    via /api/proxy using Circle x402 USDC micropayments on Arc.
+    via /api/proxy using Circle x402 USDC nanopayments on Arc.
 
     ## x402 Payment Flow
 
