@@ -1,7 +1,7 @@
 'use client'
 import { useState, useCallback } from 'react'
 import { useAccount, useSwitchChain } from 'wagmi'
-import { BridgeKit } from '@circle-fin/bridge-kit'
+import { BridgeKit, BridgeChain } from '@circle-fin/bridge-kit'
 import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2'
 import type { EIP1193Provider } from 'viem'
 
@@ -28,7 +28,7 @@ export function useBridge() {
   const [txHash, setTxHash] = useState<string | null>(null)
 
   const bridge = useCallback(async (
-    fromChain: string,
+    fromChain: BridgeChain,
     fromChainId: number,
     amount: string,
     recipientAddress: `0x${string}`,
@@ -65,7 +65,7 @@ export function useBridge() {
           from: { adapter, chain: fromChain },
           to: {
             recipientAddress,
-            chain: 'Arc_Testnet',
+            chain: BridgeChain.Arc_Testnet,
             useForwarder: true,
           },
           amount,
