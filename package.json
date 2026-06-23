@@ -8,6 +8,8 @@
     "start": "next start"
   },
   "dependencies": {
+    "@circle-fin/adapter-viem-v2": "^1.11.2",
+    "@circle-fin/bridge-kit": "^1.10.2",
     "@circle-fin/developer-controlled-wallets": "^10.6.0",
     "@circle-fin/x402-batching": "^3.2.0",
     "@rainbow-me/rainbowkit": "^2.2.11",

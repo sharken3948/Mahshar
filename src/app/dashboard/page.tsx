@@ -6,6 +6,8 @@ import Link from 'next/link'
 import type { ApiListing, AuthType } from '@/types'
 import { NavBar } from '@/components/NavBar'
 import { buildViewCodeSnippet, renderHighlightedSnippet } from '@/lib/snippets'
+import { useBridgeBalances, SOURCE_CHAINS } from '@/hooks/useBridgeBalances'
+import { useBridge } from '@/hooks/useBridge'
 
 interface ApiCall {
   id: string
@@ -100,6 +102,10 @@ export default function DashboardPage() {
   const [depositAmount, setDepositAmount] = useState('')
   const [depositStep, setDepositStep] = useState<'idle' | 'approving' | 'depositing'>('idle')
   const [depositError, setDepositError] = useState<string | null>(null)
+  const [selectedDepositChain, setSelectedDepositChain] = useState<string>('arc')
+
+  const bridgeBalances = useBridgeBalances()
+  const { bridge: doBridge, step: bridgeStep, stepLabel: bridgeStepLabel, isLoading: bridgeLoading, error: bridgeError, reset: bridgeReset } = useBridge()
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [withdrawStep, setWithdrawStep] = useState<'idle' | 'withdrawing'>('idle')
   const [withdrawError, setWithdrawError] = useState<string | null>(null)
@@ -448,26 +454,80 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 gap-4 mb-8">
           <div className="bg-white border border-[#E2E4E9] rounded-xl p-4">
             <h2 className="text-sm font-bold text-[#0D0D0D] mb-3">Add to Mahshar Balance</h2>
-            <div className="flex gap-2 items-center">
-              <input
-                type="number"
-                value={depositAmount}
-                onChange={e => setDepositAmount(e.target.value)}
-                placeholder="0.00"
-                min="0"
-                step="0.01"
-                className="w-24 bg-[#FAFAF8] border border-[#E2E4E9] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA]"
-              />
-              <span className="text-sm text-[#6B7280]">USDC</span>
-              <button
-                onClick={handleDeposit}
-                disabled={depositing || !depositAmount || !publicClient}
-                className="bg-[#2775CA] hover:bg-[#1E63B5] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
+            <div className="mb-3">
+              <select
+                value={selectedDepositChain}
+                onChange={e => { setSelectedDepositChain(e.target.value); bridgeReset(); setDepositError(null) }}
+                disabled={depositing || bridgeLoading}
+                className="w-full bg-[#FAFAF8] border border-[#E2E4E9] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] focus:outline-none focus:border-[#2775CA] disabled:opacity-50"
               >
-                {depositStep === 'approving' ? 'Approving...' : depositStep === 'depositing' ? 'Depositing...' : 'Deposit'}
-              </button>
+                <option value="arc">Arc Testnet (current chain)</option>
+                {bridgeBalances.map(b => (
+                  <option key={b.chainName} value={b.chainName}>
+                    {b.displayName} — {b.isLoading ? 'loading...' : `${b.usdcBalance} USDC`}
+                  </option>
+                ))}
+              </select>
             </div>
-            {depositError && <p className="text-xs text-[#DC2626] mt-2">{depositError}</p>}
+
+            {selectedDepositChain === 'arc' ? (
+              <>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="number"
+                    value={depositAmount}
+                    onChange={e => setDepositAmount(e.target.value)}
+                    placeholder="0.00"
+                    min="0"
+                    step="0.01"
+                    className="w-24 bg-[#FAFAF8] border border-[#E2E4E9] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA]"
+                  />
+                  <span className="text-sm text-[#6B7280]">USDC</span>
+                  <button
+                    onClick={handleDeposit}
+                    disabled={depositing || !depositAmount || !publicClient}
+                    className="bg-[#2775CA] hover:bg-[#1E63B5] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
+                  >
+                    {depositStep === 'approving' ? 'Approving...' : depositStep === 'depositing' ? 'Depositing...' : 'Deposit'}
+                  </button>
+                </div>
+                {depositError && <p className="text-xs text-[#DC2626] mt-2">{depositError}</p>}
+              </>
+            ) : (
+              <>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="number"
+                    value={depositAmount}
+                    onChange={e => setDepositAmount(e.target.value)}
+                    placeholder="0.00"
+                    min="0"
+                    step="0.01"
+                    disabled={bridgeLoading}
+                    className="w-24 bg-[#FAFAF8] border border-[#E2E4E9] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA] disabled:opacity-50"
+                  />
+                  <span className="text-sm text-[#6B7280]">USDC</span>
+                  <button
+                    onClick={() => {
+                      const chain = SOURCE_CHAINS.find(c => c.chainName === selectedDepositChain)
+                      if (chain && address && depositAmount) {
+                        void doBridge(chain.chainName, chain.chainId, depositAmount, address)
+                      }
+                    }}
+                    disabled={bridgeLoading || !depositAmount || bridgeStep === 'complete'}
+                    className="bg-[#2775CA] hover:bg-[#1E63B5] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors whitespace-nowrap"
+                  >
+                    {bridgeStepLabel}
+                  </button>
+                </div>
+                {bridgeStep === 'complete' && (
+                  <p className="text-xs text-[#16A34A] mt-2">Bridge complete! USDC arriving on Arc Testnet shortly.</p>
+                )}
+                {bridgeStep === 'error' && bridgeError && (
+                  <p className="text-xs text-[#DC2626] mt-2">{bridgeError}</p>
+                )}
+              </>
+            )}
           </div>
 
           <div className="bg-white border border-[#E2E4E9] rounded-xl p-4">
