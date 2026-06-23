@@ -26,6 +26,11 @@ const facilitator = new BatchFacilitatorClient({
   url: 'https://gateway-api-testnet.circle.com',
 })
 
+const gatewayClient = new GatewayClient({
+  chain: 'arcTestnet',
+  privateKey: PLATFORM_PRIVATE_KEY,
+})
+
 function buildPaymentRequirements(sellerPriceUsd: number) {
   const buyerAmount = Math.round(sellerPriceUsd * (1 + BUYER_FEE_RATE) * 1_000_000)
   return {
@@ -100,6 +105,9 @@ export async function verifyAndSettlePayment(
     }
 
     const sellerShare = sellerPriceUsd * (1 - SELLER_FEE_RATE)
+    if (sellerShare <= 0) {
+      return { success: false, error: 'invalid_amount' }
+    }
 
     console.log(`[payment] api=${apiId} buyer=${payer} buyer_paid=$${(sellerPriceUsd * 1.1).toFixed(6)} seller_gets=$${sellerShare.toFixed(6)} platform=$${(sellerPriceUsd * 0.2).toFixed(6)}`)
 
@@ -114,7 +122,7 @@ export async function verifyAndSettlePayment(
       .insert({
         buyer_wallet: payer.toLowerCase(),
         api_id: apiId,
-        amount_usdc: sellerPriceUsd * 1.1,
+        amount_usdc: Math.round(sellerPriceUsd * 1.1 * 1_000_000) / 1_000_000,
         tx_hash: settleResult.transaction ?? `gateway-${Date.now()}`,
       })
       .select('id')
@@ -134,12 +142,8 @@ async function transferToSeller(
   apiId: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const gateway = new GatewayClient({
-      chain: 'arcTestnet',
-      privateKey: PLATFORM_PRIVATE_KEY,
-    })
     const amountStr = amountUsd.toFixed(6)
-    await gateway.transfer(amountStr, 'arcTestnet', sellerAddress)
+    await gatewayClient.transfer(amountStr, 'arcTestnet', sellerAddress)
     console.log(`[transfer] $${amountStr} USDC -> seller ${sellerAddress} api=${apiId}`)
     return { success: true }
   } catch (err: unknown) {
