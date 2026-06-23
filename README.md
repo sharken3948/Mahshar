@@ -1,6 +1,6 @@
 # Mahshar — The API economy, powered by USDC.
 
-AI-powered API marketplace on Arc Testnet. Sellers list APIs and earn USDC per call. Buyers discover and pay for APIs via x402 micropayments through Circle Gateway — no subscriptions, no API keys required on the buyer side.
+AI-powered API marketplace on Arc Testnet. Sellers list APIs and earn USDC per call. Buyers discover and pay for APIs via x402 nanopayments through Circle Gateway — no subscriptions, no API keys required on the buyer side.
 
 **Live:** [mahshar.xyz](https://mahshar.xyz) — Arc Testnet (built for the Lepton Hackathon)
 
@@ -55,7 +55,11 @@ Buyer → POST /api/proxy (Payment-Signature header)
       → Circle Gateway: verify + settle
       → Seller's endpoint (proxied)
       ← Response to buyer
+      → Arc Memo contract: onchain receipt (api_name, seller_wallet, call_id)
 ```
+
+### Arc Memo onchain receipts
+After every successful x402 proxy call, `src/lib/memo.ts` writes an onchain receipt to the Arc Memo contract (`0x5294E9927c3306DcBaDb03fe70b92e01cCede505`) containing the API name, seller wallet, and call ID. The call is fire-and-forget — a memo failure never blocks the buyer response. Each receipt is indexed by `keccak256(call_id)` and the metadata is ABI-encoded as `(string apiName, address sellerWallet, string callId)`.
 
 ### Auto-deactivation logic
 After each call, `checkAndAutoDeactivate` runs asynchronously:
@@ -97,7 +101,7 @@ Send a GET to `/api/agent/discover` to get the full marketplace catalog in machi
 }
 ```
 
-`scripts/test-integration.mts` demonstrates a fully autonomous agent (using `@circle-fin/x402-batching`) that discovers, pays for, and calls a real listed API — [Ioscope](https://ioscope.xyz), a wallet risk-scoring service for Arc/Soneium — with zero human interaction. In testing: 7/7 successful x402 payments end-to-end. The generated integration code snippet uses syntax highlighting: buyer-supplied input values appear in amber, and `WALLET_PRIVATE_KEY` appears in green to draw attention to the sensitive credential.
+`scripts/test-integration.mts` demonstrates a fully autonomous agent (using `@circle-fin/x402-batching`) that discovers, pays for, and calls a real listed API — [Ioscope](https://ioscope.xyz), a wallet risk-scoring service for Arc/Soneium — with zero human interaction. The script has a hardcoded Ioscope API ID and targets production (`mahshar.xyz`) directly; set `BUYER_PRIVATE_KEY` in your environment before running. In testing: 7/7 successful x402 payments end-to-end. The generated integration code snippet uses syntax highlighting: buyer-supplied input values appear in amber, and `WALLET_PRIVATE_KEY` appears in green to draw attention to the sensitive credential.
 
 ---
 
@@ -138,12 +142,11 @@ See `.env.example` for full descriptions. Required:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase public anon key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (server-side only) |
 | `GROQ_API_KEY` | Groq API key for AI scoring and matching |
-| `CIRCLE_API_KEY` | Circle Developer Console API key |
-| `CIRCLE_ENTITY_SECRET` | Circle entity secret for developer-controlled wallets |
 | `ENCRYPTION_KEY` | 64-char hex string (AES-256-GCM key) — generate with `openssl rand -hex 32` |
 | `PLATFORM_WALLET_ADDRESS` | Platform wallet that receives and forwards payments |
-| `PLATFORM_WALLET_PRIVATE_KEY` | Private key for the platform wallet |
+| `PLATFORM_WALLET_PRIVATE_KEY` | Private key for the platform wallet (also used for Arc Memo writes) |
 | `INTERNAL_API_SECRET` | Shared secret for server-to-server credit operations |
+| `BUYER_PRIVATE_KEY` | Buyer wallet private key — required only for `scripts/test-integration.mts` |
 
 ---
 
@@ -164,7 +167,14 @@ See `.env.example` for full descriptions. Required:
 | `/api/calls` | GET | Buyer call history |
 | `/api/gateway/balance` | GET | Live Circle Gateway USDC balance |
 | `/api/payments/credits` | GET, POST | Prepaid credit balance management |
+| `/api/payments/x402` | POST | x402 payment initiation endpoint |
 | `/api/purchases` | GET | Purchase history |
+
+---
+
+## Circle Skills
+
+This repo ships 17 Circle Skills under `.agents/skills/` (symlinked to `.claude/skills/`), installed via `npx skills add circlefin/skills`. They provide Claude Code contributors with guided patterns for Arc, USDC, Gateway, CCTP, and more. Skills are loaded automatically when Claude Code detects a relevant task.
 
 ---
 
