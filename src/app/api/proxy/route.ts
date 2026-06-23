@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { proxyRequest } from '@/lib/proxy'
 import { verifyAndSettlePayment, build402Response } from '@/lib/gateway'
+import { writeMemo } from '@/lib/memo'
 import { createServiceClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceClient()
   const { data: listing, error } = await supabase
     .from('api_listings')
-    .select('id, price_per_call, seller_wallet, is_active, method')
+    .select('id, name, price_per_call, seller_wallet, is_active, method')
     .eq('id', api_id)
     .single()
 
@@ -74,6 +75,13 @@ export async function POST(request: NextRequest) {
     incomingHeaders: incomingHeaders ?? {},
     body: reqBody,
   })
+
+  // Write onchain memo (best-effort, does not block response)
+  writeMemo(
+    listing.name as string,
+    sellerAddress,
+    paymentResult.callId ?? api_id,
+  ).catch(err => console.error('[memo] failed:', (err as Error).message ?? err))
 
   return NextResponse.json(
     { response: result.body, latency_ms: result.latencyMs },

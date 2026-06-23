@@ -17,7 +17,7 @@ if (!_platformPrivateKey || !/^0x[a-fA-F0-9]{64}$/.test(_platformPrivateKey)) {
   throw new Error('PLATFORM_WALLET_PRIVATE_KEY must be a valid private key (0x + 64 hex chars)')
 }
 const PLATFORM_ADDRESS = _platformAddress as `0x${string}`
-const PLATFORM_PRIVATE_KEY = _platformPrivateKey as `0x${string}`
+export const PLATFORM_PRIVATE_KEY = _platformPrivateKey as `0x${string}`
 
 const BUYER_FEE_RATE = 0.10
 const SELLER_FEE_RATE = 0.10
@@ -69,7 +69,7 @@ export async function verifyAndSettlePayment(
   sellerPriceUsd: number,
   sellerAddress: `0x${string}`,
   apiId: string,
-): Promise<{ success: boolean; payer?: string; error?: string; transfer_failed?: boolean }> {
+): Promise<{ success: boolean; payer?: string; error?: string; transfer_failed?: boolean; callId?: string }> {
   const paymentSignature = request.headers.get('payment-signature')
   if (!paymentSignature) {
     return { success: false, error: 'no_payment' }
@@ -109,14 +109,18 @@ export async function verifyAndSettlePayment(
     }
 
     const supabase = createServiceClient()
-    await supabase.from('purchases').insert({
-      buyer_wallet: payer.toLowerCase(),
-      api_id: apiId,
-      amount_usdc: sellerPriceUsd * 1.1,
-      tx_hash: settleResult.transaction ?? `gateway-${Date.now()}`,
-    })
+    const { data: purchase } = await supabase
+      .from('purchases')
+      .insert({
+        buyer_wallet: payer.toLowerCase(),
+        api_id: apiId,
+        amount_usdc: sellerPriceUsd * 1.1,
+        tx_hash: settleResult.transaction ?? `gateway-${Date.now()}`,
+      })
+      .select('id')
+      .single()
 
-    return { success: true, payer, transfer_failed: !transferResult.success }
+    return { success: true, payer, transfer_failed: !transferResult.success, callId: purchase?.id }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[payment] error:', message)
