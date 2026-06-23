@@ -13,7 +13,7 @@ export interface ApiListing {
   encrypted_key: string | null;
   auth_param_name: string | null;
   endpoint_url: string;
-  method: string;
+  method: string | null;
   example_request: string | null;
   example_response: string | null;
   score: number | null;

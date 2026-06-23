@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   const supabase = createServiceClient()
   const { data, error } = await supabase
     .from('api_calls')
-    .select('id, api_id, created_at, latency_ms, success, payment_type, api_listings(name)')
+    .select('id, api_id, created_at, latency_ms, success, payment_type, api_listings(name, method)')
     .eq('buyer_wallet', wallet.toLowerCase())
     .order('created_at', { ascending: false })
     .limit(20)

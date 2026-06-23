@@ -1,28 +1,12 @@
 'use client'
 import Link from 'next/link'
-import { ConnectButton } from '@rainbow-me/rainbowkit'
-import { useAccount } from 'wagmi'
+import { NavBar } from '@/components/NavBar'
 
 export default function LandingPage() {
-  const { isConnected } = useAccount()
-
   return (
     <main className="min-h-screen bg-[#F5F5F0]">
 
-      {/* Nav */}
-      <nav className="fixed top-0 z-50 w-full border-b border-[#E2E4E9] bg-[#F5F5F0]">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <img src="/logo.png" alt="mahshar" className="h-28 w-auto" />
-          <div className="flex items-center gap-3">
-            {isConnected && (
-              <Link href="/dashboard" className="bg-[#00B050] hover:bg-[#008F42] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                Dashboard
-              </Link>
-            )}
-            <ConnectButton showBalance={false} />
-          </div>
-        </div>
-      </nav>
+      <NavBar />
 
       {/* Hero */}
       <section className="flex flex-col items-center justify-center text-center px-6 pt-36 pb-6">

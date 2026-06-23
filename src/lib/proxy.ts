@@ -121,7 +121,7 @@ export async function proxyRequest(params: {
 
   const success = upstreamResponse.status >= 200 && upstreamResponse.status < 300;
   const isClientError = classifyStatus(upstreamResponse.status);
-  await logCall({ supabase, apiId: params.apiId, buyerWallet: params.buyerWallet, paymentType: params.paymentType, latencyMs, success, isClientError });
+  await logCall({ supabase, apiId: params.apiId, buyerWallet: params.buyerWallet, paymentType: params.paymentType, latencyMs, success, isClientError, responseBody: success ? responseBody : undefined });
   void checkAndAutoDeactivate(supabase, params.apiId);
 
   return { status: upstreamResponse.status, body: responseBody, latencyMs };
@@ -135,6 +135,7 @@ async function logCall(params: {
   latencyMs: number;
   success: boolean;
   isClientError: boolean | null;
+  responseBody?: unknown;
 }) {
   await params.supabase.from('api_calls').insert({
     api_id: params.apiId,
@@ -143,6 +144,7 @@ async function logCall(params: {
     latency_ms: params.latencyMs,
     success: params.success,
     is_client_error: params.isClientError,
+    ...(params.responseBody !== undefined ? { response_body: params.responseBody } : {}),
   });
 }
 
@@ -172,7 +174,6 @@ async function checkAndAutoDeactivate(
       const distinctWallets = new Set(last5.map(c => c.buyer_wallet as string)).size;
       if (distinctWallets >= 2) {
         await supabase.from('api_listings').update({ is_active: false }).eq('id', apiId);
-        console.log(`[auto-deactivate] api_id=${apiId} reason=consecutive_failures`);
         return;
       }
     }
@@ -185,11 +186,10 @@ async function checkAndAutoDeactivate(
         const distinctWallets = new Set(last20.map(c => c.buyer_wallet as string)).size;
         if (distinctWallets >= 2) {
           await supabase.from('api_listings').update({ is_active: false }).eq('id', apiId);
-          console.log(`[auto-deactivate] api_id=${apiId} reason=low_success_rate`);
         }
       }
     }
-  } catch (err) {
-    console.error('[auto-deactivate] check failed:', err);
+  } catch {
+    // suppress auto-deactivate errors to avoid disrupting the main request
   }
 }

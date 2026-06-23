@@ -4,6 +4,8 @@ import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import type { ApiListing } from '@/types'
+import { NavBar } from '@/components/NavBar'
+import { buildViewCodeSnippet, renderHighlightedSnippet } from '@/lib/snippets'
 
 interface PaymentRequirements {
   scheme: string
@@ -25,15 +27,8 @@ interface PaymentRequired {
   accepts: PaymentRequirements[]
 }
 
-type ApiCardFields = Pick<ApiListing, 'id' | 'name' | 'description' | 'category' | 'price_per_call' | 'payment_model' | 'score' | 'uptime' | 'example_request'>
+type ApiCardFields = Pick<ApiListing, 'id' | 'name' | 'description' | 'category' | 'price_per_call' | 'payment_model' | 'score' | 'uptime' | 'example_request' | 'method'>
 
-interface ApiResponseState {
-  api_id: string
-  data: Record<string, unknown>
-  latency: number
-  sentMethod?: string
-  sentBody?: unknown
-}
 
 const ARC_CHAIN_ID = 5042002
 
@@ -66,37 +61,14 @@ function needsRequestBody(exampleRequest: string | null | undefined): boolean {
   }
 }
 
-function renderHighlightedSnippet(snippet: string) {
-  return snippet.split('\n').map((line, i, arr) => {
-    const nl = i < arr.length - 1 ? '\n' : ''
-
-    // Lines with a JSON-quoted key (came from JSON.stringify — these are user body fields)
-    const jsonKv = line.match(/^(\s*"[^"]+": )(.+)$/)
-    if (jsonKv) {
-      return (
-        <span key={i}>{jsonKv[1]}<span className="text-[#FBBF24]">{jsonKv[2]}</span>{nl}</span>
-      )
-    }
-
-    // process.env.WALLET_PRIVATE_KEY — buyer must set this env var
-    if (line.includes('process.env.WALLET_PRIVATE_KEY')) {
-      const env = 'process.env.WALLET_PRIVATE_KEY'
-      const idx = line.indexOf(env)
-      return (
-        <span key={i}>{line.slice(0, idx)}<span className="text-[#86EFAC]">{env}</span>{line.slice(idx + env.length)}{nl}</span>
-      )
-    }
-
-    return <span key={i}>{line}{nl}</span>
-  })
-}
-
-function ApiRow({ api, avgLatency, calling, paymentStep, onUse }: {
+function ApiRow({ api, avgLatency, calling, paymentStep, onUse, purchased, onView }: {
   api: ApiCardFields
   avgLatency: number | null
   calling: string | null
   paymentStep: 'probing' | 'signing' | 'submitting'
   onUse: (id: string) => void
+  purchased: boolean
+  onView: (id: string, name: string, method: string, exampleRequest: string | null) => void
 }) {
   return (
     <div className="bg-white border border-[#E2E4E9] rounded-xl px-4 py-4 flex items-center gap-4">
@@ -122,17 +94,26 @@ function ApiRow({ api, avgLatency, calling, paymentStep, onUse }: {
           <div className="text-sm font-bold text-[#2775CA]">{api.score != null ? `${api.score}/10` : '—'}</div>
         </div>
       </div>
-      <button
-        onClick={() => onUse(api.id)}
-        disabled={calling === api.id}
-        className="flex-shrink-0 bg-[#00B050] hover:bg-[#008F42] text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-      >
-        {calling === api.id
-          ? paymentStep === 'signing' ? 'Sign in wallet...'
-          : paymentStep === 'submitting' ? 'Submitting...'
-          : 'Getting price...'
-          : 'Use API'}
-      </button>
+      {purchased ? (
+        <button
+          onClick={() => onView(api.id, api.name, api.method ?? 'GET', api.example_request ?? null)}
+          className="flex-shrink-0 bg-[#2775CA] hover:bg-[#1E63B5] text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors"
+        >
+          View API
+        </button>
+      ) : (
+        <button
+          onClick={() => onUse(api.id)}
+          disabled={calling === api.id}
+          className="flex-shrink-0 bg-[#00B050] hover:bg-[#008F42] text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+        >
+          {calling === api.id
+            ? paymentStep === 'signing' ? 'Sign in wallet...'
+            : paymentStep === 'submitting' ? 'Submitting...'
+            : 'Getting price...'
+            : 'Use API'}
+        </button>
+      )}
     </div>
   )
 }
@@ -144,18 +125,20 @@ export default function BuyerPage() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ApiCardFields[]>([])
   const [searching, setSearching] = useState(false)
-  const [apiResponse, setApiResponse] = useState<ApiResponseState | null>(null)
   const [calling, setCalling] = useState<string | null>(null)
   const [paymentStep, setPaymentStep] = useState<'probing' | 'signing' | 'submitting'>('probing')
   const [paymentError, setPaymentError] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
-  const [showCodeModal, setShowCodeModal] = useState(false)
   const [allApis, setAllApis] = useState<ApiCardFields[]>([])
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [latencyMap, setLatencyMap] = useState<Record<string, number>>({})
   const [requestModal, setRequestModal] = useState<{ apiId: string } | null>(null)
   const [requestBodyText, setRequestBodyText] = useState('')
   const [requestBodyError, setRequestBodyError] = useState<string | null>(null)
+  const [purchasedApiIds, setPurchasedApiIds] = useState<Set<string>>(new Set())
+  const [viewApiModal, setViewApiModal] = useState<{ apiId: string; apiName: string; method: string; exampleRequest: string | null } | null>(null)
+  const [viewApiResponse, setViewApiResponse] = useState<unknown>(null)
+  const [viewApiLoading, setViewApiLoading] = useState(false)
+  const [viewApiCopied, setViewApiCopied] = useState(false)
 
   useEffect(() => {
     fetch('/api/apis')
@@ -165,6 +148,16 @@ export default function BuyerPage() {
       .then(r => r.json())
       .then((data: { latencies?: Record<string, number> }) => setLatencyMap(data.latencies ?? {}))
   }, [])
+
+  useEffect(() => {
+    if (!address) return
+    fetch(`/api/calls?buyer_wallet=${address.toLowerCase()}`)
+      .then(r => r.json())
+      .then((data: { calls?: Array<{ api_id: string }> }) => {
+        setPurchasedApiIds(new Set(data.calls?.map(c => c.api_id) ?? []))
+      })
+      .catch(() => {})
+  }, [address])
 
   const filteredApis = selectedCategory === 'All'
     ? allApis
@@ -191,8 +184,11 @@ export default function BuyerPage() {
     proxyBody: { api_id: string; buyer_wallet: string; method?: string; body?: unknown },
   ) {
     setCalling(apiId)
-    setApiResponse(null)
     setPaymentError(null)
+
+    const api = [...allApis, ...results].find(a => a.id === apiId)
+    const apiName = api?.name ?? apiId
+    const apiMethod = api?.method ?? 'GET'
 
     try {
       setPaymentStep('probing')
@@ -204,13 +200,9 @@ export default function BuyerPage() {
 
       if (probeRes.status !== 402) {
         const data = await probeRes.json() as { response?: Record<string, unknown>; latency_ms?: number }
-        setApiResponse({
-          api_id: apiId,
-          data: data.response ?? (data as Record<string, unknown>),
-          latency: data.latency_ms ?? 0,
-          sentMethod: proxyBody.method,
-          sentBody: proxyBody.body,
-        })
+        setViewApiModal({ apiId, apiName, method: apiMethod, exampleRequest: api?.example_request ?? null })
+        setViewApiResponse(data.response ?? (data as Record<string, unknown>))
+        setViewApiLoading(false)
         return
       }
 
@@ -294,16 +286,12 @@ export default function BuyerPage() {
         return
       }
 
-      setApiResponse({
-        api_id: apiId,
-        data: paidData.response ?? (paidData as Record<string, unknown>),
-        latency: paidData.latency_ms ?? 0,
-        sentMethod: proxyBody.method,
-        sentBody: proxyBody.body,
-      })
+      setPurchasedApiIds(prev => new Set([...prev, apiId]))
+      setViewApiModal({ apiId, apiName, method: apiMethod, exampleRequest: api?.example_request ?? null })
+      setViewApiResponse(paidData.response ?? (paidData as Record<string, unknown>))
+      setViewApiLoading(false)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error('API call failed:', err)
       setPaymentError(message)
     } finally {
       setCalling(null)
@@ -348,54 +336,58 @@ export default function BuyerPage() {
     })
   }
 
+  function handleNewQuery() {
+    if (!viewApiModal || !address) return
+    const { apiId, exampleRequest } = viewApiModal
+    setViewApiModal(null)
+    if (needsRequestBody(exampleRequest)) {
+      try {
+        setRequestBodyText(JSON.stringify(JSON.parse(exampleRequest!), null, 2))
+      } catch {
+        setRequestBodyText(exampleRequest ?? '')
+      }
+      setRequestBodyError(null)
+      setRequestModal({ apiId })
+    } else {
+      void executePaymentFlow(apiId, { api_id: apiId, buyer_wallet: address })
+    }
+  }
+
+  async function handleViewApi(apiId: string, apiName: string, method: string, exampleRequest: string | null) {
+    setViewApiModal({ apiId, apiName, method, exampleRequest })
+    setViewApiResponse(null)
+    setViewApiLoading(true)
+    try {
+      const res = await fetch(`/api/calls/last-response?api_id=${apiId}&buyer_wallet=${address ?? ''}`)
+      if (res.ok) {
+        const data = await res.json() as { response_body: unknown }
+        setViewApiResponse(data.response_body)
+      }
+    } finally {
+      setViewApiLoading(false)
+    }
+  }
+
   if (!isConnected) {
     return (
-      <main className="min-h-screen bg-[#F5F5F0] flex flex-col items-center justify-center gap-6 px-6">
-        <h1 className="text-2xl font-bold text-[#0D0D0D]">Connect Your Wallet</h1>
-        <p className="text-[#6B7280] text-center max-w-sm">Connect your wallet to find and use APIs on Mahshar.</p>
-        <ConnectButton />
-      </main>
+      <>
+        <NavBar />
+        <main className="min-h-screen bg-[#F5F5F0] flex flex-col items-center justify-center gap-6 px-6 pt-36">
+          <h1 className="text-2xl font-bold text-[#0D0D0D]">Connect Your Wallet</h1>
+          <p className="text-[#6B7280] text-center max-w-sm">Connect your wallet to find and use APIs on Mahshar.</p>
+          <ConnectButton />
+        </main>
+      </>
     )
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://mahshar.xyz'
-
-  const codeSnippet = apiResponse
-    ? (() => {
-        const hasBody = apiResponse.sentBody !== undefined
-        const bodyLines = hasBody
-          ? [
-              `    api_id: '${apiResponse.api_id}',`,
-              `    buyer_wallet: gateway.address,`,
-              `    method: 'POST',`,
-              `    body: ${JSON.stringify(apiResponse.sentBody, null, 2).replace(/\n/g, '\n    ')},`,
-            ]
-          : [
-              `    api_id: '${apiResponse.api_id}',`,
-              `    buyer_wallet: gateway.address,`,
-            ]
-        return [
-          "import { GatewayClient } from '@circle-fin/x402-batching/client'",
-          '',
-          'const gateway = new GatewayClient({',
-          "  chain: 'arcTestnet',",
-          '  privateKey: process.env.WALLET_PRIVATE_KEY,',
-          '})',
-          '',
-          `const { data } = await gateway.pay('${appUrl}/api/proxy', {`,
-          "  method: 'POST',",
-          '  body: {',
-          ...bodyLines,
-          '  },',
-          '})',
-          '',
-          'console.log(data)',
-        ].join('\n')
-      })()
-    : ''
+  const viewCodeSnippet = viewApiModal ? buildViewCodeSnippet(viewApiModal.apiId, appUrl, viewApiModal.method) : ''
 
   return (
-    <main className="min-h-screen bg-[#F5F5F0] px-6 py-16">
+    <>
+    <NavBar />
+    <main className="min-h-screen bg-[#F5F5F0] px-6 pt-40 pb-16">
       <div className="mx-auto max-w-4xl">
 
         {/* Page header */}
@@ -433,7 +425,7 @@ export default function BuyerPage() {
           {results.length > 0 && (
             <div className="flex flex-col gap-2">
               {results.map(api => (
-                <ApiRow key={api.id} api={api} avgLatency={latencyMap[api.id] ?? null} calling={calling} paymentStep={paymentStep} onUse={handleUseApi} />
+                <ApiRow key={api.id} api={api} avgLatency={latencyMap[api.id] ?? null} calling={calling} paymentStep={paymentStep} onUse={handleUseApi} purchased={purchasedApiIds.has(api.id)} onView={handleViewApi} />
               ))}
             </div>
           )}
@@ -462,7 +454,7 @@ export default function BuyerPage() {
           ) : (
             <div className="flex flex-col gap-2">
               {filteredApis.map(api => (
-                <ApiRow key={api.id} api={api} avgLatency={latencyMap[api.id] ?? null} calling={calling} paymentStep={paymentStep} onUse={handleUseApi} />
+                <ApiRow key={api.id} api={api} avgLatency={latencyMap[api.id] ?? null} calling={calling} paymentStep={paymentStep} onUse={handleUseApi} purchased={purchasedApiIds.has(api.id)} onView={handleViewApi} />
               ))}
             </div>
           )}
@@ -471,28 +463,6 @@ export default function BuyerPage() {
         {paymentError && (
           <div className="mb-6 bg-[#FEF2F2] border border-[#FECACA] rounded-xl px-6 py-4 text-sm text-[#DC2626]">
             {paymentError}
-          </div>
-        )}
-
-        {apiResponse && (
-          <div className="mt-8 bg-white border border-[#E2E4E9] rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-[#E2E4E9] flex items-center justify-between">
-              <span className="font-bold text-[#0D0D0D]">API Response</span>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-[#6B7280]">{apiResponse.latency}ms</span>
-                <button
-                  onClick={() => { setCopied(false); setShowCodeModal(true) }}
-                  className="text-xs bg-[#00B050] hover:bg-[#008F42] text-white px-3 py-1.5 rounded-lg font-medium transition-colors"
-                >
-                  {'</>'} Integration Code
-                </button>
-              </div>
-            </div>
-            <div className="px-6 py-4">
-              <pre className="text-sm text-[#0D0D0D] overflow-x-auto whitespace-pre-wrap bg-[#F5F5F0] rounded-lg p-4">
-                {JSON.stringify(apiResponse.data, null, 2)}
-              </pre>
-            </div>
           </div>
         )}
 
@@ -539,35 +509,59 @@ export default function BuyerPage() {
           </div>
         )}
 
-        {/* Integration Code modal */}
-        {showCodeModal && apiResponse && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/50" onClick={() => setShowCodeModal(false)} />
-            <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
-              <div className="px-6 py-4 border-b border-[#E2E4E9] flex items-center justify-between">
-                <span className="font-bold text-[#0D0D0D]">Integration Code</span>
-                <button onClick={() => setShowCodeModal(false)} className="text-[#6B7280] hover:text-[#0D0D0D] transition-colors text-xl leading-none">&times;</button>
-              </div>
-              <div className="p-6">
-                <pre className="bg-[#0D0D0D] text-[#E2E4E9] text-xs rounded-xl p-4 overflow-x-auto whitespace-pre leading-relaxed">
-                  {renderHighlightedSnippet(codeSnippet)}
+      </div>
+    </main>
+
+    {/* View API modal */}
+    {viewApiModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/50" onClick={() => setViewApiModal(null)} />
+        <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
+          <div className="px-6 py-4 border-b border-[#E2E4E9] flex items-center justify-between">
+            <span className="font-bold text-[#0D0D0D]">{viewApiModal.apiName}</span>
+            <button onClick={() => setViewApiModal(null)} className="text-[#6B7280] hover:text-[#0D0D0D] transition-colors text-xl leading-none">&times;</button>
+          </div>
+          <div className="p-6 space-y-5">
+            <div>
+              <h3 className="text-sm font-medium text-[#0D0D0D] mb-2">Last Response</h3>
+              {viewApiLoading ? (
+                <p className="text-sm text-[#6B7280]">Loading...</p>
+              ) : viewApiResponse !== null ? (
+                <pre className="bg-[#F5F5F0] rounded-lg p-4 text-sm text-[#0D0D0D] overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
+                  {JSON.stringify(viewApiResponse, null, 2)}
                 </pre>
+              ) : (
+                <p className="text-sm text-[#6B7280]">No response data available yet.</p>
+              )}
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-[#0D0D0D] mb-2">Integration Code</h3>
+              <pre className="bg-[#0D0D0D] text-[#E2E4E9] text-xs rounded-xl p-4 overflow-x-auto whitespace-pre leading-relaxed">
+                {renderHighlightedSnippet(viewCodeSnippet)}
+              </pre>
+              <div className="mt-3 flex gap-2">
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText(codeSnippet)
-                    setCopied(true)
-                    setTimeout(() => setCopied(false), 2000)
+                    void navigator.clipboard.writeText(viewCodeSnippet)
+                    setViewApiCopied(true)
+                    setTimeout(() => setViewApiCopied(false), 2000)
                   }}
-                  className={`mt-4 w-full py-2 rounded-lg text-sm font-medium border transition-colors ${copied ? 'bg-[#F0FDF4] border-[#86EFAC] text-[#16A34A]' : 'bg-white border-[#E2E4E9] text-[#6B7280] hover:border-[#2775CA] hover:text-[#2775CA]'}`}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${viewApiCopied ? 'bg-[#F0FDF4] border-[#86EFAC] text-[#16A34A]' : 'bg-white border-[#E2E4E9] text-[#6B7280] hover:border-[#2775CA] hover:text-[#2775CA]'}`}
                 >
-                  {copied ? 'Copied!' : 'Copy to clipboard'}
+                  {viewApiCopied ? 'Copied!' : 'Copy to clipboard'}
+                </button>
+                <button
+                  onClick={handleNewQuery}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium border border-[#E2E4E9] text-[#6B7280] hover:border-[#0D0D0D] hover:text-[#0D0D0D] transition-colors"
+                >
+                  New Query
                 </button>
               </div>
             </div>
           </div>
-        )}
-
+        </div>
       </div>
-    </main>
+    )}
+    </>
   )
 }

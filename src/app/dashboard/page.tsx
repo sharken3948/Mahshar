@@ -4,11 +4,13 @@ import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import type { ApiListing, AuthType } from '@/types'
+import { NavBar } from '@/components/NavBar'
+import { buildViewCodeSnippet, renderHighlightedSnippet } from '@/lib/snippets'
 
 interface ApiCall {
   id: string
   api_id: string
-  api_listings: { name: string } | null
+  api_listings: { name: string; method: string | null } | null
   created_at: string
   latency_ms: number
   success: boolean
@@ -109,6 +111,10 @@ export default function DashboardPage() {
   const [deletingApiId, setDeletingApiId] = useState<string | null>(null)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [apiActionError, setApiActionError] = useState<string | null>(null)
+  const [viewApiModal, setViewApiModal] = useState<{ apiId: string; apiName: string; method: string } | null>(null)
+  const [viewApiResponse, setViewApiResponse] = useState<unknown>(null)
+  const [viewApiLoading, setViewApiLoading] = useState(false)
+  const [viewApiCopied, setViewApiCopied] = useState(false)
 
   const { data: walletUsdcRaw, refetch: refetchUsdcBalance } = useReadContract({
     address: ARC_USDC,
@@ -128,6 +134,7 @@ export default function DashboardPage() {
     const groups = Array.from(map.entries()).map(([apiId, grp]) => ({
       apiId,
       name: grp[0].api_listings?.name ?? 'Unknown',
+      method: grp[0].api_listings?.method ?? 'GET',
       count: grp.length,
       spent: gatewayStats?.purchasesByApiId?.[apiId] ?? 0,
       avgLatency: Math.round(grp.reduce((s, c) => s + c.latency_ms, 0) / grp.length),
@@ -325,12 +332,33 @@ export default function DashboardPage() {
     }
   }
 
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://mahshar.xyz'
+  const viewCodeSnippet = viewApiModal ? buildViewCodeSnippet(viewApiModal.apiId, appUrl, viewApiModal.method) : ''
+
+  async function handleViewApi(apiId: string, apiName: string, method: string) {
+    setViewApiModal({ apiId, apiName, method })
+    setViewApiResponse(null)
+    setViewApiLoading(true)
+    try {
+      const res = await fetch(`/api/calls/last-response?api_id=${apiId}&buyer_wallet=${address ?? ''}`)
+      if (res.ok) {
+        const data = await res.json() as { response_body: unknown }
+        setViewApiResponse(data.response_body)
+      }
+    } finally {
+      setViewApiLoading(false)
+    }
+  }
+
   if (!isConnected) {
     return (
-      <main className="min-h-screen bg-[#F5F5F0] flex flex-col items-center justify-center gap-6 px-6">
-        <h1 className="text-2xl font-bold text-[#0D0D0D]">Connect Your Wallet</h1>
-        <ConnectButton />
-      </main>
+      <>
+        <NavBar />
+        <main className="min-h-screen bg-[#F5F5F0] flex flex-col items-center justify-center gap-6 px-6 pt-36">
+          <h1 className="text-2xl font-bold text-[#0D0D0D]">Connect Your Wallet</h1>
+          <ConnectButton />
+        </main>
+      </>
     )
   }
 
@@ -339,7 +367,9 @@ export default function DashboardPage() {
   const balanceColor = getBalanceColor(balanceNum)
 
   return (
-    <main className="min-h-screen bg-[#F5F5F0] px-6 py-16">
+    <>
+    <NavBar />
+    <main className="min-h-screen bg-[#F5F5F0] px-6 pt-40 pb-16">
       <div className="mx-auto max-w-5xl">
 
         {/* Header */}
@@ -372,7 +402,7 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
           <div className="border border-[#E2E4E9] rounded-xl p-4 relative" style={{ backgroundColor: balanceColor.bg }}>
             <div className="flex items-start justify-between mb-1">
-              <div className="text-xs text-[#6B7280]">Gateway Balance</div>
+              <div className="text-xs text-[#6B7280]">Mahshar Balance</div>
               <div className="relative group">
                 <div
                   className="w-4 h-4 rounded-full border flex items-center justify-center text-[10px] font-bold cursor-default leading-none"
@@ -417,7 +447,7 @@ export default function DashboardPage() {
         {/* Deposit / Withdraw cards */}
         <div className="grid grid-cols-2 gap-4 mb-8">
           <div className="bg-white border border-[#E2E4E9] rounded-xl p-4">
-            <h2 className="text-sm font-bold text-[#0D0D0D] mb-3">Deposit to Gateway</h2>
+            <h2 className="text-sm font-bold text-[#0D0D0D] mb-3">Add to Mahshar Balance</h2>
             <div className="flex gap-2 items-center">
               <input
                 type="number"
@@ -441,7 +471,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="bg-white border border-[#E2E4E9] rounded-xl p-4">
-            <h2 className="text-sm font-bold text-[#0D0D0D] mb-3">Withdraw from Gateway</h2>
+            <h2 className="text-sm font-bold text-[#0D0D0D] mb-3">Withdraw from Mahshar Balance</h2>
             <div className="flex gap-2 items-center">
               <input
                 type="number"
@@ -591,12 +621,20 @@ export default function DashboardPage() {
                           <td className="px-6 py-4 text-[#0D0D0D]">${group.spent.toFixed(4)}</td>
                           <td className="px-6 py-4 text-[#6B7280]">{new Date(group.lastCalled).toLocaleString()}</td>
                           <td className="px-6 py-4">
-                            <button
-                              onClick={() => setDetailsApi(group.apiId)}
-                              className="bg-[#00B050] hover:bg-[#008F42] text-white px-3 py-1 rounded-lg text-xs font-medium transition-colors"
-                            >
-                              Details
-                            </button>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setDetailsApi(group.apiId)}
+                                className="bg-[#00B050] hover:bg-[#008F42] text-white px-3 py-1 rounded-lg text-xs font-medium transition-colors"
+                              >
+                                Details
+                              </button>
+                              <button
+                                onClick={() => void handleViewApi(group.apiId, group.name, group.method)}
+                                className="bg-[#2775CA] hover:bg-[#1E63B5] text-white px-3 py-1 rounded-lg text-xs font-medium transition-colors"
+                              >
+                                View API
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -823,5 +861,49 @@ export default function DashboardPage() {
         })()}
       </div>
     </main>
+
+    {/* View API modal */}
+    {viewApiModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/50" onClick={() => setViewApiModal(null)} />
+        <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
+          <div className="px-6 py-4 border-b border-[#E2E4E9] flex items-center justify-between">
+            <span className="font-bold text-[#0D0D0D]">{viewApiModal.apiName}</span>
+            <button onClick={() => setViewApiModal(null)} className="text-[#6B7280] hover:text-[#0D0D0D] transition-colors text-xl leading-none">&times;</button>
+          </div>
+          <div className="p-6 space-y-5">
+            <div>
+              <h3 className="text-sm font-medium text-[#0D0D0D] mb-2">Last Response</h3>
+              {viewApiLoading ? (
+                <p className="text-sm text-[#6B7280]">Loading...</p>
+              ) : viewApiResponse !== null ? (
+                <pre className="bg-[#F5F5F0] rounded-lg p-4 text-sm text-[#0D0D0D] overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
+                  {JSON.stringify(viewApiResponse, null, 2)}
+                </pre>
+              ) : (
+                <p className="text-sm text-[#6B7280]">No response data available yet.</p>
+              )}
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-[#0D0D0D] mb-2">Integration Code</h3>
+              <pre className="bg-[#0D0D0D] text-[#E2E4E9] text-xs rounded-xl p-4 overflow-x-auto whitespace-pre leading-relaxed">
+                {renderHighlightedSnippet(viewCodeSnippet)}
+              </pre>
+              <button
+                onClick={() => {
+                  void navigator.clipboard.writeText(viewCodeSnippet)
+                  setViewApiCopied(true)
+                  setTimeout(() => setViewApiCopied(false), 2000)
+                }}
+                className={`mt-3 w-full py-2 rounded-lg text-sm font-medium border transition-colors ${viewApiCopied ? 'bg-[#F0FDF4] border-[#86EFAC] text-[#16A34A]' : 'bg-white border-[#E2E4E9] text-[#6B7280] hover:border-[#2775CA] hover:text-[#2775CA]'}`}
+              >
+                {viewApiCopied ? 'Copied!' : 'Copy to clipboard'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
