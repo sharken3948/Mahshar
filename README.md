@@ -19,6 +19,7 @@ AI-powered API marketplace on Arc Testnet. Sellers list APIs and earn USDC per c
 - **x402 nanopayment flow** — Buyers pay per call via EIP-3009 `TransferWithAuthorization` signed messages, settled through Circle Gateway on Arc Testnet. Gasless — USDC is the gas token on Arc.
 - **Request body editor** — POST and PUT APIs show a JSON editor pre-filled with the listing's example request. Buyers can modify the payload before calling.
 - **Smart retry messaging** — consecutive transient failures (rate limits, 503s) surface a helpful retry prompt rather than a generic error.
+- **Cross-chain balance funding** — The dashboard lets buyers deposit USDC from six testnets (Avalanche Fuji, Base Sepolia, Ethereum Sepolia, Arbitrum Sepolia, Optimism Sepolia, Polygon Amoy) directly into their Mahshar Gateway balance in one click. See [Add to Mahshar Balance](#cross-chain-deposit-flow) below.
 - **Optional prepaid credits** — `/api/payments/credits` supports a prepaid credit balance as an alternative to per-call x402 payments.
 
 ### Platform
@@ -60,6 +61,36 @@ Buyer → POST /api/proxy (Payment-Signature header)
 
 ### Arc Memo onchain receipts
 After every successful x402 proxy call, `src/lib/memo.ts` writes an onchain receipt to the Arc Memo contract (`0x5294E9927c3306DcBaDb03fe70b92e01cCede505`) containing the API name, seller wallet, and call ID. The call is fire-and-forget — a memo failure never blocks the buyer response. Each receipt is indexed by `keccak256(call_id)` and the metadata is ABI-encoded as `(string apiName, address sellerWallet, string callId)`.
+
+### Cross-chain deposit flow
+
+The dashboard **Add to Mahshar Balance** card lets buyers fund their Circle Gateway balance from any of six supported testnets without manual bridging steps. The flow is fully client-side in `src/hooks/useBridge.ts`:
+
+```
+Step 1 — Bridge (Circle Bridge Kit / CCTP)
+  Switch wallet → source chain
+  bridgeKit.bridge({ from: { adapter, chain: sourceChain }, to: { chain: Arc_Testnet, useForwarder: true }, amount })
+  → approve USDC → burn on source chain → wait for CCTP attestation → mint on Arc Testnet
+
+Step 2 — Gateway deposit (Circle AppKit / unified balance)
+  Switch wallet → Arc Testnet (chainId 5042002)
+  Wait 3 s for Arc node to index the minted USDC
+  appKit.unifiedBalance.deposit({ from: { adapter, chain: Arc_Testnet }, amount, token: 'USDC' })
+  → USDC lands in the buyer's Circle Gateway balance, spendable via x402
+```
+
+UI progress labels surface each step: *Switching network → Approving USDC → Burning USDC → Waiting for attestation → Minting on Arc → Almost there → Depositing to Balance → Complete*.
+
+**Supported source chains:**
+
+| Chain | Chain ID |
+|---|---|
+| Avalanche Fuji | 43113 |
+| Base Sepolia | 84532 |
+| Ethereum Sepolia | 11155111 |
+| Arbitrum Sepolia | 421614 |
+| Optimism Sepolia | 11155420 |
+| Polygon Amoy | 80002 |
 
 ### Auto-deactivation logic
 After each call, `checkAndAutoDeactivate` runs asynchronously:
@@ -115,7 +146,7 @@ Send a GET to `/api/agent/discover` to get the full marketplace catalog in machi
 | Database | Supabase (Postgres) |
 | AI | Groq — llama-3.3-70b-versatile |
 | Wallet / Web3 | RainbowKit 2.2.11, wagmi 2.19.5, viem 2.52 |
-| Payments | `@circle-fin/x402-batching`, Circle Gateway (Arc Testnet) |
+| Payments | `@circle-fin/x402-batching`, `@circle-fin/bridge-kit`, `@circle-fin/app-kit`, Circle Gateway (Arc Testnet) |
 | Chain | Arc Testnet (chain ID 5042002) — USDC as native gas token |
 | Encryption | AES-256-GCM (Node.js `crypto`) |
 

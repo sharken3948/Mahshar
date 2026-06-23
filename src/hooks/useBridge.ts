@@ -2,10 +2,13 @@
 import { useState, useCallback } from 'react'
 import { useAccount, useSwitchChain } from 'wagmi'
 import { BridgeKit, BridgeChain } from '@circle-fin/bridge-kit'
+import { AppKit, UnifiedBalanceChain } from '@circle-fin/app-kit'
 import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2'
 import type { EIP1193Provider } from 'viem'
 
-export type BridgeStepName = 'idle' | 'switching' | 'approving' | 'burning' | 'attesting' | 'minting' | 'complete' | 'error'
+export type BridgeStepName =
+  | 'idle' | 'switching' | 'approving' | 'burning' | 'attesting' | 'minting'
+  | 'waiting' | 'depositing' | 'complete' | 'error'
 
 export const BRIDGE_STEP_LABELS: Record<BridgeStepName, string> = {
   idle: 'Bridge to Arc',
@@ -14,11 +17,14 @@ export const BRIDGE_STEP_LABELS: Record<BridgeStepName, string> = {
   burning: 'Burning USDC...',
   attesting: 'Waiting for attestation...',
   minting: 'Minting on Arc...',
+  waiting: 'Waiting for Arc...',
+  depositing: 'Depositing to Gateway...',
   complete: 'Complete!',
   error: 'Try again',
 }
 
 const bridgeKit = new BridgeKit()
+const appKit = new AppKit()
 
 export function useBridge() {
   const { connector } = useAccount()
@@ -71,16 +77,33 @@ export function useBridge() {
           amount,
         })
 
-        if (result.state === 'success') {
-          setStep('complete')
-        } else {
+        if (result.state !== 'success') {
           const failed = result.steps?.find((s: { state: string }) => s.state === 'error') as { errorMessage?: string } | undefined
           setError(failed?.errorMessage ?? 'Bridge failed')
           setStep('error')
+          return
         }
       } finally {
         bridgeKit.off('*', handleEvent)
       }
+
+      // Step 2: deposit bridged USDC into Gateway on Arc Testnet
+      setStep('waiting')
+      await switchChainAsync({ chainId: 5042002 })
+      await new Promise(resolve => setTimeout(resolve, 3000))
+
+      setStep('depositing')
+      const arcProvider = (await connector.getProvider()) as EIP1193Provider
+      const arcAdapter = await createViemAdapterFromProvider({ provider: arcProvider })
+
+      const depositResult = await appKit.unifiedBalance.deposit({
+        from: { adapter: arcAdapter, chain: UnifiedBalanceChain.Arc_Testnet },
+        amount,
+        token: 'USDC',
+      })
+
+      if (depositResult.txHash) setTxHash(depositResult.txHash)
+      setStep('complete')
     } catch (err: unknown) {
       bridgeKit.off('*', handleEvent)
       setError(err instanceof Error ? err.message : String(err))

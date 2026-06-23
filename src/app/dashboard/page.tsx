@@ -515,13 +515,24 @@ export default function DashboardPage() {
                       }
                     }}
                     disabled={bridgeLoading || !depositAmount || bridgeStep === 'complete'}
-                    className="bg-[#2775CA] hover:bg-[#1E63B5] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors whitespace-nowrap"
+                    className={`min-w-[188px] text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors whitespace-nowrap relative overflow-hidden
+                      ${bridgeStep === 'complete' ? 'bg-[#16A34A]' : bridgeStep === 'error' ? 'bg-[#DC2626] hover:bg-[#B91C1C]' : 'bg-[#2775CA] hover:bg-[#1E63B5]'}
+                      ${bridgeLoading ? 'animate-pulse' : ''}`}
                   >
-                    {bridgeStepLabel}
+                    {bridgeStep === 'idle'       ? 'Bridge to Arc & Deposit' :
+                     bridgeStep === 'switching'  ? 'Switching network...' :
+                     bridgeStep === 'approving'  ? 'Approving USDC...' :
+                     bridgeStep === 'burning'    ? 'Burning USDC...' :
+                     bridgeStep === 'attesting'  ? 'Waiting for attestation...' :
+                     bridgeStep === 'minting'    ? 'Minting on Arc...' :
+                     bridgeStep === 'waiting'    ? 'Almost there...' :
+                     bridgeStep === 'depositing' ? 'Depositing to Balance...' :
+                     bridgeStep === 'complete'   ? 'Complete! ✓' :
+                                                   'Failed — Retry'}
                   </button>
                 </div>
                 {bridgeStep === 'complete' && (
-                  <p className="text-xs text-[#16A34A] mt-2">Bridge complete! USDC arriving on Arc Testnet shortly.</p>
+                  <p className="text-xs text-[#16A34A] mt-2">USDC deposited to your Mahshar balance.</p>
                 )}
                 {bridgeStep === 'error' && bridgeError && (
                   <p className="text-xs text-[#DC2626] mt-2">{bridgeError}</p>
