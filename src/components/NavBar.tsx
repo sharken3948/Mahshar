@@ -10,12 +10,18 @@ export function NavBar() {
 
   useEffect(() => {
     if (!address) { setBalance(null); return }
-    fetch(`/api/gateway/balance?wallet=${address}`)
-      .then(r => r.ok ? r.json() : null)
-      .then((data: { gatewayAvailable?: string } | null) => {
-        setBalance(data?.gatewayAvailable ?? null)
-      })
-      .catch(() => setBalance(null))
+
+    const fetchBalance = () =>
+      fetch(`/api/gateway/balance?wallet=${address}`)
+        .then(r => r.ok ? r.json() : null)
+        .then((data: { gatewayAvailable?: string } | null) => {
+          setBalance(data?.gatewayAvailable ?? null)
+        })
+        .catch(() => {})
+
+    fetchBalance()
+    const id = setInterval(fetchBalance, 30_000)
+    return () => clearInterval(id)
   }, [address])
 
   return (
