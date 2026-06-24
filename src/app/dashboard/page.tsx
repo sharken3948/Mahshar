@@ -451,7 +451,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Deposit / Withdraw cards */}
-        <div className="grid grid-cols-2 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
           <div className="bg-white border border-[#E2E4E9] rounded-xl p-4">
             <h2 className="text-sm font-bold text-[#0D0D0D] mb-3">Add to Mahshar Balance</h2>
             <div className="mb-3">
@@ -543,6 +543,7 @@ export default function DashboardPage() {
 
           <div className="bg-white border border-[#E2E4E9] rounded-xl p-4">
             <h2 className="text-sm font-bold text-[#0D0D0D] mb-3">Withdraw from Mahshar Balance</h2>
+            <p className="text-xs text-[#6B7280] mb-3">Move USDC from your Mahshar balance back to your wallet.</p>
             <div className="flex gap-2 items-center">
               <input
                 type="number"
