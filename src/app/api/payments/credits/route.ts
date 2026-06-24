@@ -55,26 +55,18 @@ export async function POST(request: NextRequest) {
   const normalizedWallet = buyer_wallet.toLowerCase();
   const supabase = createServiceClient();
 
-  const { data: existing } = await supabase
-    .from('credit_balances')
-    .select('id, balance_usdc')
-    .eq('buyer_wallet', normalizedWallet)
-    .single<CreditBalance>();
-
-  const currentBalance = existing?.balance_usdc ?? 0;
-
   if (action === 'deduct') {
-    if (currentBalance < amount_usdc) {
-      return NextResponse.json({ error: 'Insufficient credits', balance_usdc: currentBalance }, { status: 402 });
-    }
-
-    const newBalance = currentBalance - amount_usdc;
-    const { error: upsertError } = await supabase.from('credit_balances').upsert({
-      buyer_wallet: normalizedWallet,
-      balance_usdc: newBalance,
-      updated_at: new Date().toISOString(),
+    // C1: single atomic UPDATE — prevents race condition / double-spend
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('deduct_credits_atomic', {
+      p_wallet: normalizedWallet,
+      p_amount: amount_usdc,
     });
-    if (upsertError) return NextResponse.json({ error: upsertError.message }, { status: 500 });
+    if (rpcError) return NextResponse.json({ error: rpcError.message }, { status: 500 });
+
+    const result = rpcResult as { ok: boolean; balance_usdc: number };
+    if (!result.ok) {
+      return NextResponse.json({ error: 'Insufficient credits', balance_usdc: result.balance_usdc }, { status: 402 });
+    }
 
     if (api_id) {
       const { error: insertError } = await supabase.from('purchases').insert({
@@ -86,11 +78,17 @@ export async function POST(request: NextRequest) {
       if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ balance_usdc: newBalance });
+    return NextResponse.json({ balance_usdc: result.balance_usdc });
   }
 
   // topup
-  const newBalance = currentBalance + amount_usdc;
+  const { data: existing } = await supabase
+    .from('credit_balances')
+    .select('balance_usdc')
+    .eq('buyer_wallet', normalizedWallet)
+    .single<CreditBalance>();
+
+  const newBalance = (existing?.balance_usdc ?? 0) + amount_usdc;
   const { error: topupError } = await supabase.from('credit_balances').upsert({
     buyer_wallet: normalizedWallet,
     balance_usdc: newBalance,

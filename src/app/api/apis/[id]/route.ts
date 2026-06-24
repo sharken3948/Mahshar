@@ -49,7 +49,10 @@ export async function PATCH(
   if (fields.name !== undefined) patch.name = fields.name
   if (fields.category !== undefined) patch.category = fields.category
   if (fields.description !== undefined) patch.description = fields.description
-  if (fields.endpoint_url !== undefined) patch.endpoint_url = fields.endpoint_url
+  if (fields.endpoint_url !== undefined) {
+    patch.endpoint_url = fields.endpoint_url
+    patch.verified_at = null  // H4: changing URL invalidates prior verification
+  }
   if (fields.auth_type !== undefined) patch.auth_type = fields.auth_type
 
   const supabase = createServiceClient()

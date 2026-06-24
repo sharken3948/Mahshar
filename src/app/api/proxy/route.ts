@@ -60,9 +60,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: paymentResult.error }, { status: 402 })
   }
 
-  // Verify the payment signer matches the declared buyer_wallet to prevent spoofing
-  if (paymentResult.payer?.toLowerCase() !== buyer_wallet.toLowerCase()) {
-    return NextResponse.json({ error: 'Payment signer does not match buyer_wallet' }, { status: 400 })
+  // C3: payer returned by settlement must match the declared buyer_wallet
+  if (!paymentResult.payer || paymentResult.payer.toLowerCase() !== buyer_wallet.toLowerCase()) {
+    return NextResponse.json({ error: 'Payment signer does not match buyer_wallet' }, { status: 403 })
   }
 
   // Payment settled — proxy the request

@@ -1,5 +1,15 @@
-const WALLET_RE = /^0x[a-fA-F0-9]{40}$/
+import { getAddress, isAddress } from 'viem'
 
+// H7: accepts all-lowercase and correctly checksummed (EIP-55) addresses;
+// rejects mixed-case with an invalid checksum (catches single-char typos).
 export function isValidWalletAddress(address: string): boolean {
-  return WALLET_RE.test(address)
+  if (!isAddress(address, { strict: false })) return false
+  if (address !== address.toLowerCase()) {
+    try {
+      getAddress(address)
+    } catch {
+      return false
+    }
+  }
+  return true
 }

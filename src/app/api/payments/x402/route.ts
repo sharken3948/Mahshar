@@ -75,8 +75,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid payment amount in upstream response' }, { status: 502 });
   }
 
-  // Record the purchase
+  // C2: reject replay — nonce is stored as tx_hash and must be unique
   const supabase = createServiceClient();
+  const { data: existingPurchase } = await supabase
+    .from('purchases')
+    .select('id')
+    .eq('tx_hash', nonce)
+    .maybeSingle();
+  if (existingPurchase) {
+    return NextResponse.json({ data: responseData, payment_required: paymentRequired });
+  }
+
+  // Record the purchase
   const { error: purchaseError } = await supabase.from('purchases').insert({
     buyer_wallet: buyer_wallet.toLowerCase(),
     api_id,

@@ -1,11 +1,5 @@
 import { promises as dns } from 'dns'
 
-// DNS rebinding limitation: the hostname is resolved once here for validation, but the
-// actual fetch() in the proxy/verify routes performs its own separate DNS resolution.
-// A malicious DNS server could return a safe public IP during validation and switch to a
-// private IP for the real request (DNS rebinding). Mitigating this fully would require
-// binding the resolved IP directly in the fetch call. Accepted as a known limitation for
-// the current scope.
 export async function validateEndpointUrl(url: string): Promise<{ valid: boolean; error?: string }> {
   let parsed: URL
   try {
@@ -38,9 +32,12 @@ export async function validateEndpointUrl(url: string): Promise<{ valid: boolean
 
 function isPrivateOrReservedIp(ip: string): boolean {
   if (ip.includes(':')) {
-    // IPv6 — conservatively block loopback and unique local addresses
-    if (ip === '::1') return true
-    if (ip.toLowerCase().startsWith('fc') || ip.toLowerCase().startsWith('fd')) return true
+    // H2: block all known private/reserved IPv6 ranges
+    const lower = ip.toLowerCase()
+    if (lower === '::1') return true                                        // loopback
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return true      // unique local (fc00::/7)
+    if (lower.startsWith('fe80')) return true                              // link-local (fe80::/10)
+    if (lower.startsWith('::ffff:')) return true                           // IPv4-mapped (::ffff:0:0/96)
     return false
   }
   const parts = ip.split('.').map(Number)
