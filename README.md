@@ -132,7 +132,9 @@ Send a GET to `/api/agent/discover` to get the full marketplace catalog in machi
 }
 ```
 
-`scripts/test-integration.mts` demonstrates a fully autonomous agent (using `@circle-fin/x402-batching`) that discovers, pays for, and calls a real listed API — [Ioscope](https://ioscope.xyz), a wallet risk-scoring service for Arc/Soneium — with zero human interaction. The script has a hardcoded Ioscope API ID and targets production (`mahshar.xyz`) directly; set `BUYER_PRIVATE_KEY` in your environment before running. In testing: 7/7 successful x402 payments end-to-end. The generated integration code snippet uses syntax highlighting: buyer-supplied input values appear in amber, and `WALLET_PRIVATE_KEY` appears in green to draw attention to the sensitive credential.
+`scripts/test-integration.mts` demonstrates a fully autonomous agent (using `@circle-fin/x402-batching`) that pays for and calls a real listed API — [Ioscope](https://ioscope.xyz), a wallet risk-scoring service for Arc/Soneium — with zero human interaction. The script has a hardcoded Ioscope API ID and targets production (`mahshar.xyz`) directly; set `BUYER_PRIVATE_KEY` in your environment before running. In testing: 7/7 successful x402 payments end-to-end. The generated integration code snippet uses syntax highlighting: buyer-supplied input values appear in amber, and `WALLET_PRIVATE_KEY` appears in green to draw attention to the sensitive credential.
+
+**Circle Agent Wallet (recommended alternative):** Instead of `BUYER_PRIVATE_KEY`, use a Circle CLI agent wallet for autonomous payments — no raw private key required. See [Agent Wallet Integration](#agent-wallet-integration) below.
 
 ---
 
@@ -148,6 +150,8 @@ Send a GET to `/api/agent/discover` to get the full marketplace catalog in machi
 | Wallet / Web3 | RainbowKit 2.2.11, wagmi 2.19.5, viem 2.52 |
 | Payments | `@circle-fin/x402-batching`, `@circle-fin/bridge-kit`, `@circle-fin/app-kit`, Circle Gateway (Arc Testnet) |
 | Chain | Arc Testnet (chain ID 5042002) — USDC as native gas token |
+
+> **Agent Wallet CLI** (`@circle-fin/cli`) is a separate global tool — not in `package.json`. Install it with `npm install -g @circle-fin/cli`. See [Agent Wallet Integration](#agent-wallet-integration).
 | Encryption | AES-256-GCM (Node.js `crypto`) |
 
 ---
@@ -187,7 +191,7 @@ See `.env.example` for full descriptions. Required:
 |---|---|---|
 | `/api/proxy` | POST | Payment gateway + request proxy |
 | `/api/apis` | GET, POST | List active APIs / create listing |
-| `/api/apis/[id]` | GET, PATCH | Get / update a listing |
+| `/api/apis/[id]` | GET, PATCH, DELETE | Get / update / delete a listing |
 | `/api/apis/[id]/verify` | POST | Live endpoint verification |
 | `/api/apis/latency` | GET | Average latency per API from call history |
 | `/api/ai/match` | POST | Semantic API search via Groq |
@@ -196,6 +200,7 @@ See `.env.example` for full descriptions. Required:
 | `/api/seller/earnings` | GET | Earnings breakdown by API |
 | `/api/seller/calls` | GET | Per-API call analytics for a seller |
 | `/api/calls` | GET | Buyer call history |
+| `/api/calls/last-response` | GET | Last response for a purchased API |
 | `/api/gateway/balance` | GET | Live Circle Gateway USDC balance |
 | `/api/payments/credits` | GET, POST | Prepaid credit balance management |
 | `/api/payments/x402` | POST | x402 payment initiation endpoint |
@@ -203,9 +208,62 @@ See `.env.example` for full descriptions. Required:
 
 ---
 
+## Agent Wallet Integration
+
+The Circle CLI (`@circle-fin/cli`) provides a **Smart Contract Account (SCA) agent wallet** that can autonomously pay for Mahshar APIs without MetaMask, a browser, or exposing a raw private key. Payments are signed off-chain using EIP-3009 and settled gaslessly via Circle Gateway.
+
+### Setup
+
+```bash
+# 1. Install the Circle CLI
+npm install -g @circle-fin/cli
+
+# 2. Log in with email OTP (two-step, non-interactive)
+circle wallet login <your-email> --type agent --init
+# → enter OTP when prompted:
+circle wallet login --type agent --request <request-id> --otp <code>
+
+# 3. Create an agent wallet on Arc Testnet
+circle wallet create --output json
+
+# 4. Fund the wallet with testnet USDC
+circle wallet fund --address <wallet-address> --chain ARC-TESTNET
+
+# 5. Deposit into Circle Gateway (required before making x402 payments)
+circle gateway deposit --method direct --amount 10 \
+  --address <wallet-address> --chain ARC-TESTNET
+
+# 6. Confirm Gateway balance
+circle gateway balance --address <wallet-address> --chain ARC-TESTNET
+```
+
+### Making a Payment
+
+```bash
+circle services pay https://mahshar.xyz/api/proxy \
+  --method POST \
+  --chain ARC-TESTNET \
+  --address <wallet-address> \
+  --max-amount 0.1 \
+  --data '{"api_id":"<api-id>","buyer_wallet":"<wallet-address>","request_body":{...}}'
+```
+
+### How It Works
+
+Circle agent wallets are SCAs — the CLI holds the signing key internally; only the wallet address is ever shared. When `circle services pay` runs:
+
+1. The CLI sends an unauthenticated POST to `/api/proxy`, receives a `402 + PAYMENT-REQUIRED` header.
+2. It signs an EIP-3009 `TransferWithAuthorization` for the advertised amount and resubmits with a `Payment-Signature` header.
+3. Mahshar calls `BatchFacilitatorClient.settle()` → Circle Gateway debits the agent wallet's Gateway balance and credits the platform wallet.
+4. The seller's endpoint is proxied and the response is returned.
+
+> **Note on SCA wallets:** the EIP-3009 `from` field contains the underlying EOA signing key, which differs from the SCA wallet address. Mahshar logs a warning when these don't match but does not reject the payment — the settlement itself is the cryptographic proof of authorization.
+
+---
+
 ## Circle Skills
 
-This repo ships 17 Circle Skills under `.agents/skills/` (symlinked to `.claude/skills/`), installed via `npx skills add circlefin/skills`. They provide Claude Code contributors with guided patterns for Arc, USDC, Gateway, CCTP, and more. Skills are loaded automatically when Claude Code detects a relevant task.
+This repo ships 17 Circle Skills under `.agents/skills/` (skill files live there; `.claude/skills/` contains symlinks pointing into `.agents/skills/`), installed via `npx skills add circlefin/skills`. They provide Claude Code contributors with guided patterns for Arc, USDC, Gateway, CCTP, and more. Skills are loaded automatically when Claude Code detects a relevant task.
 
 ---
 

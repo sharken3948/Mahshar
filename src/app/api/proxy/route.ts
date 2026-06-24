@@ -60,9 +60,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: paymentResult.error }, { status: 402 })
   }
 
-  // C3: payer returned by settlement must match the declared buyer_wallet
-  if (!paymentResult.payer || paymentResult.payer.toLowerCase() !== buyer_wallet.toLowerCase()) {
-    return NextResponse.json({ error: 'Payment signer does not match buyer_wallet' }, { status: 403 })
+  // C3: payer must be present (hard rejection); mismatch is a warning only —
+  // Circle SCA wallets sign with an underlying EOA so payer ≠ buyer_wallet address.
+  if (!paymentResult.payer) {
+    return NextResponse.json({ error: 'Payment settled but payer address is missing' }, { status: 402 })
+  }
+  if (paymentResult.payer.toLowerCase() !== buyer_wallet.toLowerCase()) {
+    console.warn(`[c3] payer/buyer_wallet mismatch — payer=${paymentResult.payer} buyer_wallet=${buyer_wallet} api=${api_id}`)
   }
 
   // Payment settled — proxy the request
