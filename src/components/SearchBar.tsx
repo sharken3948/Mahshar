@@ -39,7 +39,7 @@ export function SearchBar({ defaultValue = '', placeholder = 'Find an API using 
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={placeholder}
-          className="w-full rounded-xl border border-[#E2E4E9] bg-[#FAFAF8] pl-12 pr-28 py-3.5 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:border-[#2775CA] focus:outline-none focus:ring-1 focus:ring-[#2775CA] transition-colors"
+          className="w-full rounded-xl border border-[#2775CA] bg-[#FAFAF8] pl-12 pr-28 py-3.5 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:border-[#2775CA] focus:outline-none focus:ring-1 focus:ring-[#2775CA] transition-colors"
         />
         <button
           type="submit"

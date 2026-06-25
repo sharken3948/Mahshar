@@ -362,7 +362,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
       <section className="space-y-4">
         <h2 className="text-base font-semibold text-[#0D0D0D]">Payments</h2>
         <Field label="Payment Model">
-          <div className="bg-[#F5F5F0] border border-[#E2E4E9] rounded-lg px-4 py-3 text-sm text-[#0D0D0D]">
+          <div className="bg-[#F5F5F0] border border-[#2775CA] rounded-lg px-4 py-3 text-sm text-[#0D0D0D]">
             Pay-per-call (x402): buyer pays USDC for each API call
           </div>
         </Field>
@@ -403,7 +403,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
         </Button>
 
         {scoreResult && (
-          <div className="mt-6 border border-[#E2E4E9] rounded-xl overflow-hidden">
+          <div className="mt-6 border border-[#2775CA] rounded-xl overflow-hidden">
 
             <div className={`px-6 py-4 flex items-center justify-between ${scoreResult.approved ? 'bg-[#F0FDF4]' : 'bg-[#FEF2F2]'}`}>
               <div>
@@ -426,7 +426,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
                 ? d.body_sent.slice(0, 120) + '…'
                 : d.body_sent;
               return (
-                <div className="px-6 py-4 border-t border-[#E2E4E9]">
+                <div className="px-6 py-4 border-t border-[#2775CA]">
                   <p className="text-xs text-[#6B7280] font-medium mb-2">Live endpoint test</p>
                   <div className="bg-[#0D0D0D] rounded-xl p-4 font-mono text-xs overflow-x-auto">
                     <p className="text-[#9CA3AF]">{d.method} {d.url}</p>
@@ -441,7 +441,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
             })()}
 
             {scoreResult.critical_issues && scoreResult.critical_issues.length > 0 && (
-              <div className="px-6 py-4 border-t border-[#E2E4E9] bg-[#FEF2F2]">
+              <div className="px-6 py-4 border-t border-[#2775CA] bg-[#FEF2F2]">
                 <p className="text-sm font-bold text-[#DC2626] mb-2">🚨 Critical Issues: Listing Blocked</p>
                 <ul className="space-y-1">
                   {scoreResult.critical_issues.map((issue, i) => (
@@ -452,7 +452,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
             )}
 
             {scoreResult.warnings && scoreResult.warnings.length > 0 && (
-              <div className="px-6 py-4 border-t border-[#E2E4E9]">
+              <div className="px-6 py-4 border-t border-[#2775CA]">
                 <p className="text-sm font-bold text-[#D97706] mb-2">⚠️ Warnings: Please Fix</p>
                 <ul className="space-y-1">
                   {scoreResult.warnings.map((w, i) => (
@@ -463,7 +463,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
             )}
 
             {scoreResult.positives && scoreResult.positives.length > 0 && (
-              <div className="px-6 py-4 border-t border-[#E2E4E9]">
+              <div className="px-6 py-4 border-t border-[#2775CA]">
                 <p className="text-sm font-bold text-[#16A34A] mb-2">✓ Looks Good</p>
                 <ul className="space-y-1">
                   {scoreResult.positives.map((p, i) => (
@@ -474,7 +474,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
             )}
 
             {scoreResult.approved && (
-              <div className="px-6 py-4 border-t border-[#E2E4E9] bg-[#FAFAF8]">
+              <div className="px-6 py-4 border-t border-[#2775CA] bg-[#FAFAF8]">
                 <p className="text-sm text-[#6B7280]">AI suggested price: <span className="font-bold text-[#0D0D0D]">${scoreResult.suggested_price} USDC/call</span></p>
               </div>
             )}
@@ -520,7 +520,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setShowDescHelp(false)} />
           <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
-            <div className="px-6 py-4 border-b border-[#E2E4E9] flex items-center justify-between">
+            <div className="px-6 py-4 border-b border-[#2775CA] flex items-center justify-between">
               <span className="font-bold text-[#0D0D0D]">Writing a Great Description</span>
               <button type="button" onClick={() => setShowDescHelp(false)} className="text-[#6B7280] hover:text-[#0D0D0D] transition-colors text-xl leading-none">&times;</button>
             </div>
@@ -533,7 +533,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
               </div>
               <p className="text-sm text-[#6B7280]">AI agents and buyers read this description to decide if your API fits their needs. The more specific you are about inputs, outputs, and use cases, the more your API will be discovered and used.</p>
             </div>
-            <div className="px-6 py-4 border-t border-[#E2E4E9]">
+            <div className="px-6 py-4 border-t border-[#2775CA]">
               <button type="button" onClick={() => setShowDescHelp(false)} className="w-full bg-[#0D0D0D] hover:bg-[#2D2D2D] text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">Close</button>
             </div>
           </div>
@@ -568,5 +568,5 @@ function inputCls(error?: string): string {
   const base = 'w-full rounded-lg border bg-[#FAFAF8] px-3 py-2.5 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:ring-1 transition-colors';
   return error
     ? `${base} border-[#DC2626] ring-[#DC2626] focus:border-[#DC2626]`
-    : `${base} border-[#E2E4E9] focus:border-[#2775CA] focus:ring-[#2775CA]`;
+    : `${base} border-[#2775CA] focus:border-[#2775CA] focus:ring-[#2775CA]`;
 }

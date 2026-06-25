@@ -71,7 +71,7 @@ function ApiRow({ api, avgLatency, calling, paymentStep, onUse, purchased, onVie
   onView: (id: string, name: string, method: string, exampleRequest: string | null) => void
 }) {
   return (
-    <div className="bg-white border border-[#E2E4E9] rounded-xl px-4 py-4 flex items-center gap-4">
+    <div className="bg-white border border-[#2775CA] rounded-xl px-4 py-4 flex items-center gap-4">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
           <span className="font-bold text-[#0D0D0D] text-sm">{api.name}</span>
@@ -412,7 +412,7 @@ export default function BuyerPage() {
               onChange={e => setQuery(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSearch()}
               placeholder="Describe what you need, e.g. wallet risk scoring, weather data..."
-              className="flex-1 bg-[#FAFAF8] border border-[#E2E4E9] rounded-xl px-4 py-3 text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA] text-sm"
+              className="flex-1 bg-[#FAFAF8] border border-[#2775CA] rounded-xl px-4 py-3 text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA] text-sm"
             />
             <button
               onClick={handleSearch}
@@ -431,7 +431,7 @@ export default function BuyerPage() {
           )}
         </section>
 
-        <div className="border-t border-[#E2E4E9] my-8" />
+        <div className="border-t border-[#FAFAF8] my-8" />
 
         {/* Marketplace Manual Search section */}
         <section className="mb-8">
@@ -443,7 +443,7 @@ export default function BuyerPage() {
                 onClick={() => setSelectedCategory(cat)}
                 className={selectedCategory === cat
                   ? 'bg-[#2775CA] text-white rounded-lg px-3 py-1.5 text-sm font-medium transition-colors'
-                  : 'bg-white border border-[#E2E4E9] text-[#6B7280] rounded-lg px-3 py-1.5 text-sm font-medium hover:border-[#2775CA] transition-colors'}
+                  : 'bg-white border border-[#2775CA] text-[#6B7280] rounded-lg px-3 py-1.5 text-sm font-medium hover:border-[#2775CA] transition-colors'}
               >
                 {cat}
               </button>
@@ -471,7 +471,7 @@ export default function BuyerPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/50" onClick={() => setRequestModal(null)} />
             <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
-              <div className="px-6 py-4 border-b border-[#E2E4E9] flex items-center justify-between">
+              <div className="px-6 py-4 border-b border-[#2775CA] flex items-center justify-between">
                 <div>
                   <span className="font-bold text-[#0D0D0D]">Request Body</span>
                   <span className="ml-3 text-xs bg-[#EBF3FC] text-[#2775CA] border border-[#BFDBFE] px-2 py-0.5 rounded-full font-mono">POST</span>
@@ -517,7 +517,7 @@ export default function BuyerPage() {
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/50" onClick={() => setViewApiModal(null)} />
         <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
-          <div className="px-6 py-4 border-b border-[#E2E4E9] flex items-center justify-between">
+          <div className="px-6 py-4 border-b border-[#2775CA] flex items-center justify-between">
             <span className="font-bold text-[#0D0D0D]">{viewApiModal.apiName}</span>
             <button onClick={() => setViewApiModal(null)} className="text-[#6B7280] hover:text-[#0D0D0D] transition-colors text-xl leading-none">&times;</button>
           </div>
@@ -546,13 +546,13 @@ export default function BuyerPage() {
                     setViewApiCopied(true)
                     setTimeout(() => setViewApiCopied(false), 2000)
                   }}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${viewApiCopied ? 'bg-[#F0FDF4] border-[#86EFAC] text-[#16A34A]' : 'bg-white border-[#E2E4E9] text-[#6B7280] hover:border-[#2775CA] hover:text-[#2775CA]'}`}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${viewApiCopied ? 'bg-[#F0FDF4] border-[#86EFAC] text-[#16A34A]' : 'bg-white border-[#2775CA] text-[#6B7280] hover:border-[#2775CA] hover:text-[#2775CA]'}`}
                 >
                   {viewApiCopied ? 'Copied!' : 'Copy to clipboard'}
                 </button>
                 <button
                   onClick={handleNewQuery}
-                  className="flex-1 py-2 rounded-lg text-sm font-medium border border-[#E2E4E9] text-[#6B7280] hover:border-[#0D0D0D] hover:text-[#0D0D0D] transition-colors"
+                  className="flex-1 py-2 rounded-lg text-sm font-medium border border-[#2775CA] text-[#6B7280] hover:border-[#0D0D0D] hover:text-[#0D0D0D] transition-colors"
                 >
                   New Query
                 </button>

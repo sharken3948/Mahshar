@@ -6,7 +6,7 @@ interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 const variantStyles = {
-  default: 'bg-[#FAFAF8] text-[#6B7280] border-[#E2E4E9]',
+  default: 'bg-[#FAFAF8] text-[#6B7280] border-[#2775CA]',
   success: 'bg-[#F0FDF4] text-[#16A34A] border-[#BBF7D0]',
   warning: 'bg-amber-50 text-amber-600 border-amber-200',
   error: 'bg-red-50 text-red-600 border-red-200',

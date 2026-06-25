@@ -8,7 +8,7 @@ info:
 
     ## x402 Payment Flow
 
-    `/api/proxy` implements the [x402 micropayment protocol](https://x402.org):
+    `/api/proxy` implements the [x402 nanopayment protocol](https://x402.org):
 
     1. **Probe** — send the request body without a `Payment-Signature` header. The server returns
        `402 Payment Required` with a base64-encoded `PAYMENT-REQUIRED` response header containing
@@ -247,7 +247,7 @@ paths:
       operationId: proxyCall
       summary: Pay for and call a listed API (x402)
       description: |
-        Executes a two-step x402 micropayment flow (see top-level description).
+        Executes a two-step x402 nanopayment flow (see top-level description).
 
         **Step 1 — probe:** send without `Payment-Signature` → receive `402` with payment
         requirements in the `PAYMENT-REQUIRED` response header (base64-encoded JSON).

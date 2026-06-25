@@ -55,7 +55,7 @@ export function ApiCard({ api }: ApiCardProps) {
       </div>
 
       {/* Bottom row */}
-      <div className="flex items-center justify-between mt-auto pt-3 border-t border-[#E2E4E9]">
+      <div className="flex items-center justify-between mt-auto pt-3 border-t border-[#2775CA]">
         <div>
           <span className="text-lg font-semibold text-[#0D0D0D]">${api.price_per_call.toFixed(4)}</span>
           <span className="text-xs text-[#6B7280] ml-1">USDC / call</span>

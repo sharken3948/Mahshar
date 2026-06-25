@@ -75,7 +75,7 @@ const GATEWAY_WITHDRAW_ABI = [
 
 const CATEGORIES = ['AI', 'Data', 'Finance', 'Weather', 'Geo', 'Social', 'Media', 'Utility', 'Other']
 
-const inputCls = 'w-full rounded-lg border border-[#E2E4E9] bg-[#FAFAF8] px-3 py-2.5 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:border-[#2775CA] focus:outline-none focus:ring-1 focus:ring-[#2775CA] transition-colors'
+const inputCls = 'w-full rounded-lg border border-[#2775CA] bg-[#FAFAF8] px-3 py-2.5 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:border-[#2775CA] focus:outline-none focus:ring-1 focus:ring-[#2775CA] transition-colors'
 
 function formatUsdc(raw: bigint): string {
   return (Number(raw) / 1_000_000).toFixed(4)
@@ -406,7 +406,7 @@ export default function DashboardPage() {
 
         {/* Stats grid */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
-          <div className="border border-[#E2E4E9] rounded-xl p-4 relative" style={{ backgroundColor: balanceColor.bg }}>
+          <div className="border border-[#2775CA] rounded-xl p-4 relative" style={{ backgroundColor: balanceColor.bg }}>
             <div className="flex items-start justify-between mb-1">
               <div className="text-xs text-[#6B7280]">Mahshar Balance</div>
               <div className="relative group">
@@ -428,22 +428,22 @@ export default function DashboardPage() {
               <div className="text-xs font-medium" style={{ color: balanceColor.text }}>{balanceColor.label}</div>
             </div>
           </div>
-          <div className="bg-white border border-[#E2E4E9] rounded-xl p-4">
+          <div className="bg-white border border-[#2775CA] rounded-xl p-4">
             <div className="text-xs text-[#6B7280] mb-1">Wallet USDC</div>
             <div className="font-bold text-[#0D0D0D] text-sm">{walletUsdcRaw != null ? formatUsdc(walletUsdcRaw) : '—'}</div>
             <div className="text-xs text-[#6B7280]">USDC</div>
           </div>
-          <div className="bg-white border border-[#E2E4E9] rounded-xl p-4">
+          <div className="bg-white border border-[#2775CA] rounded-xl p-4">
             <div className="text-xs text-[#6B7280] mb-1">Total Calls</div>
             <div className="font-bold text-[#0D0D0D] text-sm">{gatewayStats?.totalCalls ?? '—'}</div>
             <div className="text-xs text-[#6B7280]">all time</div>
           </div>
-          <div className="bg-white border border-[#E2E4E9] rounded-xl p-4">
+          <div className="bg-white border border-[#2775CA] rounded-xl p-4">
             <div className="text-xs text-[#6B7280] mb-1">Total Spent</div>
             <div className="font-bold text-[#0D0D0D] text-sm">${gatewayStats ? gatewayStats.totalSpent.toFixed(4) : '—'}</div>
             <div className="text-xs text-[#6B7280]">USDC</div>
           </div>
-          <div className="bg-white border border-[#E2E4E9] rounded-xl p-4">
+          <div className="bg-white border border-[#2775CA] rounded-xl p-4">
             <div className="text-xs text-[#6B7280] mb-1">Total Earned</div>
             <div className="font-bold text-[#00B050] text-sm">${sellerEarnings ? sellerEarnings.total_earnings.toFixed(4) : '—'}</div>
             <div className="text-xs text-[#6B7280]">USDC</div>
@@ -452,14 +452,14 @@ export default function DashboardPage() {
 
         {/* Deposit / Withdraw cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-          <div className="bg-white border border-[#E2E4E9] rounded-xl p-4">
+          <div className="bg-white border border-[#2775CA] rounded-xl p-4">
             <h2 className="text-sm font-bold text-[#0D0D0D] mb-3">Add to Mahshar Balance</h2>
             <div className="mb-3">
               <select
                 value={selectedDepositChain}
                 onChange={e => { setSelectedDepositChain(e.target.value); bridgeReset(); setDepositError(null) }}
                 disabled={depositing || bridgeLoading}
-                className="w-full bg-[#FAFAF8] border border-[#E2E4E9] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] focus:outline-none focus:border-[#2775CA] disabled:opacity-50"
+                className="w-full bg-[#FAFAF8] border border-[#2775CA] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] focus:outline-none focus:border-[#2775CA] disabled:opacity-50"
               >
                 <option value="arc">Arc Testnet (current chain)</option>
                 {bridgeBalances.map(b => (
@@ -480,7 +480,7 @@ export default function DashboardPage() {
                     placeholder="0.00"
                     min="0"
                     step="0.01"
-                    className="w-24 bg-[#FAFAF8] border border-[#E2E4E9] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA]"
+                    className="w-24 bg-[#FAFAF8] border border-[#2775CA] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA]"
                   />
                   <span className="text-sm text-[#6B7280]">USDC</span>
                   <button
@@ -504,7 +504,7 @@ export default function DashboardPage() {
                     min="0"
                     step="0.01"
                     disabled={bridgeLoading}
-                    className="w-24 bg-[#FAFAF8] border border-[#E2E4E9] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA] disabled:opacity-50"
+                    className="w-24 bg-[#FAFAF8] border border-[#2775CA] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA] disabled:opacity-50"
                   />
                   <span className="text-sm text-[#6B7280]">USDC</span>
                   <button
@@ -541,7 +541,7 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div className="bg-white border border-[#E2E4E9] rounded-xl p-4">
+          <div className="bg-white border border-[#2775CA] rounded-xl p-4">
             <h2 className="text-sm font-bold text-[#0D0D0D] mb-3">Withdraw from Mahshar Balance</h2>
             <p className="text-xs text-[#6B7280] mb-3">Move USDC from your Mahshar balance back to your wallet.</p>
             <div className="flex gap-2 items-center">
@@ -552,7 +552,7 @@ export default function DashboardPage() {
                 placeholder="0.00"
                 min="0"
                 step="0.01"
-                className="w-24 bg-[#FAFAF8] border border-[#E2E4E9] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA]"
+                className="w-24 bg-[#FAFAF8] border border-[#2775CA] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA]"
               />
               <span className="text-sm text-[#6B7280]">USDC</span>
               <button
@@ -576,13 +576,13 @@ export default function DashboardPage() {
             <div>
               <h2 className="text-lg font-bold text-[#0D0D0D] mb-4">My Listed APIs</h2>
               {myApis.length === 0 ? (
-                <div className="bg-white border border-[#E2E4E9] rounded-xl p-8 text-center">
+                <div className="bg-white border border-[#2775CA] rounded-xl p-8 text-center">
                   <p className="text-[#6B7280] text-sm">You haven&apos;t listed any APIs yet.</p>
                 </div>
               ) : (
-                <div className="bg-white border border-[#E2E4E9] rounded-xl overflow-hidden">
+                <div className="bg-white border border-[#2775CA] rounded-xl overflow-hidden">
                   <table className="w-full text-sm">
-                    <thead className="border-b border-[#E2E4E9]">
+                    <thead className="border-b border-[#2775CA]">
                       <tr className="text-left text-[#6B7280]">
                         <th className="px-6 py-4 font-medium">Name</th>
                         <th className="px-6 py-4 font-medium">Category</th>
@@ -596,7 +596,7 @@ export default function DashboardPage() {
                       {myApis.map(api => {
                         const earning = sellerEarnings?.earnings_by_api.find(e => e.api_id === api.id)
                         return (
-                        <tr key={api.id} className="border-b border-[#E2E4E9] last:border-0 hover:bg-[#F5F5F0]">
+                        <tr key={api.id} className="border-b border-[#2775CA] last:border-0 hover:bg-[#F5F5F0]">
                           <td className="px-6 py-4 font-medium text-[#0D0D0D]">{api.name}</td>
                           <td className="px-6 py-4 text-[#6B7280]">{api.category}</td>
                           <td className="px-6 py-4 text-[#0D0D0D]">${api.price_per_call} USDC</td>
@@ -609,7 +609,7 @@ export default function DashboardPage() {
                                 className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                                   api.is_active
                                     ? 'bg-[#16A34A] text-white border-[#16A34A]'
-                                    : 'bg-white text-[#6B7280] border-[#E2E4E9] hover:border-[#16A34A] hover:text-[#16A34A]'
+                                    : 'bg-white text-[#6B7280] border-[#2775CA] hover:border-[#16A34A] hover:text-[#16A34A]'
                                 }`}
                               >
                                 Active
@@ -619,7 +619,7 @@ export default function DashboardPage() {
                                 className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
                                   !api.is_active
                                     ? 'bg-[#DC2626] text-white border-[#DC2626]'
-                                    : 'bg-white text-[#6B7280] border-[#E2E4E9] hover:border-[#DC2626] hover:text-[#DC2626]'
+                                    : 'bg-white text-[#6B7280] border-[#2775CA] hover:border-[#DC2626] hover:text-[#DC2626]'
                                 }`}
                               >
                                 Inactive
@@ -637,13 +637,13 @@ export default function DashboardPage() {
                                   })
                                   setShowEditModal(true)
                                 }}
-                                className="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors bg-white text-[#2775CA] border-[#E2E4E9] hover:border-[#2775CA]"
+                                className="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors bg-white text-[#2775CA] border-[#2775CA] hover:border-[#2775CA]"
                               >
                                 Edit
                               </button>
                               <button
                                 onClick={() => { setDeletingApiId(api.id); setDeleteConfirmText('') }}
-                                className="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors bg-white text-[#DC2626] border-[#E2E4E9] hover:border-[#DC2626]"
+                                className="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors bg-white text-[#DC2626] border-[#2775CA] hover:border-[#DC2626]"
                               >
                                 Delete
                               </button>
@@ -662,13 +662,13 @@ export default function DashboardPage() {
             <div>
               <h2 className="text-lg font-bold text-[#0D0D0D] mb-4">Recent Buys</h2>
               {callGroups.length === 0 ? (
-                <div className="bg-white border border-[#E2E4E9] rounded-xl p-8 text-center">
+                <div className="bg-white border border-[#2775CA] rounded-xl p-8 text-center">
                   <p className="text-[#6B7280] text-sm">No API calls yet.</p>
                 </div>
               ) : (
-                <div className="bg-[#FAFAF8] border border-[#E2E4E9] rounded-xl overflow-hidden">
+                <div className="bg-[#FAFAF8] border border-[#2775CA] rounded-xl overflow-hidden">
                   <table className="w-full text-sm">
-                    <thead className="border-b border-[#E2E4E9]">
+                    <thead className="border-b border-[#2775CA]">
                       <tr className="text-left text-[#6B7280]">
                         <th className="px-6 py-4 font-medium">API</th>
                         <th className="px-6 py-4 font-medium">Calls</th>
@@ -681,7 +681,7 @@ export default function DashboardPage() {
                     </thead>
                     <tbody>
                       {callGroups.map(group => (
-                        <tr key={group.apiId} className="border-b border-[#E2E4E9] hover:bg-[#F5F5F0]">
+                        <tr key={group.apiId} className="border-b border-[#2775CA] hover:bg-[#F5F5F0]">
                           <td className="px-6 py-4 font-medium text-[#0D0D0D]">{group.name}</td>
                           <td className="px-6 py-4 text-[#0D0D0D]">{group.count}</td>
                           <td className="px-6 py-4 text-[#0D0D0D]">{group.avgLatency}ms</td>
@@ -720,13 +720,13 @@ export default function DashboardPage() {
             <div>
               <h2 className="text-lg font-bold text-[#0D0D0D] mb-4">Recent Sells</h2>
               {sellCallGroups.length === 0 ? (
-                <div className="bg-white border border-[#E2E4E9] rounded-xl p-8 text-center">
+                <div className="bg-white border border-[#2775CA] rounded-xl p-8 text-center">
                   <p className="text-[#6B7280] text-sm">No one has called your APIs yet.</p>
                 </div>
               ) : (
-                <div className="bg-[#FAFAF8] border border-[#E2E4E9] rounded-xl overflow-hidden">
+                <div className="bg-[#FAFAF8] border border-[#2775CA] rounded-xl overflow-hidden">
                   <table className="w-full text-sm">
-                    <thead className="border-b border-[#E2E4E9]">
+                    <thead className="border-b border-[#2775CA]">
                       <tr className="text-left text-[#6B7280]">
                         <th className="px-6 py-4 font-medium">API</th>
                         <th className="px-6 py-4 font-medium">Calls</th>
@@ -738,7 +738,7 @@ export default function DashboardPage() {
                     </thead>
                     <tbody>
                       {sellCallGroups.map(group => (
-                        <tr key={group.api_id} className="border-b border-[#E2E4E9] hover:bg-[#F5F5F0]">
+                        <tr key={group.api_id} className="border-b border-[#2775CA] hover:bg-[#F5F5F0]">
                           <td className="px-6 py-4 font-medium text-[#0D0D0D]">{group.api_name}</td>
                           <td className="px-6 py-4 text-[#0D0D0D]">{group.count}</td>
                           <td className="px-6 py-4 text-[#0D0D0D]">{group.avgLatency}ms</td>
@@ -771,7 +771,7 @@ export default function DashboardPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/50" onClick={() => { setShowEditModal(false); setEditingApi(null) }} />
             <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
-              <div className="px-6 py-4 border-b border-[#E2E4E9] flex items-center justify-between">
+              <div className="px-6 py-4 border-b border-[#2775CA] flex items-center justify-between">
                 <span className="font-bold text-[#0D0D0D]">Edit API</span>
                 <button onClick={() => { setShowEditModal(false); setEditingApi(null) }} className="text-[#6B7280] hover:text-[#0D0D0D] transition-colors text-xl leading-none">&times;</button>
               </div>
@@ -813,8 +813,8 @@ export default function DashboardPage() {
               {apiActionError && (
                 <p className="px-6 pb-2 text-xs text-[#DC2626]">{apiActionError}</p>
               )}
-              <div className="px-6 py-4 border-t border-[#E2E4E9] flex gap-3 justify-end">
-                <button onClick={() => { setShowEditModal(false); setEditingApi(null); setApiActionError(null) }} className="px-4 py-2 rounded-lg text-sm font-medium border border-[#E2E4E9] text-[#6B7280] hover:border-[#0D0D0D] transition-colors">Cancel</button>
+              <div className="px-6 py-4 border-t border-[#2775CA] flex gap-3 justify-end">
+                <button onClick={() => { setShowEditModal(false); setEditingApi(null); setApiActionError(null) }} className="px-4 py-2 rounded-lg text-sm font-medium border border-[#2775CA] text-[#6B7280] hover:border-[#0D0D0D] transition-colors">Cancel</button>
                 <button onClick={() => { void handleEditSave() }} className="px-4 py-2 rounded-lg text-sm font-medium bg-[#2775CA] hover:bg-[#1E63B5] text-white transition-colors">Save</button>
               </div>
             </div>
@@ -828,7 +828,7 @@ export default function DashboardPage() {
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
               <div className="absolute inset-0 bg-black/50" onClick={() => { setDeletingApiId(null); setDeleteConfirmText('') }} />
               <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-                <div className="px-6 py-4 border-b border-[#E2E4E9]">
+                <div className="px-6 py-4 border-b border-[#2775CA]">
                   <span className="font-bold text-[#0D0D0D]">Delete API</span>
                 </div>
                 <div className="px-6 py-5 space-y-4">
@@ -841,8 +841,8 @@ export default function DashboardPage() {
                 {apiActionError && (
                   <p className="px-6 pb-2 text-xs text-[#DC2626]">{apiActionError}</p>
                 )}
-                <div className="px-6 py-4 border-t border-[#E2E4E9] flex gap-3 justify-end">
-                  <button onClick={() => { setDeletingApiId(null); setDeleteConfirmText(''); setApiActionError(null) }} className="px-4 py-2 rounded-lg text-sm font-medium border border-[#E2E4E9] text-[#6B7280] hover:border-[#0D0D0D] transition-colors">Cancel</button>
+                <div className="px-6 py-4 border-t border-[#2775CA] flex gap-3 justify-end">
+                  <button onClick={() => { setDeletingApiId(null); setDeleteConfirmText(''); setApiActionError(null) }} className="px-4 py-2 rounded-lg text-sm font-medium border border-[#2775CA] text-[#6B7280] hover:border-[#0D0D0D] transition-colors">Cancel</button>
                   <button onClick={() => { void handleDeleteConfirm() }} disabled={deleteConfirmText !== 'DELETE'} className="px-4 py-2 rounded-lg text-sm font-medium bg-[#DC2626] hover:bg-[#B91C1C] text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Delete</button>
                 </div>
               </div>
@@ -857,13 +857,13 @@ export default function DashboardPage() {
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
               <div className="absolute inset-0 bg-black/50" onClick={() => setDetailsApi(null)} />
               <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden">
-                <div className="px-6 py-4 border-b border-[#E2E4E9] flex items-center justify-between">
+                <div className="px-6 py-4 border-b border-[#2775CA] flex items-center justify-between">
                   <span className="font-bold text-[#0D0D0D]">{group.name}: Call History</span>
                   <button onClick={() => setDetailsApi(null)} className="text-[#6B7280] hover:text-[#0D0D0D] transition-colors text-xl leading-none">&times;</button>
                 </div>
                 <div className="overflow-y-auto max-h-[60vh]">
                   <table className="w-full text-sm">
-                    <thead className="border-b border-[#E2E4E9] sticky top-0 bg-white">
+                    <thead className="border-b border-[#2775CA] sticky top-0 bg-white">
                       <tr className="text-left text-[#6B7280]">
                         <th className="px-6 py-3 font-medium">Time</th>
                         <th className="px-6 py-3 font-medium">Latency</th>
@@ -872,7 +872,7 @@ export default function DashboardPage() {
                     </thead>
                     <tbody>
                       {group.calls.map(call => (
-                        <tr key={call.id} className="border-b border-[#E2E4E9] last:border-0 hover:bg-[#F5F5F0]">
+                        <tr key={call.id} className="border-b border-[#2775CA] last:border-0 hover:bg-[#F5F5F0]">
                           <td className="px-6 py-3 text-[#6B7280]">{new Date(call.created_at).toLocaleString()}</td>
                           <td className="px-6 py-3 text-[#0D0D0D]">{call.latency_ms}ms</td>
                           <td className="px-6 py-3">
@@ -897,13 +897,13 @@ export default function DashboardPage() {
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
               <div className="absolute inset-0 bg-black/50" onClick={() => setDetailsSellApi(null)} />
               <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden">
-                <div className="px-6 py-4 border-b border-[#E2E4E9] flex items-center justify-between">
+                <div className="px-6 py-4 border-b border-[#2775CA] flex items-center justify-between">
                   <span className="font-bold text-[#0D0D0D]">{group.api_name}: Incoming Calls</span>
                   <button onClick={() => setDetailsSellApi(null)} className="text-[#6B7280] hover:text-[#0D0D0D] transition-colors text-xl leading-none">&times;</button>
                 </div>
                 <div className="overflow-y-auto max-h-[60vh]">
                   <table className="w-full text-sm">
-                    <thead className="border-b border-[#E2E4E9] sticky top-0 bg-white">
+                    <thead className="border-b border-[#2775CA] sticky top-0 bg-white">
                       <tr className="text-left text-[#6B7280]">
                         <th className="px-6 py-3 font-medium">Buyer</th>
                         <th className="px-6 py-3 font-medium">Time</th>
@@ -913,7 +913,7 @@ export default function DashboardPage() {
                     </thead>
                     <tbody>
                       {group.calls.map(call => (
-                        <tr key={call.id} className="border-b border-[#E2E4E9] last:border-0 hover:bg-[#F5F5F0]">
+                        <tr key={call.id} className="border-b border-[#2775CA] last:border-0 hover:bg-[#F5F5F0]">
                           <td className="px-6 py-3 text-[#6B7280] font-mono text-xs">{call.buyer_wallet.slice(0, 6)}...{call.buyer_wallet.slice(-4)}</td>
                           <td className="px-6 py-3 text-[#6B7280]">{new Date(call.created_at).toLocaleString()}</td>
                           <td className="px-6 py-3 text-[#0D0D0D]">{call.latency_ms}ms</td>
@@ -939,7 +939,7 @@ export default function DashboardPage() {
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-black/50" onClick={() => setViewApiModal(null)} />
         <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
-          <div className="px-6 py-4 border-b border-[#E2E4E9] flex items-center justify-between">
+          <div className="px-6 py-4 border-b border-[#2775CA] flex items-center justify-between">
             <span className="font-bold text-[#0D0D0D]">{viewApiModal.apiName}</span>
             <button onClick={() => setViewApiModal(null)} className="text-[#6B7280] hover:text-[#0D0D0D] transition-colors text-xl leading-none">&times;</button>
           </div>
@@ -967,7 +967,7 @@ export default function DashboardPage() {
                   setViewApiCopied(true)
                   setTimeout(() => setViewApiCopied(false), 2000)
                 }}
-                className={`mt-3 w-full py-2 rounded-lg text-sm font-medium border transition-colors ${viewApiCopied ? 'bg-[#F0FDF4] border-[#86EFAC] text-[#16A34A]' : 'bg-white border-[#E2E4E9] text-[#6B7280] hover:border-[#2775CA] hover:text-[#2775CA]'}`}
+                className={`mt-3 w-full py-2 rounded-lg text-sm font-medium border transition-colors ${viewApiCopied ? 'bg-[#F0FDF4] border-[#86EFAC] text-[#16A34A]' : 'bg-white border-[#2775CA] text-[#6B7280] hover:border-[#2775CA] hover:text-[#2775CA]'}`}
               >
                 {viewApiCopied ? 'Copied!' : 'Copy to clipboard'}
               </button>

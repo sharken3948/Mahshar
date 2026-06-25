@@ -103,7 +103,7 @@ export async function GET() {
 
     return NextResponse.json({
       marketplace: 'Mahshar',
-      description: 'AI-powered API marketplace with USDC micropayments via x402 on Arc',
+      description: 'AI-powered API marketplace with USDC nanopayments via x402 on Arc',
       network: 'eip155:5042002',
       payment_protocol: 'x402',
       payment_domain: {

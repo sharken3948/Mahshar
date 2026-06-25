@@ -25,12 +25,12 @@ export function NavBar() {
   }, [address])
 
   return (
-    <nav className="fixed top-0 z-50 w-full border-b border-[#E2E4E9] bg-[#F5F5F0]">
+    <nav className="fixed top-0 z-50 w-full border-b border-[#F5F5F0] bg-[#F5F5F0]">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
         <Link href="/"><img src="/logo.png" alt="mahshar" className="h-28 w-auto" /></Link>
         <div className="flex items-center gap-3">
           {isConnected && (
-            <span className="flex items-center gap-1.5 bg-white border border-[#E2E4E9] rounded-full px-3 py-1.5 text-xs font-medium whitespace-nowrap">
+            <span className="flex items-center gap-1.5 bg-white border border-[#2775CA] rounded-full px-3 py-1.5 text-xs font-medium whitespace-nowrap">
               <span className="text-[#6B7280]">Mahshar Balance:</span>
               <span className="text-[#2775CA] font-bold text-sm">${balance ?? '—'} USDC</span>
               <span className="text-[#6B7280] font-normal text-xs">(Testnet)</span>

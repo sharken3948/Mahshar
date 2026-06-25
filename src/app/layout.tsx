@@ -17,8 +17,17 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: 'Mahshar: The API Economy, Powered by USDC',
-  description: 'Buy and sell API access with instant USDC micropayments. AI-matched, x402-powered, zero integration.',
+  description: 'Buy and sell API access with instant USDC nanopayments. AI-matched, x402-powered, zero integration.',
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? 'https://mahshar.xyz'),
+  icons: {
+    icon: [
+      { url: '/icon.png', sizes: '512x512', type: 'image/png' },
+      { url: '/icon.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icon.png', sizes: '16x16', type: 'image/png' },
+    ],
+    apple: '/icon.png',
+  },
 };
 
 export default async function RootLayout({
