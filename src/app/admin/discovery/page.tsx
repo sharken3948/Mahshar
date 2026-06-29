@@ -73,7 +73,8 @@ export default function DiscoveryAdminPage() {
   const [stats, setStats] = useState<CrawlStats | null>(null);
   const [crawlRows, setCrawlRows] = useState<CrawlRow[]>([]);
   const [batchRunning, setBatchRunning] = useState(false);
-  const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{ batch: number; listed: number; rejected: number; skipped: number }[]>([]);
+  const [batchSummary, setBatchSummary] = useState<{ listed: number; rejected: number; skipped: number } | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
 
   const [discoveredApis, setDiscoveredApis] = useState<DiscoveredApi[]>([]);
@@ -115,22 +116,35 @@ export default function DiscoveryAdminPage() {
 
   async function handleRunBatch() {
     setBatchRunning(true);
-    setBatchResult(null);
+    setBatchProgress([]);
+    setBatchSummary(null);
     setBatchError(null);
-    try {
-      const res = await aFetch('/api/discovery/crawl', { method: 'POST' });
-      const data = await res.json() as BatchResult & { error?: string };
-      if (!res.ok) {
-        setBatchError(data.error ?? `Error ${res.status}`);
-      } else {
-        setBatchResult(data);
-        await refreshCrawlData();
+
+    let totalListed = 0;
+    let totalRejected = 0;
+    let totalSkipped = 0;
+
+    for (let i = 0; i < 5; i++) {
+      try {
+        const res = await aFetch('/api/discovery/crawl?batch_size=10', { method: 'POST' });
+        const data = await res.json() as BatchResult & { error?: string };
+        if (!res.ok) {
+          setBatchError(data.error ?? `Error ${res.status}`);
+          break;
+        }
+        totalListed += data.listed;
+        totalRejected += data.rejected;
+        totalSkipped += data.skipped;
+        setBatchProgress(prev => [...prev, { batch: i + 1, listed: data.listed, rejected: data.rejected, skipped: data.skipped }]);
+      } catch (err: unknown) {
+        setBatchError(err instanceof Error ? err.message : 'Network error');
+        break;
       }
-    } catch (err: unknown) {
-      setBatchError(err instanceof Error ? err.message : 'Network error');
-    } finally {
-      setBatchRunning(false);
     }
+
+    setBatchSummary({ listed: totalListed, rejected: totalRejected, skipped: totalSkipped });
+    await refreshCrawlData();
+    setBatchRunning(false);
   }
 
   async function handleScan() {
@@ -231,20 +245,36 @@ export default function DiscoveryAdminPage() {
                 </div>
               )}
 
-              {/* Run Batch */}
-              <div className="flex items-center gap-4 mb-4">
-                <Button onClick={() => void handleRunBatch()} disabled={batchRunning}>
-                  {batchRunning ? 'Running…' : 'Run Batch'}
-                </Button>
-                {batchResult && (
-                  <span className="text-sm text-[#6B7280]">
-                    Processed {batchResult.processed} — Listed {batchResult.listed}, Rejected {batchResult.rejected}
-                    {batchResult.skipped > 0 && `, Skipped ${batchResult.skipped}`}
-                    {' · '}{batchResult.total_pending} pending
-                  </span>
-                )}
-                {batchError && (
-                  <span className="text-sm text-red-600">{batchError}</span>
+              {/* Run 50 APIs */}
+              <div className="flex flex-col gap-3 mb-4">
+                <div className="flex items-center gap-4">
+                  <Button onClick={() => void handleRunBatch()} disabled={batchRunning}>
+                    {batchRunning ? 'Running…' : 'Run 50 APIs'}
+                  </Button>
+                  {batchError && (
+                    <span className="text-sm text-red-600">{batchError}</span>
+                  )}
+                </div>
+                {(batchProgress.length > 0 || batchRunning) && (
+                  <div className="space-y-1 pl-1">
+                    {batchProgress.map(p => (
+                      <div key={p.batch} className="text-sm text-[#6B7280]">
+                        Batch {p.batch}/5: Listed {p.listed}, Rejected {p.rejected}
+                        {p.skipped > 0 && `, Skipped ${p.skipped}`}
+                      </div>
+                    ))}
+                    {batchRunning && batchProgress.length < 5 && (
+                      <div className="text-sm text-[#6B7280] animate-pulse">
+                        Batch {batchProgress.length + 1}/5: running…
+                      </div>
+                    )}
+                    {batchSummary && !batchRunning && (
+                      <div className="text-sm font-medium text-[#0D0D0D] pt-1 border-t border-[#F0F0E8]">
+                        Total: Listed {batchSummary.listed}, Rejected {batchSummary.rejected}
+                        {batchSummary.skipped > 0 && `, Skipped ${batchSummary.skipped}`}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -293,7 +323,7 @@ export default function DiscoveryAdminPage() {
 
               {crawlRows.length === 0 && (
                 <p className="text-sm text-[#6B7280]">
-                  No rows yet — click Run Batch to seed and process the queue.
+                  No rows yet — click Run 50 APIs to seed and process the queue.
                 </p>
               )}
 

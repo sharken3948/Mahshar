@@ -34,6 +34,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 
+  console.log('[scan] fetchPaidApis returned:', apis.length);
+
   if (apis.length === 0) {
     return NextResponse.json({ new: 0, existing: 0 });
   }
@@ -47,8 +49,10 @@ export async function POST(request: NextRequest) {
   const existingUrls = new Set((existing ?? []).map(e => (e as { repo_url: string }).repo_url));
   const newApis = apis.filter(a => !existingUrls.has(a.repo_url));
 
+  console.log('[scan] new entries to insert:', newApis.length);
+
   if (newApis.length > 0) {
-    await supabase.from('discovered_apis').insert(
+    const { error: insertError } = await supabase.from('discovered_apis').upsert(
       newApis.map(a => ({
         repo_url: a.repo_url,
         api_name: a.api_name,
@@ -56,7 +60,9 @@ export async function POST(request: NextRequest) {
         owner_email: a.owner_email,
         owner_x: a.owner_x,
       })),
+      { onConflict: 'repo_url', ignoreDuplicates: true },
     );
+    console.log('[scan] insert result:', insertError);
   }
 
   return NextResponse.json({ new: newApis.length, existing: existingUrls.size });

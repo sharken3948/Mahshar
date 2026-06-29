@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import { fetchPublicApis, fetchPublicApiLists } from '@/lib/crawler';
+import { fetchPublicApis } from '@/lib/crawler';
 import { scoreForDiscovery, isSafeUrl } from '@/lib/discovery';
 
 export const runtime = 'nodejs';
@@ -30,19 +30,26 @@ export async function GET(request: NextRequest) {
 
   const { data } = await supabase
     .from('crawl_queue')
-    .select('id, name, endpoint_url, status, score, reject_reason, created_at')
+    .select('id, name, endpoint_url, status, score, reject_reason, created_at, source_name')
     .order('created_at', { ascending: false });
 
   const rows = (data ?? []) as Pick<
     CrawlQueueRow,
-    'id' | 'name' | 'endpoint_url' | 'status' | 'score' | 'reject_reason' | 'created_at'
+    'id' | 'name' | 'endpoint_url' | 'status' | 'score' | 'reject_reason' | 'created_at' | 'source_name'
   >[];
+
+  const by_source: Record<string, number> = {};
+  for (const r of rows) {
+    const key = r.source_name ?? 'unknown';
+    by_source[key] = (by_source[key] ?? 0) + 1;
+  }
 
   const stats = {
     total: rows.length,
     pending: rows.filter(r => r.status === 'pending').length,
     listed: rows.filter(r => r.status === 'listed').length,
     rejected: rows.filter(r => r.status === 'rejected').length,
+    by_source,
   };
 
   return NextResponse.json({ stats, rows: rows.slice(0, 20) });
@@ -75,12 +82,8 @@ export async function POST(request: NextRequest) {
 
   if ((pendingCount ?? 0) === 0) {
     try {
-      const [publicApis, publicApiLists] = await Promise.all([
-        fetchPublicApis(),
-        fetchPublicApiLists(),
-      ]);
-      const combined = [...publicApis, ...publicApiLists];
-      const seedRows = combined.map(a => ({
+      const entries = await fetchPublicApis();
+      const seedRows = entries.map(a => ({
         name: a.name,
         description: a.description,
         category: a.category,
@@ -124,25 +127,27 @@ export async function POST(request: NextRequest) {
     // Check 1: auth required — skip without network call
     const auth = (row.auth ?? '').trim();
     if (auth && auth !== 'No') {
+      console.log(`[crawl:skip] auth_required — name="${row.name}" url="${row.endpoint_url}" auth="${auth}"`);
       rejectReason = 'auth_required';
       skipped++;
       await supabase
         .from('crawl_queue')
         .update({ status: finalStatus, reject_reason: rejectReason })
         .eq('id', row.id);
-      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 10000));
+      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 2000));
       continue;
     }
 
     // Check 2: URL safety (HTTPS only, no private/loopback IPs)
     if (!isSafeUrl(row.endpoint_url)) {
+      console.log(`[crawl:skip] unsafe_url — name="${row.name}" url="${row.endpoint_url}"`);
       rejectReason = 'unsafe_url';
       skipped++;
       await supabase
         .from('crawl_queue')
         .update({ status: finalStatus, reject_reason: rejectReason })
         .eq('id', row.id);
-      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 10000));
+      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 2000));
       continue;
     }
 
@@ -169,7 +174,7 @@ export async function POST(request: NextRequest) {
         .from('crawl_queue')
         .update({ status: finalStatus, reject_reason: rejectReason })
         .eq('id', row.id);
-      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 10000));
+      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 2000));
       continue;
     }
 
@@ -184,7 +189,7 @@ export async function POST(request: NextRequest) {
         .from('crawl_queue')
         .update({ status: finalStatus, reject_reason: rejectReason })
         .eq('id', row.id);
-      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 10000));
+      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 2000));
       continue;
     }
 
@@ -197,7 +202,7 @@ export async function POST(request: NextRequest) {
         .from('crawl_queue')
         .update({ status: finalStatus, score: rowScore, reject_reason: rejectReason })
         .eq('id', row.id);
-      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 10000));
+      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 2000));
       continue;
     }
 
@@ -237,7 +242,7 @@ export async function POST(request: NextRequest) {
       .update({ status: finalStatus, score: rowScore, reject_reason: rejectReason, listing_id: listingId })
       .eq('id', row.id);
 
-    if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 10000));
+    if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 2000));
   }
 
   const { count: totalPending } = await supabase
