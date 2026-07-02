@@ -16,7 +16,7 @@ AI-powered API marketplace on Arc Testnet. Sellers list APIs and earn USDC per c
 
 ### For Buyers
 - **AI-powered semantic search** — `/api/ai/match` takes a natural-language query and returns the best-matching active APIs using Groq.
-- **x402 nanopayment flow** — Buyers pay per call via EIP-3009 `TransferWithAuthorization` signed messages, settled through Circle Gateway on Arc Testnet. Gasless — USDC is the gas token on Arc.
+- **x402 nanopayment flow** — Buyers pay per call via EIP-712 `signTypedData` signing of a `TransferWithAuthorization` message (the authorization concept defined in EIP-3009), settled through Circle Gateway on Arc Testnet. Gasless — USDC is the gas token on Arc.
 - **Request body editor** — POST and PUT APIs show a JSON editor pre-filled with the listing's example request. Buyers can modify the payload before calling.
 - **Smart retry messaging** — consecutive transient failures (rate limits, 503s) surface a helpful retry prompt rather than a generic error.
 - **Cross-chain balance funding** — The dashboard lets buyers deposit USDC from six testnets (Avalanche Fuji, Base Sepolia, Ethereum Sepolia, Arbitrum Sepolia, Optimism Sepolia, Polygon Amoy) directly into their Mahshar Gateway balance in one click. See [Add to Mahshar Balance](#cross-chain-deposit-flow) below.
