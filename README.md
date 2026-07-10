@@ -1,8 +1,8 @@
 # Mahshar — The API economy, powered by USDC.
 
-AI-powered API marketplace on Arc Testnet. Sellers list APIs and earn USDC per call. Buyers discover and pay for APIs via x402 nanopayments through Circle Gateway — no subscriptions, no API keys required on the buyer side.
+AI-powered API marketplace. Sellers list APIs and earn USDC per call. Buyers discover and pay for APIs via x402 nanopayments through Circle Gateway — no subscriptions, no API keys required on the buyer side. Payments settle on **Arc Testnet** or **Base mainnet** at the buyer's choice.
 
-**Live:** [mahshar.xyz](https://mahshar.xyz) — Arc Testnet (built for the Lepton Hackathon)
+**Live:** [mahshar.xyz](https://mahshar.xyz) — Arc Testnet + Base mainnet (built for the Lepton Hackathon)
 
 ---
 
@@ -16,7 +16,7 @@ AI-powered API marketplace on Arc Testnet. Sellers list APIs and earn USDC per c
 
 ### For Buyers
 - **AI-powered semantic search** — `/api/ai/match` takes a natural-language query and returns the best-matching active APIs using Groq.
-- **x402 nanopayment flow** — Buyers pay per call via EIP-712 `signTypedData` signing of a `TransferWithAuthorization` message (the authorization concept defined in EIP-3009), settled through Circle Gateway on Arc Testnet. Gasless — USDC is the gas token on Arc.
+- **x402 nanopayment flow** — Buyers pay per call via EIP-712 `signTypedData` signing of a `TransferWithAuthorization` message (the authorization concept defined in EIP-3009), settled through Circle Gateway. Every 402 response advertises both **Arc Testnet** and **Base mainnet** in the `accepts` array — the buyer signs against whichever chain their Gateway balance is on. Gasless on both.
 - **Request body editor** — POST and PUT APIs show a JSON editor pre-filled with the listing's example request. Buyers can modify the payload before calling.
 - **Smart retry messaging** — consecutive transient failures (rate limits, 503s) surface a helpful retry prompt rather than a generic error.
 - **Cross-chain balance funding** — The dashboard lets buyers deposit USDC from six testnets (Avalanche Fuji, Base Sepolia, Ethereum Sepolia, Arbitrum Sepolia, Optimism Sepolia, Polygon Amoy) directly into their Mahshar Gateway balance in one click. See [Add to Mahshar Balance](#cross-chain-deposit-flow) below.
@@ -45,14 +45,22 @@ AI-powered API marketplace on Arc Testnet. Sellers list APIs and earn USDC per c
 ## Architecture
 
 ### Proxy pattern
-Every buyer request goes through `/api/proxy`. Mahshar fetches the seller's endpoint URL and decrypted auth credentials from the database server-side, injects the appropriate auth — `x-api-key` header, `Authorization: Bearer` header, or `?key=VALUE` URL query parameter — depending on the listing's auth type, forwards the request, and returns the response. Responses are capped at 5 MB; larger upstream payloads are rejected before forwarding. Buyers never see seller credentials or the real endpoint URL.
+Every buyer request goes through the proxy layer. Two routes are exposed:
+
+- **`POST /api/proxy` (envelope)** — the browser client uses this. Body carries `{ api_id, buyer_wallet, method?, path?, body? }`; the inner `body` is what gets forwarded upstream. Analytics track `buyer_wallet` even when the payment is signed by a different EOA (Circle SCA case).
+- **`POST /api/proxy/[api_id]` (path route)** — for autonomous agents. The `api_id` lives in the URL and **the entire request body is forwarded to the seller's endpoint as-is** (no envelope). The buyer identity is derived from the payment signer's EOA. This is the format that Circle Agent Stack's `circle_pay_service` tool speaks natively, so an agent can pay a listing with a single `services pay` call. `GET` is also handled.
+
+Both routes share the same 402 builder and payment verifier. Mahshar fetches the seller's endpoint URL and decrypted auth credentials from the database server-side, injects the appropriate auth — `x-api-key` header, `Authorization: Bearer` header, or `?key=VALUE` URL query parameter — depending on the listing's auth type, forwards the request, and returns the response. Responses are capped at 5 MB; larger upstream payloads are rejected before forwarding. Buyers never see seller credentials or the real endpoint URL.
 
 ### Payment flow
 ```
-Buyer → POST /api/proxy (no payment header)
+Buyer → POST /api/proxy          (envelope route, browser)
+        or  /api/proxy/[api_id]  (path route, agents)
       ← 402 + base64-encoded PAYMENT-REQUIRED header
+        (accepts[] offers Arc Testnet AND Base mainnet)
 Buyer signs TransferWithAuthorization EIP-712 message
-Buyer → POST /api/proxy (Payment-Signature header)
+        for whichever chain their Gateway balance is on
+Buyer → POST same URL as above   (Payment-Signature header)
       → Circle Gateway: verify + settle
       → Seller's endpoint (proxied)
       ← Response to buyer
@@ -149,7 +157,7 @@ Send a GET to `/api/agent/discover` to get the full marketplace catalog in machi
 | AI | Groq — llama-3.3-70b-versatile |
 | Wallet / Web3 | RainbowKit 2.2.11, wagmi 2.19.5, viem 2.52 |
 | Payments | `@circle-fin/x402-batching`, `@circle-fin/bridge-kit`, `@circle-fin/app-kit`, Circle Gateway (Arc Testnet) |
-| Chain | Arc Testnet (chain ID 5042002) — USDC as native gas token |
+| Chains | Arc Testnet (chain ID 5042002, USDC as native gas token) + Base mainnet (chain ID 8453) — buyer picks per call |
 
 > **Agent Wallet CLI** (`@circle-fin/cli`) is a separate global tool — not in `package.json`. Install it with `npm install -g @circle-fin/cli`. See [Agent Wallet Integration](#agent-wallet-integration).
 | Encryption | AES-256-GCM (Node.js `crypto`) |
@@ -189,7 +197,8 @@ See `.env.example` for full descriptions. Required:
 
 | Route | Method | Description |
 |---|---|---|
-| `/api/proxy` | POST | Payment gateway + request proxy |
+| `/api/proxy` | POST | Payment gateway + request proxy (envelope body: `{api_id, buyer_wallet, body, …}`) |
+| `/api/proxy/[api_id]` | GET, POST | Same as above, but `api_id` lives in the URL and the raw request body is forwarded upstream as-is. Circle Agent Stack–compatible. |
 | `/api/apis` | GET, POST | List active APIs / create listing |
 | `/api/apis/[id]` | GET, PATCH, DELETE | Get / update / delete a listing |
 | `/api/apis/[id]/verify` | POST | Live endpoint verification |
@@ -247,6 +256,19 @@ circle services pay https://mahshar.xyz/api/proxy \
   --max-amount 0.1 \
   --data '{"api_id":"<api-id>","buyer_wallet":"<wallet-address>","request_body":{...}}'
 ```
+
+Or, using the path route directly — the body is whatever the upstream API expects, no envelope:
+
+```bash
+circle services pay https://mahshar.xyz/api/proxy/34c7a931-81de-4b8b-81ac-0916b4316989 \
+  --method POST \
+  --chain BASE \
+  --address <wallet-address> \
+  --max-amount 0.1 \
+  --data '{"address":"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045","chain":"arc"}'
+```
+
+The URL above targets the [Ioscope](https://ioscope.xyz) listing. `--chain` can be `ARC-TESTNET` or `BASE` — the 402 offers both and Circle picks the entry that matches your Gateway balance.
 
 ### How It Works
 
