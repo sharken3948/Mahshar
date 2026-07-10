@@ -4,9 +4,35 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { isValidWalletAddress } from '@/lib/wallet-validation'
 
-const ARC_TESTNET_NETWORK = 'eip155:5042002'
-const ARC_TESTNET_USDC = '0x3600000000000000000000000000000000000000'
-const ARC_TESTNET_GATEWAY_WALLET = '0x0077777d7EBA4688BDeF3E311b846F25870A19B9'
+// USDC decimals are 6 on every supported chain — kept as a constant here
+// because reading decimals() at request time would add an RPC round-trip to
+// every 402 response with no real safety benefit for a fixed asset.
+const USDC_DECIMALS = 6
+
+type NetworkId = 'eip155:5042002' | 'eip155:8453'
+type ChainConfig = {
+  usdc: `0x${string}`
+  gatewayWallet: `0x${string}`
+  facilitatorUrl: string
+  gatewayClientChain: 'arcTestnet' | 'base'
+}
+
+const CHAINS: Record<NetworkId, ChainConfig> = {
+  'eip155:5042002': {
+    usdc: '0x3600000000000000000000000000000000000000',
+    gatewayWallet: '0x0077777d7EBA4688BDeF3E311b846F25870A19B9',
+    facilitatorUrl: 'https://gateway-api-testnet.circle.com',
+    gatewayClientChain: 'arcTestnet',
+  },
+  'eip155:8453': {
+    usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    gatewayWallet: '0x77777777dcc4d5a8b6e418fd04d8997ef11000ee',
+    facilitatorUrl: 'https://gateway-api.circle.com',
+    gatewayClientChain: 'base',
+  },
+}
+
+const NETWORK_ORDER: NetworkId[] = ['eip155:5042002', 'eip155:8453']
 
 const _platformAddress = process.env.PLATFORM_WALLET_ADDRESS
 const _platformPrivateKey = process.env.PLATFORM_WALLET_PRIVATE_KEY
@@ -22,43 +48,62 @@ export const PLATFORM_PRIVATE_KEY = _platformPrivateKey as `0x${string}`
 const BUYER_FEE_RATE = 0.10
 const SELLER_FEE_RATE = 0.10
 
-const facilitator = new BatchFacilitatorClient({
-  url: 'https://gateway-api-testnet.circle.com',
-})
+const facilitators = new Map<string, BatchFacilitatorClient>()
+function facilitatorFor(networkId: NetworkId): BatchFacilitatorClient {
+  const url = CHAINS[networkId].facilitatorUrl
+  let f = facilitators.get(url)
+  if (!f) {
+    f = new BatchFacilitatorClient({ url })
+    facilitators.set(url, f)
+  }
+  return f
+}
 
-const gatewayClient = new GatewayClient({
-  chain: 'arcTestnet',
-  privateKey: PLATFORM_PRIVATE_KEY,
-})
+const gatewayClients = new Map<NetworkId, GatewayClient>()
+function gatewayClientFor(networkId: NetworkId): GatewayClient {
+  let c = gatewayClients.get(networkId)
+  if (!c) {
+    c = new GatewayClient({
+      chain: CHAINS[networkId].gatewayClientChain,
+      privateKey: PLATFORM_PRIVATE_KEY,
+    })
+    gatewayClients.set(networkId, c)
+  }
+  return c
+}
 
-function buildPaymentRequirements(sellerPriceUsd: number) {
-  const buyerAmount = Math.round(sellerPriceUsd * (1 + BUYER_FEE_RATE) * 1_000_000)
+function buildPaymentRequirements(networkId: NetworkId, sellerPriceUsd: number) {
+  const chain = CHAINS[networkId]
+  const buyerAmount = Math.round(sellerPriceUsd * (1 + BUYER_FEE_RATE) * 10 ** USDC_DECIMALS)
   return {
     scheme: 'exact' as const,
-    network: ARC_TESTNET_NETWORK,
-    asset: ARC_TESTNET_USDC,
+    network: networkId,
+    asset: chain.usdc,
     amount: buyerAmount.toString(),
     payTo: PLATFORM_ADDRESS,
     maxTimeoutSeconds: 345600,
     extra: {
       name: 'GatewayWalletBatched',
       version: '1',
-      verifyingContract: ARC_TESTNET_GATEWAY_WALLET,
+      verifyingContract: chain.gatewayWallet,
     },
   }
 }
 
-export function build402Response(sellerPriceUsd: number): NextResponse {
-  const requirements = buildPaymentRequirements(sellerPriceUsd)
+export function build402Response(sellerPriceUsd: number, resourceUrl = '/api/proxy'): NextResponse {
+  const accepts = NETWORK_ORDER.map(n => buildPaymentRequirements(n, sellerPriceUsd))
   const buyerPrice = (sellerPriceUsd * (1 + BUYER_FEE_RATE)).toFixed(6)
   const paymentRequired = {
     x402Version: 2,
     resource: {
-      url: '/api/proxy',
+      url: resourceUrl,
       description: `API call — $${buyerPrice} USDC (incl. 10% platform fee)`,
       mimeType: 'application/json',
     },
-    accepts: [requirements],
+    accepts,
+    extensions: {
+      hint: 'Discover and pay for more APIs at https://mahshar.xyz',
+    },
   }
   return new NextResponse(JSON.stringify({}), {
     status: 402,
@@ -81,17 +126,33 @@ export async function verifyAndSettlePayment(
   }
 
   try {
-    const requirements = buildPaymentRequirements(sellerPriceUsd)
     const paymentPayload = JSON.parse(
       Buffer.from(paymentSignature, 'base64').toString('utf-8')
     )
 
-    const verifyResult = await facilitator.verify(paymentPayload, requirements)
-    if (!verifyResult.isValid) {
-      return { success: false, error: `verification_failed: ${verifyResult.invalidReason}` }
+    // Payment payloads don't self-identify their network — try each
+    // requirement in accepts order until one verifies. First hit wins.
+    let matched: {
+      networkId: NetworkId
+      verifyResult: Awaited<ReturnType<BatchFacilitatorClient['verify']>>
+    } | null = null
+    let lastInvalidReason = 'no_matching_network'
+    for (const networkId of NETWORK_ORDER) {
+      const requirements = buildPaymentRequirements(networkId, sellerPriceUsd)
+      const verifyResult = await facilitatorFor(networkId).verify(paymentPayload, requirements)
+      if (verifyResult.isValid) {
+        matched = { networkId, verifyResult }
+        break
+      }
+      lastInvalidReason = verifyResult.invalidReason ?? lastInvalidReason
+    }
+    if (!matched) {
+      return { success: false, error: `verification_failed: ${lastInvalidReason}` }
     }
 
-    const settleResult = await facilitator.settle(paymentPayload, requirements)
+    const { networkId, verifyResult } = matched
+    const requirements = buildPaymentRequirements(networkId, sellerPriceUsd)
+    const settleResult = await facilitatorFor(networkId).settle(paymentPayload, requirements)
     if (!settleResult.success) {
       return { success: false, error: `settlement_failed: ${settleResult.errorReason}` }
     }
@@ -109,24 +170,32 @@ export async function verifyAndSettlePayment(
       return { success: false, error: 'invalid_amount' }
     }
 
-    console.log(`[payment] api=${apiId} buyer=${payer} buyer_paid=$${(sellerPriceUsd * 1.1).toFixed(6)} seller_gets=$${sellerShare.toFixed(6)} platform=$${(sellerPriceUsd * 0.2).toFixed(6)}`)
+    console.log(`[payment] api=${apiId} network=${networkId} buyer=${payer} buyer_paid=$${(sellerPriceUsd * 1.1).toFixed(6)} seller_gets=$${sellerShare.toFixed(6)} platform=$${(sellerPriceUsd * 0.2).toFixed(6)}`)
 
-    const transferResult = await transferToSeller(sellerAddress, sellerShare, apiId)
+    const transferResult = await transferToSeller(sellerAddress, sellerShare, apiId, networkId)
     if (!transferResult.success) {
       console.error(`[transfer-failed] api=${apiId} seller=${sellerAddress} amount=$${sellerShare.toFixed(6)} buyer=${payer} error=${transferResult.error}`)
     }
 
     const supabase = createServiceClient()
-    const { data: purchase } = await supabase
+    // tx_hash carries a UNIQUE constraint (see migration 20260710_multichain_payments.sql).
+    // The upsert-ignore path collapses a replayed settled payload to a no-op instead of
+    // inserting a duplicate purchase row.
+    const txHash = settleResult.transaction ?? `gateway-${Date.now()}`
+    const insertRes = await supabase
       .from('purchases')
-      .insert({
+      .upsert({
         buyer_wallet: payer.toLowerCase(),
         api_id: apiId,
         amount_usdc: Math.round(sellerPriceUsd * 1.1 * 1_000_000) / 1_000_000,
-        tx_hash: settleResult.transaction ?? `gateway-${Date.now()}`,
-      })
+        tx_hash: txHash,
+      }, { onConflict: 'tx_hash', ignoreDuplicates: true })
       .select('id')
-      .single()
+      .maybeSingle()
+    if (!insertRes.data) {
+      return { success: false, error: 'duplicate_payment: tx_hash already settled' }
+    }
+    const purchase = insertRes.data
 
     return { success: true, payer, transfer_failed: !transferResult.success, callId: purchase?.id }
   } catch (err: unknown) {
@@ -140,11 +209,13 @@ async function transferToSeller(
   sellerAddress: `0x${string}`,
   amountUsd: number,
   apiId: string,
+  networkId: NetworkId,
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const amountStr = amountUsd.toFixed(6)
-    await gatewayClient.transfer(amountStr, 'arcTestnet', sellerAddress)
-    console.log(`[transfer] $${amountStr} USDC -> seller ${sellerAddress} api=${apiId}`)
+    const chain = CHAINS[networkId].gatewayClientChain
+    await gatewayClientFor(networkId).transfer(amountStr, chain, sellerAddress)
+    console.log(`[transfer] $${amountStr} USDC (${chain}) -> seller ${sellerAddress} api=${apiId}`)
     return { success: true }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
