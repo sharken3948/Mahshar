@@ -14,7 +14,7 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
   const supabase = createServiceClient()
   const { data: listing, error } = await supabase
     .from('api_listings')
-    .select('id, name, price_per_call, seller_wallet, is_active, method')
+    .select('id, name, price_per_call, seller_wallet, is_active')
     .eq('id', apiId)
     .single()
 
@@ -27,7 +27,6 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
 
   const sellerAddress = listing.seller_wallet as `0x${string}`
   const priceUsd = Number(listing.price_per_call)
-  const listingMethod = (listing.method as string | null) ?? 'GET'
 
   const resourceUrl = `/api/proxy/${apiId}`
 
@@ -59,7 +58,7 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
     apiId,
     buyerWallet: paymentResult.payer,
     paymentType: 'pay-per-call',
-    method: listingMethod,
+    method,
     path: '',
     incomingHeaders: {},
     body: upstreamBody,
