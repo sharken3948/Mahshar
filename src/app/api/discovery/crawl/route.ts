@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
   const { searchParams } = new URL(request.url);
 
   const rawBatch = parseInt(searchParams.get('batch_size') ?? '2', 10);
-  const batchSize = Math.min(Math.max(1, isFinite(rawBatch) ? rawBatch : 2), 4);
+  const batchSize = Math.min(Math.max(1, isFinite(rawBatch) ? rawBatch : 2), 10);
   const rawOffset = parseInt(searchParams.get('offset') ?? '0', 10);
   const offset = Math.max(0, isFinite(rawOffset) ? rawOffset : 0);
 
@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
         .from('crawl_queue')
         .update({ status: finalStatus, reject_reason: rejectReason })
         .eq('id', row.id);
-      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 2000));
+      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 500));
       continue;
     }
 
@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
         .from('crawl_queue')
         .update({ status: finalStatus, reject_reason: rejectReason })
         .eq('id', row.id);
-      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 2000));
+      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 500));
       continue;
     }
 
@@ -174,23 +174,41 @@ export async function POST(request: NextRequest) {
         .from('crawl_queue')
         .update({ status: finalStatus, reject_reason: rejectReason })
         .eq('id', row.id);
-      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 2000));
+      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 500));
       continue;
     }
 
-    // Check 4: Groq quality score
+    // Check 4: Groq quality score — retry once after 30s on 429 (free-tier rate limit)
     let scoreResult: { score: number; reason: string };
     try {
       scoreResult = await scoreForDiscovery(row.name, row.description ?? '');
-    } catch {
-      rejectReason = 'score_error';
-      rejected++;
-      await supabase
-        .from('crawl_queue')
-        .update({ status: finalStatus, reject_reason: rejectReason })
-        .eq('id', row.id);
-      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 2000));
-      continue;
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status;
+      if (status === 429) {
+        console.log(`[crawl:429] backing off 30s — name="${row.name}"`);
+        await new Promise<void>(r => setTimeout(r, 30000));
+        try {
+          scoreResult = await scoreForDiscovery(row.name, row.description ?? '');
+        } catch {
+          rejectReason = 'score_error';
+          rejected++;
+          await supabase
+            .from('crawl_queue')
+            .update({ status: finalStatus, reject_reason: rejectReason })
+            .eq('id', row.id);
+          if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 500));
+          continue;
+        }
+      } else {
+        rejectReason = 'score_error';
+        rejected++;
+        await supabase
+          .from('crawl_queue')
+          .update({ status: finalStatus, reject_reason: rejectReason })
+          .eq('id', row.id);
+        if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 500));
+        continue;
+      }
     }
 
     rowScore = scoreResult.score;
@@ -202,7 +220,7 @@ export async function POST(request: NextRequest) {
         .from('crawl_queue')
         .update({ status: finalStatus, score: rowScore, reject_reason: rejectReason })
         .eq('id', row.id);
-      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 2000));
+      if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 500));
       continue;
     }
 
@@ -242,7 +260,7 @@ export async function POST(request: NextRequest) {
       .update({ status: finalStatus, score: rowScore, reject_reason: rejectReason, listing_id: listingId })
       .eq('id', row.id);
 
-    if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 2000));
+    if (i < rows.length - 1) await new Promise<void>(r => setTimeout(r, 500));
   }
 
   const { count: totalPending } = await supabase
