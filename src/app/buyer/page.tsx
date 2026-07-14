@@ -1,7 +1,7 @@
 'use client'
 import { useAccount, useSignTypedData } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import type { ApiListing } from '@/types'
 import { NavBar } from '@/components/NavBar'
@@ -31,8 +31,6 @@ type ApiCardFields = Pick<ApiListing, 'id' | 'name' | 'description' | 'category'
 
 
 const ARC_CHAIN_ID = 5042002
-
-const CATEGORIES = ['All', 'AI', 'Data', 'Finance', 'Weather', 'Geo', 'Social', 'Media', 'Utility', 'Other']
 
 const TRANSFER_TYPES = {
   TransferWithAuthorization: [
@@ -159,9 +157,36 @@ export default function BuyerPage() {
       .catch(() => {})
   }, [address])
 
-  const filteredApis = selectedCategory === 'All'
-    ? allApis
-    : allApis.filter(a => a.category === selectedCategory)
+  const topCategories = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const a of allApis) {
+      if (!a.category) continue
+      counts.set(a.category, (counts.get(a.category) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 9)
+      .map(([name]) => name)
+  }, [allApis])
+
+  const categoryTabs = useMemo(() => {
+    const tabs = ['All', ...topCategories]
+    const distinct = new Set(allApis.map(a => a.category).filter(Boolean))
+    if (distinct.size > topCategories.length) tabs.push('Other')
+    return tabs
+  }, [topCategories, allApis])
+
+  const topSet = useMemo(() => new Set(topCategories), [topCategories])
+
+  useEffect(() => {
+    if (!categoryTabs.includes(selectedCategory)) setSelectedCategory('All')
+  }, [categoryTabs, selectedCategory])
+
+  const filteredApis = useMemo(() => {
+    if (selectedCategory === 'All') return allApis
+    if (selectedCategory === 'Other') return allApis.filter(a => a.category && !topSet.has(a.category))
+    return allApis.filter(a => a.category === selectedCategory)
+  }, [allApis, selectedCategory, topSet])
 
   async function handleSearch() {
     if (!query.trim()) return
@@ -437,7 +462,7 @@ export default function BuyerPage() {
         <section className="mb-8">
           <h2 className="font-bold text-xl text-[#0D0D0D] mb-4">Marketplace Manual Search</h2>
           <div className="flex flex-wrap gap-2 mb-4">
-            {CATEGORIES.map(cat => (
+            {categoryTabs.map(cat => (
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
