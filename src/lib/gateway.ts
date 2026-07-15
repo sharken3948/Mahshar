@@ -1,8 +1,11 @@
 import { BatchFacilitatorClient } from '@circle-fin/x402-batching/server'
 import { GatewayClient } from '@circle-fin/x402-batching/client'
 import { NextRequest, NextResponse } from 'next/server'
+import { createPublicClient, http, type PublicClient } from 'viem'
+import { base } from 'viem/chains'
 import { createServiceClient } from '@/lib/supabase/server'
 import { isValidWalletAddress } from '@/lib/wallet-validation'
+import { arcTestnet } from '@/lib/chains'
 
 // USDC decimals are 6 on every supported chain — kept as a constant here
 // because reading decimals() at request time would add an RPC round-trip to
@@ -68,6 +71,17 @@ function gatewayClientFor(networkId: NetworkId): GatewayClient {
       privateKey: PLATFORM_PRIVATE_KEY,
     })
     gatewayClients.set(networkId, c)
+  }
+  return c
+}
+
+const publicClients = new Map<NetworkId, PublicClient>()
+function publicClientFor(networkId: NetworkId): PublicClient {
+  let c = publicClients.get(networkId)
+  if (!c) {
+    const chain = networkId === 'eip155:5042002' ? arcTestnet : base
+    c = createPublicClient({ chain, transport: http() })
+    publicClients.set(networkId, c)
   }
   return c
 }
@@ -211,14 +225,36 @@ async function transferToSeller(
   apiId: string,
   networkId: NetworkId,
 ): Promise<{ success: boolean; error?: string }> {
+  const amountStr = amountUsd.toFixed(6)
+  const chain = CHAINS[networkId].gatewayClientChain
   try {
-    const amountStr = amountUsd.toFixed(6)
-    const chain = CHAINS[networkId].gatewayClientChain
     await gatewayClientFor(networkId).transfer(amountStr, chain, sellerAddress)
     console.log(`[transfer] $${amountStr} USDC (${chain}) -> seller ${sellerAddress} api=${apiId}`)
     return { success: true }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
+    // The SDK wraps any waitForTransactionReceipt failure as
+    // `Mint transaction failed: 0x...`, but the underlying tx often succeeded
+    // (RPC receipt lag or transient 5xx exhausted viem's default retry budget).
+    // Recover the hash from the message and re-check on-chain before giving up.
+    const hashMatch = message.match(/Mint transaction failed: (0x[a-fA-F0-9]{64})/)
+    if (hashMatch) {
+      const mintTxHash = hashMatch[1] as `0x${string}`
+      try {
+        const receipt = await publicClientFor(networkId).waitForTransactionReceipt({
+          hash: mintTxHash,
+          timeout: 60_000,
+        })
+        if (receipt.status === 'success') {
+          console.log(`[transfer-ok-despite-sdk-error] $${amountStr} USDC (${chain}) -> seller ${sellerAddress} api=${apiId} tx=${mintTxHash}`)
+          return { success: true }
+        }
+        return { success: false, error: `Mint tx reverted on-chain: ${mintTxHash}` }
+      } catch (pollErr: unknown) {
+        const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr)
+        return { success: false, error: `${message} | recovery poll failed: ${pollMsg}` }
+      }
+    }
     return { success: false, error: message }
   }
 }
