@@ -281,6 +281,8 @@ Circle agent wallets are SCAs — the CLI holds the signing key internally; only
 
 > **Note on SCA wallets:** the EIP-3009 `from` field contains the underlying EOA signing key, which differs from the SCA wallet address. Mahshar logs a warning when these don't match but does not reject the payment — the settlement itself is the cryptographic proof of authorization.
 
+> **Note on batched settlement:** The `purchases.tx_hash` column stores the Circle facilitator batch receipt UUID, not an EVM transaction hash. Onchain settlement is a separate `gatewayMint` transaction fired by the platform wallet, and the Memo receipt follows about 15 seconds later. To locate a purchase onchain, decode the `memoData` of the Memo transaction, which contains the purchase callId.
+
 ---
 
 ## Circle Skills
