@@ -1,7 +1,7 @@
 import { BatchFacilitatorClient } from '@circle-fin/x402-batching/server'
 import { GatewayClient } from '@circle-fin/x402-batching/client'
 import { NextRequest, NextResponse } from 'next/server'
-import { createPublicClient, http, type PublicClient } from 'viem'
+import { createPublicClient, http } from 'viem'
 import { base } from 'viem/chains'
 import { createServiceClient } from '@/lib/supabase/server'
 import { isValidWalletAddress } from '@/lib/wallet-validation'
@@ -75,8 +75,12 @@ function gatewayClientFor(networkId: NetworkId): GatewayClient {
   return c
 }
 
-const publicClients = new Map<NetworkId, PublicClient>()
-function publicClientFor(networkId: NetworkId): PublicClient {
+interface ReceiptPoller {
+  waitForTransactionReceipt(args: { hash: `0x${string}`; timeout?: number }): Promise<{ status: 'success' | 'reverted' }>
+}
+
+const publicClients = new Map<NetworkId, ReceiptPoller>()
+function publicClientFor(networkId: NetworkId): ReceiptPoller {
   let c = publicClients.get(networkId)
   if (!c) {
     const chain = networkId === 'eip155:5042002' ? arcTestnet : base
