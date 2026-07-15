@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { proxyRequest } from '@/lib/proxy'
 import { verifyAndSettlePayment, build402Response } from '@/lib/gateway'
 import { writeMemo } from '@/lib/memo'
@@ -80,12 +80,15 @@ export async function POST(request: NextRequest) {
     body: reqBody,
   })
 
-  // Write onchain memo (best-effort, does not block response)
-  writeMemo(
-    listing.name as string,
-    sellerAddress,
-    paymentResult.callId ?? api_id,
-  ).catch(err => console.error('[memo] failed:', (err as Error).message ?? err))
+  // Deferred via `after` so the memo tx is guaranteed to complete on Vercel
+  // serverless — a bare fire-and-forget promise freezes when the response ships.
+  after(
+    writeMemo(
+      listing.name as string,
+      sellerAddress,
+      paymentResult.callId ?? api_id,
+    ).catch(err => console.error('[memo] failed:', (err as Error).message ?? err))
+  )
 
   return NextResponse.json(
     { response: result.body, latency_ms: result.latencyMs },
