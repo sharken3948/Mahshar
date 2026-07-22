@@ -96,22 +96,32 @@ try {
   check(`Arc poll classified transient (name=${name || '<none>'})`, isTransientRpcError(err), msg)
 }
 
-// ---- Step 3: unreachable RPC, network-layer transient ----
-console.log('\n[3] Unreachable RPC (network-layer transient)')
+// ---- Step 3: unreachable RPC, single-shot HTTP-layer error ----
+// A single-shot RPC call (not waitForTransactionReceipt) is required here.
+// waitForTransactionReceipt polls internally and swallows per-call transport
+// errors, so the outer timeout would fire first and yield the same
+// WaitForTransactionReceiptTimeoutError as step 2, duplicating that test
+// instead of exercising the HttpRequestError branch.
+console.log('\n[3] Unreachable RPC (single-shot HTTP error)')
 const deadChain = defineChain({
   id: 5042002,
   name: 'dead',
   nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
   rpcUrls: { default: { http: ['http://127.0.0.1:1/'] } },
 })
-const deadClient = createPublicClient({ chain: deadChain, transport: http(undefined, { retryCount: 0, timeout: 1_500 }) })
+const deadClient = createPublicClient({
+  chain: deadChain,
+  transport: http('http://127.0.0.1:1/', { retryCount: 0, timeout: 1_500 }),
+})
 try {
-  await deadClient.waitForTransactionReceipt({ hash: bogusHash, timeout: 3_000 })
-  check('Dead RPC threw', false, 'unexpected success')
+  await deadClient.getBlockNumber()
+  check('Dead RPC threw', false, 'unexpected success — dead port somehow answered')
 } catch (err) {
   const name = err instanceof Error ? err.name : ''
   const msg  = err instanceof Error ? err.message.split('\n')[0] : String(err)
-  check(`Dead RPC classified transient (name=${name || '<none>'})`, isTransientRpcError(err), msg)
+  // Assert we actually reached the HTTP-layer branch, not another timeout.
+  check(`Dead RPC surfaced HTTP-layer error (name=${name || '<none>'})`, name === 'HttpRequestError', msg)
+  check(`Dead RPC classified transient`, isTransientRpcError(err), msg)
 }
 
 console.log(`\n${failed === 0 ? 'OK' : 'FAIL'}: ${passed} passed, ${failed} failed`)
