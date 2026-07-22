@@ -79,6 +79,38 @@ interface ReceiptPoller {
   waitForTransactionReceipt(args: { hash: `0x${string}`; timeout?: number }): Promise<{ status: 'success' | 'reverted' }>
 }
 
+// Signals that the on-chain state of the referenced tx is UNKNOWN — the poll
+// itself failed transiently (network, timeout, RPC 5xx/limit/gas-cap). Not a
+// confirmed mint failure; a caller may back off and re-poll.
+export class RpcTransientError extends Error {
+  readonly cause: unknown
+  constructor(message: string, cause: unknown) {
+    super(message)
+    this.name = 'RpcTransientError'
+    this.cause = cause
+  }
+}
+
+export function isTransientRpcError(err: unknown): boolean {
+  const name = err instanceof Error ? err.name : ''
+  if (
+    name === 'WaitForTransactionReceiptTimeoutError' ||
+    name === 'TimeoutError' ||
+    name === 'HttpRequestError' ||
+    name === 'InternalRpcError' ||
+    name === 'InvalidRequestRpcError' ||
+    name === 'LimitExceededRpcError'
+  ) {
+    return true
+  }
+  const msg = err instanceof Error ? err.message : String(err)
+  if (/gas cap|gas limit|exceeds .* gas/i.test(msg)) return true
+  if (/(?<![\w-])(?:-32600|-32603|-32005)(?!\d)/.test(msg)) return true
+  if (/timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENETUNREACH|ENOTFOUND|socket hang up|fetch failed/i.test(msg)) return true
+  if (/\b429\b|rate.?limit|too many requests/i.test(msg)) return true
+  return false
+}
+
 const publicClients = new Map<NetworkId, ReceiptPoller>()
 function publicClientFor(networkId: NetworkId): ReceiptPoller {
   let c = publicClients.get(networkId)
@@ -192,7 +224,8 @@ export async function verifyAndSettlePayment(
 
     const transferResult = await transferToSeller(sellerAddress, sellerShare, apiId, networkId)
     if (!transferResult.success) {
-      console.error(`[transfer-failed] api=${apiId} seller=${sellerAddress} amount=$${sellerShare.toFixed(6)} buyer=${payer} error=${transferResult.error}`)
+      const tag = transferResult.transient ? 'transfer-unknown' : 'transfer-failed'
+      console.error(`[${tag}] api=${apiId} seller=${sellerAddress} amount=$${sellerShare.toFixed(6)} buyer=${payer} error=${transferResult.error}`)
     }
 
     const supabase = createServiceClient()
@@ -228,7 +261,7 @@ async function transferToSeller(
   amountUsd: number,
   apiId: string,
   networkId: NetworkId,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; transient?: boolean }> {
   const amountStr = amountUsd.toFixed(6)
   const chain = CHAINS[networkId].gatewayClientChain
   try {
@@ -256,6 +289,15 @@ async function transferToSeller(
         return { success: false, error: `Mint tx reverted on-chain: ${mintTxHash}` }
       } catch (pollErr: unknown) {
         const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr)
+        // If the poll itself failed transiently, on-chain state is UNKNOWN —
+        // do not declare the mint failed. Callers can re-poll later.
+        if (isTransientRpcError(pollErr)) {
+          const transient = new RpcTransientError(
+            `mint tx state unknown for ${mintTxHash} — recovery poll failed transiently: ${pollMsg}`,
+            pollErr,
+          )
+          return { success: false, error: transient.message, transient: true }
+        }
         return { success: false, error: `${message} | recovery poll failed: ${pollMsg}` }
       }
     }
