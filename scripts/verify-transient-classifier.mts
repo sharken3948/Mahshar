@@ -28,7 +28,7 @@ if (!process.env.PLATFORM_WALLET_PRIVATE_KEY) {
   process.env.PLATFORM_WALLET_PRIVATE_KEY = '0x' + '0'.repeat(64)
 }
 
-const { isTransientRpcError, RpcTransientError } = await import('../src/lib/gateway.ts')
+const { isTransientRpcError, RpcTransientError } = await import('../src/lib/gateway')
 
 let passed = 0
 let failed = 0
