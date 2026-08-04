@@ -448,7 +448,11 @@ async function transferViaUnifiedBalance(
   }
 }
 
-async function transferToSeller(
+// Exported for the in-process test harness at
+// scripts/repro-sdk-false-negative/test-ub-payout.mts.
+// Not intended for direct use by other production code — the payment path lives
+// in verifyAndSettlePayment above; call that instead.
+export async function transferToSeller(
   sellerAddress: `0x${string}`,
   amountUsd: number,
   apiId: string,
