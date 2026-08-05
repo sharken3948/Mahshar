@@ -117,13 +117,20 @@ export function isTransientRpcError(err: unknown): boolean {
   return false
 }
 
-const publicClients = new Map<NetworkId, ReceiptPoller>()
+// Cache keyed by network+URL so a change to PAYOUT_RECOVERY_RPC_URL between
+// test scenarios doesn't get stuck on a stale client bound to the previous URL.
+// The env var is test-only (see platformAdapterForSpend for the sibling hook);
+// when unset, http(undefined) resolves to viem's default (the chain's built-in
+// RPC), matching pre-hook production behavior.
+const publicClients = new Map<string, ReceiptPoller>()
 function publicClientFor(networkId: NetworkId): ReceiptPoller {
-  let c = publicClients.get(networkId)
+  const rpcUrl = process.env.PAYOUT_RECOVERY_RPC_URL
+  const cacheKey = `${networkId}|${rpcUrl ?? ''}`
+  let c = publicClients.get(cacheKey)
   if (!c) {
     const chain = networkId === 'eip155:5042002' ? arcTestnet : base
-    c = createPublicClient({ chain, transport: http() })
-    publicClients.set(networkId, c)
+    c = createPublicClient({ chain, transport: http(rpcUrl) })
+    publicClients.set(cacheKey, c)
   }
   return c
 }
@@ -325,17 +332,24 @@ function viemChainForId(id: number) {
 // with a specific chain produce chain-parameterized shapes whose transaction/block
 // unions don't structurally match the base — the same class of mismatch documented
 // in ~/memory/feedback_verify_with_next_build.md.
+//
+// PAYOUT_ADAPTER_RPC_URL is a test-only env override: when set, both the public and
+// wallet clients passed to the SDK point at that URL (e.g. a fault-injecting proxy).
+// When unset, http(undefined) resolves to viem's default (the chain's built-in RPC),
+// matching pre-hook production behavior. Sibling hook: PAYOUT_RECOVERY_RPC_URL on
+// publicClientFor above.
 function platformAdapterForSpend(capture: { hash?: `0x${string}` }) {
+  const rpcUrl = process.env.PAYOUT_ADAPTER_RPC_URL
   return createViemAdapterFromPrivateKey({
     privateKey: PLATFORM_PRIVATE_KEY,
     getPublicClient: ({ chain }) => {
       const resolved = viemChainForId(chain.id) ?? chain
-      const client = createPublicClient({ chain: resolved, transport: http() })
+      const client = createPublicClient({ chain: resolved, transport: http(rpcUrl) })
       return wrapPublicClientCapturingHash(client, capture) as unknown as PublicClient
     },
     getWalletClient: ({ chain, account }) => {
       const resolved = viemChainForId(chain.id) ?? chain
-      return createWalletClient({ chain: resolved, account, transport: http() }) as unknown as WalletClient
+      return createWalletClient({ chain: resolved, account, transport: http(rpcUrl) }) as unknown as WalletClient
     },
   })
 }
