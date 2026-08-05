@@ -100,6 +100,16 @@ UI progress labels surface each step: *Switching network → Approving USDC → 
 | Optimism Sepolia | 11155420 |
 | Polygon Amoy | 80002 |
 
+### Unified Balance payout path (experimental, feature-flagged)
+
+`src/lib/gateway.ts` includes an alternative seller payout path built on Circle's Unified Balance Kit (via `@circle-fin/app-kit`). It is gated by `PAYOUT_USE_UNIFIED_BALANCE` and defaults **off** — production traffic still uses the per-chain Gateway flow.
+
+When enabled, `transferViaUnifiedBalance` replaces the per-chain balance bookkeeping with a single consolidated unified balance and calls `unifiedBalance.spend` to settle seller payouts to either Arc Testnet or Base. The flip is atomic per request: unsetting the env var reverts routing immediately; no code change or redeploy is required.
+
+The path wraps the SDK's viem adapter with a receipt-capturing shim and adds a recovery mechanism for the SDK's known false-negative mint-confirmation issue — when the SDK reports a mint failure but the transaction actually landed on chain, the recovery client independently polls for the receipt and, if the mint is confirmed, treats the spend as successful (`[transfer-ub-ok-despite-sdk-error]`). Transient RPC errors during recovery are surfaced as state-unknown rather than misclassified as either success or failure.
+
+Verified end-to-end via ~35 real Arc Testnet transactions across baseline, recovery, and transient-failure scenarios (see `scripts/repro-sdk-false-negative/comprehensive-ub-test.mts`), all passing. The flag stays off until we're ready to migrate.
+
 ### Auto-deactivation logic
 After each call, `checkAndAutoDeactivate` runs asynchronously:
 - Fetches the last 50 calls and filters out client-fault rows (`is_client_error = true`)
