@@ -1,5 +1,5 @@
 'use client'
-import { useAccount, useReadContract, useWriteContract, usePublicClient } from 'wagmi'
+import { useAccount, useReadContract, useWriteContract, usePublicClient, useBlockNumber } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
@@ -73,6 +73,12 @@ const GATEWAY_WITHDRAW_ABI = [
   { name: 'initiateWithdrawal', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'token', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [] },
 ] as const
 
+const GATEWAY_PENDING_WITHDRAWAL_ABI = [
+  { name: 'withdrawingBalance', type: 'function', stateMutability: 'view', inputs: [{ name: 'token', type: 'address' }, { name: 'depositor', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
+  { name: 'withdrawalBlock', type: 'function', stateMutability: 'view', inputs: [{ name: 'token', type: 'address' }, { name: 'depositor', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
+  { name: 'withdraw', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'token', type: 'address' }], outputs: [] },
+] as const
+
 const CATEGORIES = ['AI', 'Data', 'Finance', 'Weather', 'Geo', 'Social', 'Media', 'Utility', 'Other']
 
 const inputCls = 'w-full rounded-lg border border-[#2775CA] bg-[#FAFAF8] px-3 py-2.5 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:border-[#2775CA] focus:outline-none focus:ring-1 focus:ring-[#2775CA] transition-colors'
@@ -109,6 +115,8 @@ export default function DashboardPage() {
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [withdrawStep, setWithdrawStep] = useState<'idle' | 'withdrawing'>('idle')
   const [withdrawError, setWithdrawError] = useState<string | null>(null)
+  const [releaseStep, setReleaseStep] = useState<'idle' | 'releasing'>('idle')
+  const [releaseError, setReleaseError] = useState<string | null>(null)
   const [sellCallGroups, setSellCallGroups] = useState<SellCallGroup[]>([])
   const [detailsSellApi, setDetailsSellApi] = useState<string | null>(null)
   const [editingApi, setEditingApi] = useState<ApiListing | null>(null)
@@ -130,6 +138,26 @@ export default function DashboardPage() {
     chainId: ARC_CHAIN_ID,
     query: { enabled: !!address },
   })
+
+  const { data: withdrawingRaw, refetch: refetchWithdrawing } = useReadContract({
+    address: ARC_GATEWAY_WALLET,
+    abi: GATEWAY_PENDING_WITHDRAWAL_ABI,
+    functionName: 'withdrawingBalance',
+    args: [ARC_USDC, address ?? '0x0000000000000000000000000000000000000000'],
+    chainId: ARC_CHAIN_ID,
+    query: { enabled: !!address },
+  })
+
+  const { data: withdrawalBlockRaw, refetch: refetchWithdrawalBlock } = useReadContract({
+    address: ARC_GATEWAY_WALLET,
+    abi: GATEWAY_PENDING_WITHDRAWAL_ABI,
+    functionName: 'withdrawalBlock',
+    args: [ARC_USDC, address ?? '0x0000000000000000000000000000000000000000'],
+    chainId: ARC_CHAIN_ID,
+    query: { enabled: !!address },
+  })
+
+  const { data: currentBlock } = useBlockNumber({ chainId: ARC_CHAIN_ID, watch: true })
 
   const callGroups = useMemo(() => {
     const map = new Map<string, ApiCall[]>()
@@ -259,6 +287,29 @@ export default function DashboardPage() {
       setWithdrawError(err instanceof Error ? err.message : String(err))
     } finally {
       setWithdrawStep('idle')
+    }
+  }
+
+  async function handleReleasePending() {
+    if (!address || !publicClient) return
+    setReleaseStep('releasing')
+    setReleaseError(null)
+    try {
+      const hash = await writeContractAsync({
+        address: ARC_GATEWAY_WALLET,
+        abi: GATEWAY_PENDING_WITHDRAWAL_ABI,
+        functionName: 'withdraw',
+        args: [ARC_USDC],
+        chainId: ARC_CHAIN_ID,
+      })
+      await publicClient.waitForTransactionReceipt({ hash })
+      await refetchWithdrawing()
+      await refetchWithdrawalBlock()
+      refetchUsdcBalance()
+    } catch (err: unknown) {
+      setReleaseError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setReleaseStep('idle')
     }
   }
 
@@ -564,6 +615,41 @@ export default function DashboardPage() {
               </button>
             </div>
             {withdrawError && <p className="text-xs text-[#DC2626] mt-2">{withdrawError}</p>}
+
+            {withdrawingRaw != null && withdrawingRaw > BigInt(0) && (
+              <div className="mt-4 pt-3 border-t border-[#E5E7EB]">
+                <div className="text-xs text-[#6B7280] mb-2">Pending withdrawal (initiated via 7-day trustless path)</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-bold text-[#0D0D0D]">{formatUsdc(withdrawingRaw)} USDC</div>
+                    {(() => {
+                      if (withdrawalBlockRaw == null || currentBlock == null) {
+                        return <div className="text-xs text-[#6B7280]">Checking readiness...</div>
+                      }
+                      if (currentBlock >= withdrawalBlockRaw) {
+                        return <div className="text-xs text-[#16A34A]">Ready to release</div>
+                      }
+                      const remaining = withdrawalBlockRaw - currentBlock
+                      return <div className="text-xs text-[#6B7280]">Available in {remaining.toString()} blocks</div>
+                    })()}
+                  </div>
+                  <button
+                    onClick={handleReleasePending}
+                    disabled={
+                      releaseStep !== 'idle' ||
+                      !publicClient ||
+                      withdrawalBlockRaw == null ||
+                      currentBlock == null ||
+                      currentBlock < withdrawalBlockRaw
+                    }
+                    className="bg-[#2775CA] hover:bg-[#1E63B5] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
+                  >
+                    {releaseStep === 'releasing' ? 'Releasing...' : 'Release'}
+                  </button>
+                </div>
+                {releaseError && <p className="text-xs text-[#DC2626] mt-2">{releaseError}</p>}
+              </div>
+            )}
           </div>
         </div>
 
