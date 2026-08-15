@@ -1,8 +1,11 @@
 'use client'
-import { useAccount, useReadContract, useWriteContract, usePublicClient, useBlockNumber } from 'wagmi'
+import { useAccount, useReadContract, useWriteContract, usePublicClient, useBlockNumber, useSwitchChain } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
+import type { EIP1193Provider } from 'viem'
+import { AppKit, UnifiedBalanceChain } from '@circle-fin/app-kit'
+import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2'
 import type { ApiListing, AuthType } from '@/types'
 import { NavBar } from '@/components/NavBar'
 import { buildViewCodeSnippet, renderHighlightedSnippet } from '@/lib/snippets'
@@ -69,15 +72,13 @@ const GATEWAY_DEPOSIT_ABI = [
   { name: 'deposit', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'token', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [] },
 ] as const
 
-const GATEWAY_WITHDRAW_ABI = [
-  { name: 'initiateWithdrawal', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'token', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [] },
-] as const
-
 const GATEWAY_PENDING_WITHDRAWAL_ABI = [
   { name: 'withdrawingBalance', type: 'function', stateMutability: 'view', inputs: [{ name: 'token', type: 'address' }, { name: 'depositor', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
   { name: 'withdrawalBlock', type: 'function', stateMutability: 'view', inputs: [{ name: 'token', type: 'address' }, { name: 'depositor', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
   { name: 'withdraw', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'token', type: 'address' }], outputs: [] },
 ] as const
+
+const appKit = new AppKit()
 
 const CATEGORIES = ['AI', 'Data', 'Finance', 'Weather', 'Geo', 'Social', 'Media', 'Utility', 'Other']
 
@@ -95,8 +96,9 @@ function getBalanceColor(balance: number): { bg: string; text: string; label: st
 }
 
 export default function DashboardPage() {
-  const { address, isConnected } = useAccount()
+  const { address, isConnected, connector } = useAccount()
   const { writeContractAsync } = useWriteContract()
+  const { switchChainAsync } = useSwitchChain()
   const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID })
 
   const [myApis, setMyApis] = useState<ApiListing[]>([])
@@ -267,22 +269,29 @@ export default function DashboardPage() {
   }
 
   async function handleWithdraw() {
-    if (!address || !withdrawAmount || !publicClient) return
+    if (!address || !withdrawAmount || !connector) return
     setWithdrawStep('withdrawing')
     setWithdrawError(null)
     try {
-      const amount = Math.round(parseFloat(withdrawAmount) * 1_000_000)
-      if (isNaN(amount) || amount <= 0) throw new Error('Invalid amount')
-      const hash = await writeContractAsync({
-        address: ARC_GATEWAY_WALLET,
-        abi: GATEWAY_WITHDRAW_ABI,
-        functionName: 'initiateWithdrawal',
-        args: [ARC_USDC, BigInt(amount)],
-        chainId: ARC_CHAIN_ID,
+      const amt = parseFloat(withdrawAmount)
+      if (!Number.isFinite(amt) || amt <= 0) throw new Error('Invalid amount')
+
+      await switchChainAsync({ chainId: ARC_CHAIN_ID })
+
+      const provider = (await connector.getProvider()) as EIP1193Provider
+      const adapter = await createViemAdapterFromProvider({ provider })
+
+      await appKit.unifiedBalance.spend({
+        from: { adapter },
+        to: { adapter, chain: UnifiedBalanceChain.Arc_Testnet, recipientAddress: address },
+        token: 'USDC',
+        amount: amt.toFixed(6),
       })
-      await publicClient.waitForTransactionReceipt({ hash })
+
       setWithdrawAmount('')
       await fetchGatewayStats()
+      await refetchWithdrawing()
+      refetchUsdcBalance()
     } catch (err: unknown) {
       setWithdrawError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -608,7 +617,7 @@ export default function DashboardPage() {
               <span className="text-sm text-[#6B7280]">USDC</span>
               <button
                 onClick={handleWithdraw}
-                disabled={withdrawStep !== 'idle' || !withdrawAmount || !publicClient}
+                disabled={withdrawStep !== 'idle' || !withdrawAmount || !connector}
                 className="bg-[#00B050] hover:bg-[#008F42] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
               >
                 {withdrawStep === 'withdrawing' ? 'Withdrawing...' : 'Withdraw'}
