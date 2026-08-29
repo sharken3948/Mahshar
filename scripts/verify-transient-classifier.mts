@@ -63,6 +63,7 @@ const genuineCases: Array<[string, Error]> = [
   ['nonce too low',                     new Error('nonce too low')],
   ['plain string, no keywords',         new Error('something went wrong')],
   ['revert with unrelated numeric',     new Error('reverted at 32600 bytes')], // no isolated -32600 token
+  ['gas required exceeds allowance',    new Error('gas required exceeds allowance (30000000, have 100)')],
 ]
 for (const [label, err] of genuineCases) {
   check(`genuine → false: ${label}`, isTransientRpcError(err) === false)

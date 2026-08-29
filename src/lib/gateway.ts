@@ -110,7 +110,7 @@ export function isTransientRpcError(err: unknown): boolean {
     return true
   }
   const msg = err instanceof Error ? err.message : String(err)
-  if (/gas cap|gas limit|exceeds .* gas/i.test(msg)) return true
+  if (/gas cap|gas limit/i.test(msg)) return true
   if (/(?<![\w-])(?:-32600|-32603|-32005)(?!\d)/.test(msg)) return true
   if (/timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENETUNREACH|ENOTFOUND|socket hang up|fetch failed/i.test(msg)) return true
   if (/\b429\b|rate.?limit|too many requests/i.test(msg)) return true
