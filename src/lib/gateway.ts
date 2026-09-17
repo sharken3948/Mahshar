@@ -7,6 +7,7 @@ import { createPublicClient, createWalletClient, http, type PublicClient, type W
 import { createServiceClient } from '@/lib/supabase/server'
 import { isValidWalletAddress } from '@/lib/wallet-validation'
 import { arcTestnet, arcMainnet } from '@/lib/chains'
+import { ARC_TESTNET, ARC_MAINNET } from '@/lib/arc'
 
 // USDC decimals are 6 on every supported chain — kept as a constant here
 // because reading decimals() at request time would add an RPC round-trip to
@@ -24,14 +25,14 @@ type ChainConfig = {
 
 const CHAINS: Record<NetworkId, ChainConfig> = {
   'eip155:5042002': {
-    usdc: '0x3600000000000000000000000000000000000000',
-    gatewayWallet: '0x0077777d7EBA4688BDeF3E311b846F25870A19B9',
+    usdc: ARC_TESTNET.usdcAddress,
+    gatewayWallet: ARC_TESTNET.gatewayWallet,
     facilitatorUrl: 'https://gateway-api-testnet.circle.com',
     gatewayClientChain: 'arcTestnet',
   },
   'eip155:5042': {
-    usdc: '0x3600000000000000000000000000000000000000',
-    gatewayWallet: '0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE',
+    usdc: ARC_MAINNET.usdcAddress,
+    gatewayWallet: ARC_MAINNET.gatewayWallet,
     gatewayMinter: '0x2222222d7164433c4C09B0b0D809a9b52C04C205',
     facilitatorUrl: 'https://gateway-api.circle.com',
     gatewayClientChain: 'arc',

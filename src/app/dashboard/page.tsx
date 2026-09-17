@@ -11,6 +11,7 @@ import { NavBar } from '@/components/NavBar'
 import { buildViewCodeSnippet, renderHighlightedSnippet } from '@/lib/snippets'
 import { useBridgeBalances, SOURCE_CHAINS } from '@/hooks/useBridgeBalances'
 import { useBridge } from '@/hooks/useBridge'
+import { ARC } from '@/lib/arc'
 
 interface ApiCall {
   id: string
@@ -59,9 +60,7 @@ interface SellCallGroup {
   calls: SellCallEntry[]
 }
 
-const ARC_CHAIN_ID = 5042002
-const ARC_USDC = '0x3600000000000000000000000000000000000000' as const
-const ARC_GATEWAY_WALLET = '0x0077777d7EBA4688BDeF3E311b846F25870A19B9' as const
+const { chainId: ARC_CHAIN_ID, usdcAddress: ARC_USDC, gatewayWallet: ARC_GATEWAY_WALLET } = ARC
 
 const ERC20_ABI = [
   { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
