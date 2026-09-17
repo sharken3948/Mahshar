@@ -13,7 +13,7 @@ import { useBridgeBalances, SOURCE_CHAINS } from '@/hooks/useBridgeBalances'
 import { useBridge } from '@/hooks/useBridge'
 import { ARC } from '@/lib/arc'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
+import { useWalletModal } from '@solana/wallet-adapter-react-ui'
 import { useSolanaBridgeBalance } from '@/hooks/useSolanaBridgeBalance'
 
 interface ApiCall {
@@ -115,7 +115,8 @@ export default function DashboardPage() {
   const [selectedDepositChain, setSelectedDepositChain] = useState<string>('arc')
 
   const bridgeBalances = useBridgeBalances()
-  const { publicKey: solanaPubkey } = useWallet()
+  const { publicKey: solanaPubkey, connected: solanaConnected, disconnect: solanaDisconnect } = useWallet()
+  const { setVisible: setSolanaModalVisible } = useWalletModal()
   const solanaBalance = useSolanaBridgeBalance(solanaPubkey?.toBase58() ?? null)
   const { bridge: doBridge, step: bridgeStep, stepLabel: bridgeStepLabel, isLoading: bridgeLoading, error: bridgeError, reset: bridgeReset } = useBridge()
   const [withdrawAmount, setWithdrawAmount] = useState('')
@@ -605,9 +606,16 @@ export default function DashboardPage() {
             )}
 
             <div className="mt-4 pt-4 border-t border-[#E5E7EB]">
-              <div className="text-xs text-[#6B7280] mb-2">Or bridge from Solana</div>
+              <h2 className="text-sm font-bold text-[#0D0D0D] mb-3">Bridge Solana to Arc</h2>
               <div className="flex items-center gap-3 flex-wrap">
-                <WalletMultiButton />
+                <button
+                  onClick={() => solanaConnected ? void solanaDisconnect() : setSolanaModalVisible(true)}
+                  className="bg-[#9945FF] hover:bg-[#7C31E5] text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  {solanaConnected && solanaPubkey
+                    ? `${solanaPubkey.toBase58().slice(0, 4)}…${solanaPubkey.toBase58().slice(-4)}`
+                    : 'Select SOL Wallet'}
+                </button>
                 {solanaPubkey && (
                   <span className="text-xs text-[#0D0D0D]">
                     {solanaBalance.isLoading ? 'loading...' : `${solanaBalance.usdcBalance} USDC`}
