@@ -104,7 +104,7 @@ export async function GET() {
 
     return NextResponse.json({
       marketplace: 'Mahshar',
-      description: 'AI-powered API marketplace with USDC nanopayments via x402 on Arc Testnet and Base mainnet',
+      description: 'AI-powered API marketplace with USDC nanopayments via x402 on Arc Testnet and Arc Mainnet',
       network: 'eip155:5042002',
       networks: [
         {
@@ -121,15 +121,15 @@ export async function GET() {
           gateway_api: 'https://gateway-api-testnet.circle.com',
         },
         {
-          network: 'eip155:8453',
-          label: 'Base mainnet',
-          chainId: 8453,
-          usdc_asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          network: 'eip155:5042',
+          label: 'Arc Mainnet',
+          chainId: 5042,
+          usdc_asset: '0x3600000000000000000000000000000000000000',
           payment_domain: {
             name: 'GatewayWalletBatched',
             version: '1',
-            chainId: 8453,
-            verifyingContract: '0x77777777dcc4d5a8b6e418fd04d8997ef11000ee',
+            chainId: 5042,
+            verifyingContract: '0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE',
           },
           gateway_api: 'https://gateway-api.circle.com',
         },
@@ -168,7 +168,7 @@ export async function GET() {
         validAfter: 'Unix timestamp (seconds) before which the authorization is not valid. Recommended: Math.floor(Date.now() / 1000) - 600 to allow 10 minutes of clock-skew grace.',
         validBefore: 'Unix timestamp (seconds) after which the authorization expires. Recommended: Math.floor(Date.now() / 1000) + 604900 (~7 days). Must be passed as BigInt in the EIP-712 message.',
       },
-      how_to_pay: 'Step 1: POST to /api/proxy/{api_id} (path route, recommended) with the upstream API\'s body as-is, no Payment-Signature header. Or use POST /api/proxy with an envelope body {api_id, buyer_wallet, body}. Step 2: You will receive a 402 with a base64-encoded PAYMENT-REQUIRED header. Decode it (base64 → JSON) — `accepts` is an ARRAY offering both Arc Testnet (eip155:5042002) and Base mainnet (eip155:8453). Pick the entry that matches the chain your Circle Gateway balance is on. Step 3: Construct a TransferWithAuthorization EIP-712 message using the picked entry\'s `extra.verifyingContract` and its `network`\'s chainId (see `networks` on this response), eip712_types, and the values from the picked entry (amount, payTo, asset). Sign it with signTypedData (EIP-712). Step 4: Build the payment payload per payment_signature_schema and base64-encode it. Step 5: Retry the identical request (URL + body) with a Payment-Signature header set to that base64 string.',
+      how_to_pay: 'Step 1: POST to /api/proxy/{api_id} (path route, recommended) with the upstream API\'s body as-is, no Payment-Signature header. Or use POST /api/proxy with an envelope body {api_id, buyer_wallet, body}. Step 2: You will receive a 402 with a base64-encoded PAYMENT-REQUIRED header. Decode it (base64 → JSON) — `accepts` is an ARRAY offering both Arc Testnet (eip155:5042002) and Arc Mainnet (eip155:5042). Pick the entry that matches the chain your Circle Gateway balance is on. Step 3: Construct a TransferWithAuthorization EIP-712 message using the picked entry\'s `extra.verifyingContract` and its `network`\'s chainId (see `networks` on this response), eip712_types, and the values from the picked entry (amount, payTo, asset). Sign it with signTypedData (EIP-712). Step 4: Build the payment payload per payment_signature_schema and base64-encode it. Step 5: Retry the identical request (URL + body) with a Payment-Signature header set to that base64 string.',
       payment_signature_schema: {
         note: 'Construct this object, JSON.stringify it, base64-encode the result, and send as the Payment-Signature request header.',
         shape: {
