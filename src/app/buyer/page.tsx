@@ -30,7 +30,10 @@ interface PaymentRequired {
 type ApiCardFields = Pick<ApiListing, 'id' | 'name' | 'description' | 'category' | 'price_per_call' | 'payment_model' | 'score' | 'uptime' | 'example_request' | 'method'>
 
 
-const ARC_CHAIN_ID = 5042002
+const CHAIN_LABELS: Record<number, string> = {
+  5042002: 'Arc Testnet',
+  8453: 'Base',
+}
 
 const TRANSFER_TYPES = {
   TransferWithAuthorization: [
@@ -117,7 +120,7 @@ function ApiRow({ api, avgLatency, calling, paymentStep, onUse, purchased, onVie
 }
 
 export default function BuyerPage() {
-  const { address, isConnected } = useAccount()
+  const { address, isConnected, chainId } = useAccount()
   const { signTypedDataAsync } = useSignTypedData()
 
   const [query, setQuery] = useState('')
@@ -246,13 +249,21 @@ export default function BuyerPage() {
       }
 
       const requirements = paymentRequired.accepts?.find(
-        r => r.extra?.name === 'GatewayWalletBatched' && r.extra?.version === '1'
+        r => parseInt(r.network.split(':')[1], 10) === chainId
       )
 
       if (!requirements) {
-        setPaymentError('No supported payment method in 402 response')
+        const supported = (paymentRequired.accepts ?? [])
+          .map(r => parseInt(r.network.split(':')[1], 10))
+          .map(id => CHAIN_LABELS[id] ? `${CHAIN_LABELS[id]} (${id})` : String(id))
+          .join(', ')
+        setPaymentError(
+          `Your wallet is on chain ${chainId ?? 'unknown'}, but this API accepts: ${supported}. Switch your wallet's network to continue.`
+        )
         return
       }
+
+      const selectedChainId = parseInt(requirements.network.split(':')[1], 10)
 
       setPaymentStep('signing')
       const now = Math.floor(Date.now() / 1000)
@@ -262,7 +273,7 @@ export default function BuyerPage() {
         domain: {
           name: 'GatewayWalletBatched',
           version: '1',
-          chainId: ARC_CHAIN_ID,
+          chainId: selectedChainId,
           verifyingContract: requirements.extra.verifyingContract as `0x${string}`,
         },
         types: TRANSFER_TYPES,
