@@ -7,19 +7,20 @@ import { createPublicClient, createWalletClient, http, type PublicClient, type W
 import { base } from 'viem/chains'
 import { createServiceClient } from '@/lib/supabase/server'
 import { isValidWalletAddress } from '@/lib/wallet-validation'
-import { arcTestnet } from '@/lib/chains'
+import { arcTestnet, arcMainnet } from '@/lib/chains'
 
 // USDC decimals are 6 on every supported chain — kept as a constant here
 // because reading decimals() at request time would add an RPC round-trip to
 // every 402 response with no real safety benefit for a fixed asset.
 const USDC_DECIMALS = 6
 
-type NetworkId = 'eip155:5042002' | 'eip155:8453'
+type NetworkId = 'eip155:5042002' | 'eip155:5042' | 'eip155:8453'
 type ChainConfig = {
   usdc: `0x${string}`
   gatewayWallet: `0x${string}`
+  gatewayMinter?: `0x${string}`
   facilitatorUrl: string
-  gatewayClientChain: 'arcTestnet' | 'base'
+  gatewayClientChain: 'arcTestnet' | 'arc' | 'base'
 }
 
 const CHAINS: Record<NetworkId, ChainConfig> = {
@@ -29,6 +30,13 @@ const CHAINS: Record<NetworkId, ChainConfig> = {
     facilitatorUrl: 'https://gateway-api-testnet.circle.com',
     gatewayClientChain: 'arcTestnet',
   },
+  'eip155:5042': {
+    usdc: '0x3600000000000000000000000000000000000000',
+    gatewayWallet: '0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE',
+    gatewayMinter: '0x2222222d7164433c4C09B0b0D809a9b52C04C205',
+    facilitatorUrl: 'https://gateway-api.circle.com',
+    gatewayClientChain: 'arc',
+  },
   'eip155:8453': {
     usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
     gatewayWallet: '0x77777777dcc4d5a8b6e418fd04d8997ef11000ee',
@@ -37,7 +45,7 @@ const CHAINS: Record<NetworkId, ChainConfig> = {
   },
 }
 
-const NETWORK_ORDER: NetworkId[] = ['eip155:5042002', 'eip155:8453']
+const NETWORK_ORDER: NetworkId[] = ['eip155:5042002', 'eip155:5042', 'eip155:8453']
 
 const _platformAddress = process.env.PLATFORM_WALLET_ADDRESS
 const _platformPrivateKey = process.env.PLATFORM_WALLET_PRIVATE_KEY
@@ -128,7 +136,10 @@ function publicClientFor(networkId: NetworkId): ReceiptPoller {
   const cacheKey = `${networkId}|${rpcUrl ?? ''}`
   let c = publicClients.get(cacheKey)
   if (!c) {
-    const chain = networkId === 'eip155:5042002' ? arcTestnet : base
+    const chain =
+      networkId === 'eip155:5042002' ? arcTestnet :
+      networkId === 'eip155:5042' ? arcMainnet :
+      base
     c = createPublicClient({ chain, transport: http(rpcUrl) })
     publicClients.set(cacheKey, c)
   }
@@ -281,7 +292,10 @@ function payoutUsesUnifiedBalance(): boolean {
   return process.env.PAYOUT_USE_UNIFIED_BALANCE === 'true'
 }
 
-const UB_KIT_CHAIN: Record<NetworkId, 'Arc_Testnet' | 'Base'> = {
+// AppKit's UnifiedBalanceChain enum does not yet include Arc Mainnet, so the
+// unified-balance payout path is unavailable for eip155:5042. transferViaUnifiedBalance
+// checks for this and returns an error rather than routing through the fallback.
+const UB_KIT_CHAIN: Partial<Record<NetworkId, 'Arc_Testnet' | 'Base'>> = {
   'eip155:5042002': 'Arc_Testnet',
   'eip155:8453': 'Base',
 }
@@ -321,6 +335,7 @@ function wrapPublicClientCapturingHash<T extends object>(
 
 function viemChainForId(id: number) {
   if (id === arcTestnet.id) return arcTestnet
+  if (id === arcMainnet.id) return arcMainnet
   if (id === base.id) return base
   return undefined
 }
@@ -362,6 +377,9 @@ async function transferViaUnifiedBalance(
 ): Promise<{ success: boolean; error?: string; transient?: boolean }> {
   const amountStr = amountUsd.toFixed(6)
   const destChain = UB_KIT_CHAIN[networkId]
+  if (!destChain) {
+    return { success: false, error: `unified balance payout not supported for network ${networkId}` }
+  }
   const capture: { hash?: `0x${string}` } = {}
   const adapter = platformAdapterForSpend(capture)
   const kit = appKitInstance()

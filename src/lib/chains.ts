@@ -12,3 +12,12 @@ export const arcTestnet = defineChain({
   },
   testnet: true,
 })
+
+export const arcMainnet = defineChain({
+  id: 5042,
+  name: 'Arc Mainnet',
+  nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://arc.drpc.org'] },
+  },
+})
