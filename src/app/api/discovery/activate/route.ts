@@ -14,9 +14,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const platformWallet = process.env.PLATFORM_WALLET;
+  const platformWallet = process.env.DISCOVERY_SELLER_WALLET;
   if (!platformWallet) {
-    return NextResponse.json({ error: 'PLATFORM_WALLET not configured' }, { status: 500 });
+    return NextResponse.json({ error: 'DISCOVERY_SELLER_WALLET not configured' }, { status: 500 });
   }
 
   const supabase = createServiceClient();
@@ -37,9 +37,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const platformWallet = process.env.PLATFORM_WALLET;
+  const platformWallet = process.env.DISCOVERY_SELLER_WALLET;
   if (!platformWallet) {
-    return NextResponse.json({ error: 'PLATFORM_WALLET not configured' }, { status: 500 });
+    return NextResponse.json({ error: 'DISCOVERY_SELLER_WALLET not configured' }, { status: 500 });
   }
 
   const supabase = createServiceClient();

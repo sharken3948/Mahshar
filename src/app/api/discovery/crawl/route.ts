@@ -69,9 +69,9 @@ export async function POST(request: NextRequest) {
   const rawOffset = parseInt(searchParams.get('offset') ?? '0', 10);
   const offset = Math.max(0, isFinite(rawOffset) ? rawOffset : 0);
 
-  const platformWallet = process.env.PLATFORM_WALLET;
+  const platformWallet = process.env.DISCOVERY_SELLER_WALLET;
   if (!platformWallet) {
-    return NextResponse.json({ error: 'PLATFORM_WALLET not configured' }, { status: 500 });
+    return NextResponse.json({ error: 'DISCOVERY_SELLER_WALLET not configured' }, { status: 500 });
   }
 
   // Seed the queue if there are no pending rows
