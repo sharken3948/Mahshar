@@ -31,7 +31,6 @@ type ApiCardFields = Pick<ApiListing, 'id' | 'name' | 'description' | 'category'
 
 
 const CHAIN_LABELS: Record<number, string> = {
-  5042002: 'Arc Testnet',
   5042: 'Arc Mainnet',
 }
 

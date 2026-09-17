@@ -33,7 +33,6 @@ export function NavBar() {
             <span className="flex items-center gap-1.5 bg-white border border-[#2775CA] rounded-full px-3 py-1.5 text-xs font-medium whitespace-nowrap">
               <span className="text-[#6B7280]">Mahshar Balance:</span>
               <span className="text-[#2775CA] font-bold text-sm">${balance ?? '—'} USDC</span>
-              <span className="text-[#6B7280] font-normal text-xs">(Testnet)</span>
             </span>
           )}
           {isConnected && (
