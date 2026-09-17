@@ -4,6 +4,7 @@ import "./globals.css";
 import { headers } from 'next/headers';
 import { cookieToInitialState } from 'wagmi';
 import { Providers, wagmiConfig } from './providers';
+import { SolanaProviders } from './SolanaProviders';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -44,7 +45,7 @@ export default async function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col"><Providers initialState={initialState}>{children}</Providers></body>
+      <body className="min-h-full flex flex-col"><SolanaProviders><Providers initialState={initialState}>{children}</Providers></SolanaProviders></body>
     </html>
   );
 }

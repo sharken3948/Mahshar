@@ -12,6 +12,9 @@ import { buildViewCodeSnippet, renderHighlightedSnippet } from '@/lib/snippets'
 import { useBridgeBalances, SOURCE_CHAINS } from '@/hooks/useBridgeBalances'
 import { useBridge } from '@/hooks/useBridge'
 import { ARC } from '@/lib/arc'
+import { useWallet } from '@solana/wallet-adapter-react'
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
+import { useSolanaBridgeBalance } from '@/hooks/useSolanaBridgeBalance'
 
 interface ApiCall {
   id: string
@@ -112,6 +115,8 @@ export default function DashboardPage() {
   const [selectedDepositChain, setSelectedDepositChain] = useState<string>('arc')
 
   const bridgeBalances = useBridgeBalances()
+  const { publicKey: solanaPubkey } = useWallet()
+  const solanaBalance = useSolanaBridgeBalance(solanaPubkey?.toBase58() ?? null)
   const { bridge: doBridge, step: bridgeStep, stepLabel: bridgeStepLabel, isLoading: bridgeLoading, error: bridgeError, reset: bridgeReset } = useBridge()
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [withdrawStep, setWithdrawStep] = useState<'idle' | 'withdrawing'>('idle')
@@ -598,6 +603,18 @@ export default function DashboardPage() {
                 )}
               </>
             )}
+
+            <div className="mt-4 pt-4 border-t border-[#E5E7EB]">
+              <div className="text-xs text-[#6B7280] mb-2">Or bridge from Solana</div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <WalletMultiButton />
+                {solanaPubkey && (
+                  <span className="text-xs text-[#0D0D0D]">
+                    {solanaBalance.isLoading ? 'loading...' : `${solanaBalance.usdcBalance} USDC`}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="bg-white border border-[#2775CA] rounded-xl p-4">

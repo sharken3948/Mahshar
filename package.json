@@ -15,6 +15,8 @@
     "@circle-fin/developer-controlled-wallets": "^10.6.0",
     "@circle-fin/x402-batching": "^3.2.0",
     "@rainbow-me/rainbowkit": "^2.2.11",
+    "@solana/wallet-adapter-react": "^0.15.40",
+    "@solana/wallet-adapter-react-ui": "^0.9.40",
     "@solana/web3.js": "^1.99.0",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
