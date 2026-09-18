@@ -11,7 +11,7 @@ import { NavBar } from '@/components/NavBar'
 import { buildViewCodeSnippet, renderHighlightedSnippet } from '@/lib/snippets'
 import { useBridgeBalances, SOURCE_CHAINS } from '@/hooks/useBridgeBalances'
 import { useBridge } from '@/hooks/useBridge'
-import { ARC } from '@/lib/arc'
+import { ARC, ARC_MAINNET } from '@/lib/arc'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { useWalletModal } from '@solana/wallet-adapter-react-ui'
 import { useSolanaBridgeBalance } from '@/hooks/useSolanaBridgeBalance'
@@ -77,8 +77,11 @@ const GATEWAY_DEPOSIT_ABI = [
 const GATEWAY_PENDING_WITHDRAWAL_ABI = [
   { name: 'withdrawingBalance', type: 'function', stateMutability: 'view', inputs: [{ name: 'token', type: 'address' }, { name: 'depositor', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
   { name: 'withdrawalBlock', type: 'function', stateMutability: 'view', inputs: [{ name: 'token', type: 'address' }, { name: 'depositor', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
+  { name: 'initiateWithdrawal', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'token', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [] },
   { name: 'withdraw', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'token', type: 'address' }], outputs: [] },
 ] as const
+
+const IS_ARC_MAINNET = ARC.chainId === ARC_MAINNET.chainId
 
 const appKit = new AppKit()
 
@@ -122,6 +125,8 @@ export default function DashboardPage() {
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [withdrawStep, setWithdrawStep] = useState<'idle' | 'withdrawing'>('idle')
   const [withdrawError, setWithdrawError] = useState<string | null>(null)
+  const [initiateStep, setInitiateStep] = useState<'idle' | 'initiating'>('idle')
+  const [initiateError, setInitiateError] = useState<string | null>(null)
   const [releaseStep, setReleaseStep] = useState<'idle' | 'releasing'>('idle')
   const [releaseError, setReleaseError] = useState<string | null>(null)
   const [sellCallGroups, setSellCallGroups] = useState<SellCallGroup[]>([])
@@ -301,6 +306,35 @@ export default function DashboardPage() {
       setWithdrawError(err instanceof Error ? err.message : String(err))
     } finally {
       setWithdrawStep('idle')
+    }
+  }
+
+  async function handleInitiateWithdraw() {
+    if (!address || !withdrawAmount || !publicClient) return
+    setInitiateStep('initiating')
+    setInitiateError(null)
+    try {
+      const amount = Math.round(parseFloat(withdrawAmount) * 1_000_000)
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error('Invalid amount')
+      const amountBigInt = BigInt(amount)
+
+      const hash = await writeContractAsync({
+        address: ARC_GATEWAY_WALLET,
+        abi: GATEWAY_PENDING_WITHDRAWAL_ABI,
+        functionName: 'initiateWithdrawal',
+        args: [ARC_USDC, amountBigInt],
+        chainId: ARC_CHAIN_ID,
+      })
+      await publicClient.waitForTransactionReceipt({ hash })
+
+      setWithdrawAmount('')
+      await refetchWithdrawing()
+      await refetchWithdrawalBlock()
+      await fetchGatewayStats()
+    } catch (err: unknown) {
+      setInitiateError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setInitiateStep('idle')
     }
   }
 
@@ -642,15 +676,31 @@ export default function DashboardPage() {
                 className="w-24 bg-[#FAFAF8] border border-[#2775CA] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA]"
               />
               <span className="text-sm text-[#6B7280]">USDC</span>
-              <button
-                onClick={handleWithdraw}
-                disabled={withdrawStep !== 'idle' || !withdrawAmount || !connector}
-                className="bg-[#00B050] hover:bg-[#008F42] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
-              >
-                {withdrawStep === 'withdrawing' ? 'Withdrawing...' : 'Withdraw'}
-              </button>
+              {IS_ARC_MAINNET ? (
+                <button
+                  onClick={handleInitiateWithdraw}
+                  disabled={initiateStep !== 'idle' || !withdrawAmount || !publicClient}
+                  className="bg-[#00B050] hover:bg-[#008F42] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
+                >
+                  {initiateStep === 'initiating' ? 'Initiating...' : 'Initiate Withdrawal'}
+                </button>
+              ) : (
+                <button
+                  onClick={handleWithdraw}
+                  disabled={withdrawStep !== 'idle' || !withdrawAmount || !connector}
+                  className="bg-[#00B050] hover:bg-[#008F42] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
+                >
+                  {withdrawStep === 'withdrawing' ? 'Withdrawing...' : 'Withdraw'}
+                </button>
+              )}
             </div>
-            {withdrawError && <p className="text-xs text-[#DC2626] mt-2">{withdrawError}</p>}
+            {IS_ARC_MAINNET && (
+              <p className="text-xs text-[#6B7280] mt-2">
+                Instant withdraw isn&apos;t yet available on Arc Mainnet. This starts a trustless withdrawal — release the funds below once ready.
+              </p>
+            )}
+            {!IS_ARC_MAINNET && withdrawError && <p className="text-xs text-[#DC2626] mt-2">{withdrawError}</p>}
+            {IS_ARC_MAINNET && initiateError && <p className="text-xs text-[#DC2626] mt-2">{initiateError}</p>}
 
             {withdrawingRaw != null && withdrawingRaw > BigInt(0) && (
               <div className="mt-4 pt-3 border-t border-[#E5E7EB]">
