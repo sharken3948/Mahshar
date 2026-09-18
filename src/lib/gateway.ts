@@ -60,7 +60,10 @@ function facilitatorFor(networkId: NetworkId): BatchFacilitatorClient {
   const url = CHAINS[networkId].facilitatorUrl
   let f = facilitators.get(url)
   if (!f) {
-    f = new BatchFacilitatorClient({ url })
+    // Arc Mainnet is behind the X-ARC-PRIVATE-MAINNET-ENABLED header until Circle's public GA;
+    // without it, verify/settle against gateway-api.circle.com treats eip155:5042 as unsupported.
+    const arcPrivateMainnet = networkId === 'eip155:5042'
+    f = new BatchFacilitatorClient({ url, arcPrivateMainnet })
     facilitators.set(url, f)
   }
   return f
@@ -70,9 +73,17 @@ const gatewayClients = new Map<NetworkId, GatewayClient>()
 function gatewayClientFor(networkId: NetworkId): GatewayClient {
   let c = gatewayClients.get(networkId)
   if (!c) {
+    // Arc Mainnet has no public RPC until ~2026-06-22, so GatewayClient requires an explicit
+    // rpcUrl for chain 'arc'. Testnet uses the SDK's default.
+    const gatewayClientChain = CHAINS[networkId].gatewayClientChain
+    const rpcUrl = gatewayClientChain === 'arc' ? process.env.ARC_MAINNET_RPC_URL : undefined
+    if (gatewayClientChain === 'arc' && !rpcUrl) {
+      throw new Error('ARC_MAINNET_RPC_URL must be set to construct a GatewayClient for Arc Mainnet')
+    }
     c = new GatewayClient({
-      chain: CHAINS[networkId].gatewayClientChain,
+      chain: gatewayClientChain,
       privateKey: PLATFORM_PRIVATE_KEY,
+      rpcUrl,
     })
     gatewayClients.set(networkId, c)
   }
