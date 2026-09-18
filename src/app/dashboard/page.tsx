@@ -526,7 +526,7 @@ export default function DashboardPage() {
                 disabled={depositing || bridgeLoading}
                 className="w-full bg-[#FAFAF8] border border-[#2775CA] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] focus:outline-none focus:border-[#2775CA] disabled:opacity-50"
               >
-                <option value="arc">Arc Testnet (current chain)</option>
+                <option value="arc">{process.env.NEXT_PUBLIC_SHOW_TESTNET === 'true' ? 'Arc Testnet (current chain)' : 'Arc Mainnet (current chain)'}</option>
                 {bridgeBalances.map(b => (
                   <option key={b.chainName} value={b.chainName}>
                     {b.displayName} — {b.isLoading ? 'loading...' : `${b.usdcBalance} USDC`}
@@ -620,6 +620,9 @@ export default function DashboardPage() {
                   <span className="text-xs text-[#0D0D0D]">
                     {solanaBalance.isLoading ? 'loading...' : `${solanaBalance.usdcBalance} USDC`}
                   </span>
+                )}
+                {solanaBalance.error && (
+                  <span className="text-xs text-[#DC2626] w-full">RPC error: {solanaBalance.error}</span>
                 )}
               </div>
             </div>

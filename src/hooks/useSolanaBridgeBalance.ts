@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Connection, PublicKey } from '@solana/web3.js'
 
 export const SOLANA_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
-export const SOLANA_RPC_URL = 'https://api.mainnet-beta.solana.com'
+export const SOLANA_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${process.env.NEXT_PUBLIC_HELIUS_API_KEY}`
 
 export interface SolanaBridgeBalance {
   displayName: 'Solana'
