@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { isValidWalletAddress } from '@/lib/wallet-validation'
+import { ARC, ARC_MAINNET } from '@/lib/arc'
 
 export const runtime = 'nodejs'
-
-const ARC_TESTNET_DOMAIN = 26
-const GATEWAY_API = 'https://gateway-api-testnet.circle.com/v1'
 
 export async function GET(request: NextRequest) {
   const walletRaw = request.nextUrl.searchParams.get('wallet')
@@ -15,12 +13,17 @@ export async function GET(request: NextRequest) {
 
   let gatewayAvailable = '0'
   try {
-    const res = await fetch(`${GATEWAY_API}/balances`, {
+    // Arc Mainnet on Gateway API is behind X-ARC-PRIVATE-MAINNET-ENABLED until Circle's public GA.
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (ARC.chainId === ARC_MAINNET.chainId) {
+      headers['X-ARC-PRIVATE-MAINNET-ENABLED'] = 'true'
+    }
+    const res = await fetch(`${ARC.gatewayApi}/balances`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         token: 'USDC',
-        sources: [{ depositor: wallet, domain: ARC_TESTNET_DOMAIN }],
+        sources: [{ depositor: wallet, domain: ARC.gatewayDomain }],
       }),
     })
     if (res.ok) {
