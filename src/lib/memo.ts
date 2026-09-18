@@ -8,7 +8,8 @@ import {
   encodeFunctionData,
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { arcTestnet } from '@/lib/chains'
+import { arcTestnet, arcMainnet } from '@/lib/chains'
+import { ARC, ARC_MAINNET } from '@/lib/arc'
 import { PLATFORM_PRIVATE_KEY } from '@/lib/gateway'
 
 const MEMO_CONTRACT = '0x5294E9927c3306DcBaDb03fe70b92e01cCede505' as `0x${string}`
@@ -48,9 +49,10 @@ export async function writeMemo(
   callId: string,
 ): Promise<void> {
   const account = privateKeyToAccount(PLATFORM_PRIVATE_KEY)
+  const chain = ARC.chainId === ARC_MAINNET.chainId ? arcMainnet : arcTestnet
   const walletClient = createWalletClient({
     account,
-    chain: arcTestnet,
+    chain,
     transport: http(),
   })
 
