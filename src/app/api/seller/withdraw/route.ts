@@ -178,7 +178,7 @@ export async function POST(request: NextRequest) {
   }
   const netAtomic = requestedAtomic - gasCostAtomic
 
-  // ── Build + sign burn intent ─────────────────────────────────────────────
+  // ── Build burn intent ────────────────────────────────────────────────────
   // destinationCaller = platform locks gatewayMint execution to the platform
   // wallet only; closes any race where a third party could front-run our mint.
   const spec = {
@@ -203,41 +203,10 @@ export async function POST(request: NextRequest) {
     spec,
   }
 
-  const signature = await account.signTypedData({
-    domain: { name: 'GatewayWallet', version: '1' },
-    types: BURN_INTENT_TYPES,
-    primaryType: 'BurnIntent',
-    message: burnIntent,
-  })
-
-  // ── POST /v1/transfer for attestation ────────────────────────────────────
-  const gatewayRes = await fetch(`${ARC.gatewayApi}/transfer`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...arcPrivateMainnetHeaders(isMainnet),
-    },
-    body: JSON.stringify([{ burnIntent, signature }], bigintReplacer),
-  })
-  const gatewayResult = await gatewayRes.json().catch(() => ({})) as {
-    attestation?: string
-    signature?: string
-    success?: boolean
-    error?: string
-    message?: string
-  }
-  if (
-    !gatewayRes.ok ||
-    gatewayResult.success === false ||
-    gatewayResult.error ||
-    !gatewayResult.attestation ||
-    !gatewayResult.signature
-  ) {
-    const detail = gatewayResult.message ?? gatewayResult.error ?? JSON.stringify(gatewayResult)
-    return NextResponse.json({ error: `Gateway API error: ${detail}` }, { status: 502 })
-  }
-
-  // ── Insert pending_mint row (before submit) ──────────────────────────────
+  // ── Insert pending_mint row BEFORE signing or calling Circle ─────────────
+  // The unique index on (lower(seller_wallet)) WHERE status = 'pending_mint'
+  // makes this the serialization point: concurrent requests all pass the
+  // balance check above but only one can insert — the rest get 409.
   const burnIntentSerialized: unknown = JSON.parse(JSON.stringify(burnIntent, bigintReplacer))
   const requestedNum = Number(formatUnits(requestedAtomic, 6))
   const netNum = Number(formatUnits(netAtomic, 6))
@@ -251,21 +220,109 @@ export async function POST(request: NextRequest) {
       net_amount_usdc: netNum,
       gas_cost_usdc: gasNum,
       burn_intent: burnIntentSerialized,
-      attestation: gatewayResult.attestation,
-      attestation_signature: gatewayResult.signature,
+      // attestation and attestation_signature intentionally null until Circle responds
     })
     .select('id')
     .single()
-  if (insertErr || !inserted) {
+  if (insertErr) {
+    if (insertErr.code === '23505') {
+      return NextResponse.json(
+        { error: 'A withdrawal is already in progress for this seller. Wait for it to complete or expire.' },
+        { status: 409 },
+      )
+    }
+    return NextResponse.json({ error: insertErr.message }, { status: 500 })
+  }
+  if (!inserted) {
+    return NextResponse.json({ error: 'Failed to record withdrawal' }, { status: 500 })
+  }
+  const withdrawalId = inserted.id as string
+
+  // ── Sign burn intent ─────────────────────────────────────────────────────
+  let burnSignature: Hex
+  try {
+    burnSignature = await account.signTypedData({
+      domain: { name: 'GatewayWallet', version: '1' },
+      types: BURN_INTENT_TYPES,
+      primaryType: 'BurnIntent',
+      message: burnIntent,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    await supabase
+      .from('seller_withdrawals')
+      .update({ status: 'expired' })
+      .eq('id', withdrawalId)
+      .eq('status', 'pending_mint')
+    return NextResponse.json({ error: `Failed to sign burn intent: ${message}` }, { status: 500 })
+  }
+
+  // ── POST /v1/transfer for attestation ────────────────────────────────────
+  let gatewayResult: {
+    attestation?: string
+    signature?: string
+    success?: boolean
+    error?: string
+    message?: string
+  } = {}
+  try {
+    const gatewayRes = await fetch(`${ARC.gatewayApi}/transfer`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...arcPrivateMainnetHeaders(isMainnet),
+      },
+      body: JSON.stringify([{ burnIntent, signature: burnSignature }], bigintReplacer),
+    })
+    gatewayResult = await gatewayRes.json().catch(() => ({})) as typeof gatewayResult
+    if (
+      !gatewayRes.ok ||
+      gatewayResult.success === false ||
+      gatewayResult.error ||
+      !gatewayResult.attestation ||
+      !gatewayResult.signature
+    ) {
+      // Clean rejection: Circle definitively refused — safe to expire the row.
+      await supabase
+        .from('seller_withdrawals')
+        .update({ status: 'expired' })
+        .eq('id', withdrawalId)
+        .eq('status', 'pending_mint')
+      const detail = gatewayResult.message ?? gatewayResult.error ?? JSON.stringify(gatewayResult)
+      return NextResponse.json({ error: `Gateway API error: ${detail}` }, { status: 502 })
+    }
+  } catch (err) {
+    // Ambiguous network error: Circle may have processed the request already.
+    // Mark failed (balance stays frozen) so ops can reconcile rather than
+    // silently double-spending on a retry.
+    const message = err instanceof Error ? err.message : String(err)
+    await supabase
+      .from('seller_withdrawals')
+      .update({ status: 'failed' })
+      .eq('id', withdrawalId)
+      .eq('status', 'pending_mint')
+    console.error(`[withdraw-circle-network-error] withdrawal=${withdrawalId} error=${message}`)
+    return NextResponse.json({ error: `Gateway network error: ${message}` }, { status: 502 })
+  }
+
+  // ── Persist attestation so confirm/route.ts can recover a later crash ────
+  const { error: attErr } = await supabase
+    .from('seller_withdrawals')
+    .update({
+      attestation: gatewayResult.attestation,
+      attestation_signature: gatewayResult.signature,
+    })
+    .eq('id', withdrawalId)
+    .eq('status', 'pending_mint')
+  if (attErr) {
     console.error(
-      `[withdraw-orphan] seller=${sellerWallet} amount=${requestedNum} attestation=${gatewayResult.attestation} signature=${gatewayResult.signature} db_error=${insertErr?.message ?? 'unknown'}`,
+      `[withdraw-orphan] withdrawal=${withdrawalId} seller=${sellerWallet} attestation=${gatewayResult.attestation} signature=${gatewayResult.signature} db_error=${attErr.message}`,
     )
     return NextResponse.json(
-      { error: `Failed to record withdrawal: ${insertErr?.message ?? 'unknown'}` },
+      { error: `Failed to store attestation: ${attErr.message}` },
       { status: 500 },
     )
   }
-  const withdrawalId = inserted.id as string
 
   // ── Submit gatewayMint from platform wallet ──────────────────────────────
   const walletClient = createWalletClient({ account, chain, transport: http(rpcUrl) })
