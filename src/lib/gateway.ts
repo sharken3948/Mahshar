@@ -195,7 +195,7 @@ export async function verifyAndSettlePayment(
   sellerPriceUsd: number,
   sellerAddress: `0x${string}`,
   apiId: string,
-): Promise<{ success: boolean; payer?: string; error?: string; transfer_failed?: boolean; callId?: string }> {
+): Promise<{ success: boolean; payer?: string; error?: string; callId?: string }> {
   const paymentSignature = request.headers.get('payment-signature')
   if (!paymentSignature) {
     return { success: false, error: 'no_payment' }
@@ -248,16 +248,13 @@ export async function verifyAndSettlePayment(
 
     console.log(`[payment] api=${apiId} network=${networkId} buyer=${payer} buyer_paid=$${(sellerPriceUsd * 1.1).toFixed(6)} seller_gets=$${sellerShare.toFixed(6)} platform=$${(sellerPriceUsd * 0.2).toFixed(6)}`)
 
-    const transferResult = await transferToSeller(sellerAddress, sellerShare, apiId, networkId)
-    if (!transferResult.success) {
-      const tag = transferResult.transient ? 'transfer-unknown' : 'transfer-failed'
-      console.error(`[${tag}] api=${apiId} seller=${sellerAddress} amount=$${sellerShare.toFixed(6)} buyer=${payer} error=${transferResult.error}`)
-    }
-
     const supabase = createServiceClient()
     // tx_hash carries a UNIQUE constraint (see migration 20260710_multichain_payments.sql).
     // The upsert-ignore path collapses a replayed settled payload to a no-op instead of
     // inserting a duplicate purchase row.
+    // seller_share_usdc is what the seller can withdraw for this purchase — accumulated
+    // into a payable balance and consumed by /api/seller/withdraw (Phase 2). The old
+    // per-purchase GatewayClient.transfer() payout is intentionally gone.
     const txHash = settleResult.transaction ?? `gateway-${Date.now()}`
     const insertRes = await supabase
       .from('purchases')
@@ -265,6 +262,7 @@ export async function verifyAndSettlePayment(
         buyer_wallet: payer.toLowerCase(),
         api_id: apiId,
         amount_usdc: Math.round(sellerPriceUsd * 1.1 * 1_000_000) / 1_000_000,
+        seller_share_usdc: Math.round(sellerShare * 1_000_000) / 1_000_000,
         tx_hash: txHash,
       }, { onConflict: 'tx_hash', ignoreDuplicates: true })
       .select('id')
@@ -274,7 +272,7 @@ export async function verifyAndSettlePayment(
     }
     const purchase = insertRes.data
 
-    return { success: true, payer, transfer_failed: !transferResult.success, callId: purchase?.id }
+    return { success: true, payer, callId: purchase?.id }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[payment] error:', message)

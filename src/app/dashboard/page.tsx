@@ -42,6 +42,9 @@ interface EarningsByApi {
 
 interface SellerEarnings {
   total_earnings: number
+  accumulated_share: number
+  in_flight_withdrawals: number
+  withdrawable_balance: number
   earnings_by_api: EarningsByApi[]
 }
 
@@ -129,6 +132,10 @@ export default function DashboardPage() {
   const [initiateError, setInitiateError] = useState<string | null>(null)
   const [releaseStep, setReleaseStep] = useState<'idle' | 'releasing'>('idle')
   const [releaseError, setReleaseError] = useState<string | null>(null)
+  const [earningsWithdrawAmount, setEarningsWithdrawAmount] = useState('')
+  const [earningsWithdrawStep, setEarningsWithdrawStep] = useState<'idle' | 'withdrawing'>('idle')
+  const [earningsWithdrawError, setEarningsWithdrawError] = useState<string | null>(null)
+  const [earningsWithdrawResult, setEarningsWithdrawResult] = useState<{ net: number; gas: number; tx: string } | null>(null)
   const [sellCallGroups, setSellCallGroups] = useState<SellCallGroup[]>([])
   const [detailsSellApi, setDetailsSellApi] = useState<string | null>(null)
   const [editingApi, setEditingApi] = useState<ApiListing | null>(null)
@@ -358,6 +365,48 @@ export default function DashboardPage() {
       setReleaseError(err instanceof Error ? err.message : String(err))
     } finally {
       setReleaseStep('idle')
+    }
+  }
+
+  async function handleWithdrawEarnings() {
+    if (!address || !earningsWithdrawAmount) return
+    setEarningsWithdrawError(null)
+    setEarningsWithdrawResult(null)
+    setEarningsWithdrawStep('withdrawing')
+    try {
+      const amt = parseFloat(earningsWithdrawAmount)
+      if (!Number.isFinite(amt) || amt <= 0) throw new Error('Invalid amount')
+
+      const res = await fetch('/api/seller/withdraw', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seller_wallet: address, amount_usdc: amt }),
+      })
+      const body = await res.json().catch(() => ({})) as {
+        withdrawal_id?: string
+        requested_amount_usdc?: number
+        net_amount_usdc?: number
+        gas_cost_usdc?: number
+        mint_tx_hash?: string
+        status?: string
+        error?: string
+      }
+      if (!res.ok || body.status !== 'minted') {
+        throw new Error(body.error ?? `Withdrawal failed (status: ${body.status ?? 'unknown'})`)
+      }
+
+      setEarningsWithdrawAmount('')
+      setEarningsWithdrawResult({
+        net: body.net_amount_usdc ?? 0,
+        gas: body.gas_cost_usdc ?? 0,
+        tx: body.mint_tx_hash ?? '',
+      })
+      await fetchSellerEarnings()
+      refetchUsdcBalance()
+    } catch (err: unknown) {
+      setEarningsWithdrawError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setEarningsWithdrawStep('idle')
     }
   }
 
@@ -737,6 +786,46 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Withdraw earnings */}
+        <div className="bg-white border border-[#2775CA] rounded-xl p-4 mb-8">
+          <h2 className="text-sm font-bold text-[#0D0D0D] mb-1">Withdraw Earnings</h2>
+          <p className="text-xs text-[#6B7280] mb-3">
+            Withdrawable balance: <span className="font-medium text-[#00B050]">${sellerEarnings ? sellerEarnings.withdrawable_balance.toFixed(4) : '0.0000'} USDC</span>.
+            You submit the mint on Arc from your own wallet and pay the gas.
+          </p>
+          <div className="flex gap-2 items-center">
+            <input
+              type="number"
+              value={earningsWithdrawAmount}
+              onChange={e => setEarningsWithdrawAmount(e.target.value)}
+              placeholder="0.00"
+              min="0"
+              step="0.0001"
+              disabled={earningsWithdrawStep !== 'idle'}
+              className="w-24 bg-[#FAFAF8] border border-[#2775CA] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA] disabled:opacity-50"
+            />
+            <span className="text-sm text-[#6B7280]">USDC</span>
+            <button
+              onClick={() => { void handleWithdrawEarnings() }}
+              disabled={earningsWithdrawStep !== 'idle' || !earningsWithdrawAmount}
+              className="bg-[#00B050] hover:bg-[#008F42] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
+            >
+              {earningsWithdrawStep === 'idle' ? 'Withdraw Earnings' : 'Withdrawing...'}
+            </button>
+          </div>
+          {sellerEarnings && sellerEarnings.in_flight_withdrawals > 0 && (
+            <p className="text-xs text-[#6B7280] mt-2">
+              Reserved by withdrawals: ${sellerEarnings.in_flight_withdrawals.toFixed(4)} USDC
+            </p>
+          )}
+          {earningsWithdrawResult && (
+            <p className="text-xs text-[#16A34A] mt-2">
+              Sent {earningsWithdrawResult.net.toFixed(4)} USDC to your wallet (gas: ${earningsWithdrawResult.gas.toFixed(4)}). Tx {earningsWithdrawResult.tx.slice(0, 10)}…
+            </p>
+          )}
+          {earningsWithdrawError && <p className="text-xs text-[#DC2626] mt-2">{earningsWithdrawError}</p>}
         </div>
 
         {loading && <p className="text-[#6B7280]">Loading...</p>}
