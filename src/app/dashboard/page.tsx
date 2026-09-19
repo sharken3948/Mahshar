@@ -86,6 +86,9 @@ const GATEWAY_PENDING_WITHDRAWAL_ABI = [
 
 const IS_ARC_MAINNET = ARC.chainId === ARC_MAINNET.chainId
 
+// Keep in sync with src/app/api/seller/withdraw/route.ts MIN_WITHDRAW_USDC.
+const MIN_WITHDRAW_USDC = 1
+
 const appKit = new AppKit()
 
 const CATEGORIES = ['AI', 'Data', 'Finance', 'Weather', 'Geo', 'Social', 'Media', 'Utility', 'Other']
@@ -376,6 +379,10 @@ export default function DashboardPage() {
     try {
       const amt = parseFloat(earningsWithdrawAmount)
       if (!Number.isFinite(amt) || amt <= 0) throw new Error('Invalid amount')
+
+      if (amt < MIN_WITHDRAW_USDC) {
+        throw new Error(`Minimum withdrawal is $${MIN_WITHDRAW_USDC.toFixed(2)} USDC.`)
+      }
 
       const available = sellerEarnings?.withdrawable_balance ?? 0
       if (amt > available) {
@@ -798,7 +805,7 @@ export default function DashboardPage() {
           <h2 className="text-sm font-bold text-[#0D0D0D] mb-1">Withdraw Earnings</h2>
           <p className="text-xs text-[#6B7280] mb-3">
             Withdrawable balance: <span className="font-medium text-[#00B050]">${sellerEarnings ? sellerEarnings.withdrawable_balance.toFixed(4) : '0.0000'} USDC</span>.
-            The platform mints on Arc and deducts the estimated gas cost from your payout — no wallet signature needed.
+            The platform mints on Arc and deducts the estimated gas cost from your payout — no wallet signature needed. Minimum withdrawal: ${MIN_WITHDRAW_USDC.toFixed(2)}.
           </p>
           <div className="flex gap-2 items-center">
             <input

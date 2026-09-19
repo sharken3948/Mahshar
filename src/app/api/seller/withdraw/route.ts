@@ -55,16 +55,21 @@ function bigintReplacer(_: string, v: unknown): unknown {
   return typeof v === 'bigint' ? v.toString() : v
 }
 
-// gatewayMint uses ~100-150k gas in the happy path; 300k is a safe ceiling for
-// the fallback path. Buffer of 20% over the estimate protects against
+// estimateContractGas always reverts with dummy args, so this fallback is the
+// real estimate. Measured real gasUsed on Arc Mainnet gatewayMint: 133,434
+// (Sep 2026). Buffer of 20% (see GAS_BUFFER_PERCENT) protects against
 // gas-price movement between /transfer and the actual mint submission.
-const GAS_FALLBACK: bigint = BigInt(300_000)
+const GAS_FALLBACK: bigint = BigInt(140_000)
 const GAS_BUFFER_PERCENT: bigint = BigInt(120)
 // Arc native currency is USDC represented at 18 decimals; the ERC-20 view uses
 // 6 decimals. gas * gasPrice yields an 18-decimal value → divide by 10^12 to
 // get 6-decimal atomic USDC. Confirmed on 2026-09-19 via a live balance probe
 // (native `1500000000000000000` ≡ USDC `1500000` for the platform wallet).
 const NATIVE_TO_USDC_DIVISOR: bigint = BigInt(10) ** BigInt(12)
+
+// Server-side floor so gas doesn't dominate the payout on tiny amounts.
+// Keep in sync with dashboard/page.tsx MIN_WITHDRAW_USDC.
+const MIN_WITHDRAW_USDC = 1
 
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as {
@@ -79,6 +84,13 @@ export async function POST(request: NextRequest) {
   const requestedAmount = Number(body.amount_usdc)
   if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
     return NextResponse.json({ error: 'Invalid amount_usdc' }, { status: 400 })
+  }
+
+  if (requestedAmount < MIN_WITHDRAW_USDC) {
+    return NextResponse.json(
+      { error: `Minimum withdrawal is $${MIN_WITHDRAW_USDC.toFixed(2)} USDC. Requested: $${requestedAmount.toFixed(4)}.` },
+      { status: 400 },
+    )
   }
 
   const supabase = createServiceClient()
