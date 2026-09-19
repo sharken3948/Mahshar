@@ -1,5 +1,6 @@
 'use client'
-import { useAccount, useReadContract, useWriteContract, usePublicClient, useBlockNumber, useSwitchChain } from 'wagmi'
+import { useAccount, useReadContract, useWriteContract, usePublicClient, useBlockNumber, useSwitchChain, useSignMessage } from 'wagmi'
+import { buildWithdrawMessage } from '@/lib/withdraw-auth-message'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import Link from 'next/link'
@@ -110,6 +111,7 @@ export default function DashboardPage() {
   const { address, isConnected, connector } = useAccount()
   const { writeContractAsync } = useWriteContract()
   const { switchChainAsync } = useSwitchChain()
+  const { signMessageAsync } = useSignMessage()
   const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID })
 
   const [myApis, setMyApis] = useState<ApiListing[]>([])
@@ -389,10 +391,20 @@ export default function DashboardPage() {
         throw new Error(`Amount exceeds withdrawable balance ($${available.toFixed(4)} USDC).`)
       }
 
+      const timestamp = new Date().toISOString()
+      const nonce = crypto.randomUUID()
+      const message = buildWithdrawMessage({
+        sellerWallet: address,
+        amountUsdc: amt.toFixed(6),
+        timestamp,
+        nonce,
+      })
+      const signature = await signMessageAsync({ message })
+
       const res = await fetch('/api/seller/withdraw', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seller_wallet: address, amount_usdc: amt }),
+        body: JSON.stringify({ seller_wallet: address, amount_usdc: amt, timestamp, nonce, signature }),
       })
       const body = await res.json().catch(() => ({})) as {
         withdrawal_id?: string
@@ -805,7 +817,7 @@ export default function DashboardPage() {
           <h2 className="text-sm font-bold text-[#0D0D0D] mb-1">Withdraw Earnings</h2>
           <p className="text-xs text-[#6B7280] mb-3">
             Withdrawable balance: <span className="font-medium text-[#00B050]">${sellerEarnings ? sellerEarnings.withdrawable_balance.toFixed(4) : '0.0000'} USDC</span>.
-            The platform mints on Arc and deducts the estimated gas cost from your payout — no wallet signature needed. Minimum withdrawal: ${MIN_WITHDRAW_USDC.toFixed(2)}.
+            The platform mints on Arc and deducts the estimated gas cost from your payout. Your wallet will prompt for a signature to authorize the withdrawal. Minimum withdrawal: ${MIN_WITHDRAW_USDC.toFixed(2)}.
           </p>
           <div className="flex gap-2 items-center">
             <input

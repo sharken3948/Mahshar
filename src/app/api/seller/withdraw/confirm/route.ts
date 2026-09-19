@@ -4,6 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { createServiceClient } from '@/lib/supabase/server'
 import { isValidWalletAddress } from '@/lib/wallet-validation'
 import { arcMainnet, arcTestnet } from '@/lib/chains'
+import { buildConfirmMessage, WITHDRAW_TIMESTAMP_WINDOW_SECONDS } from '@/lib/withdraw-auth-message'
 import { ARC, ARC_MAINNET, GATEWAY_MINTER_ABI } from '@/lib/arc'
 import { PLATFORM_PRIVATE_KEY } from '@/lib/gateway'
 
@@ -19,6 +20,9 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as {
     withdrawal_id?: string
     seller_wallet?: string
+    timestamp?: string
+    nonce?: string
+    signature?: string
   }
 
   const { withdrawal_id, seller_wallet } = body
@@ -30,6 +34,50 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = createServiceClient()
+
+  const isMainnet = ARC.chainId === ARC_MAINNET.chainId
+  const chain = isMainnet ? arcMainnet : arcTestnet
+  const rpcUrl = isMainnet ? process.env.ARC_MAINNET_RPC_URL : undefined
+  const publicClient = createPublicClient({ chain, transport: http(rpcUrl) })
+
+  // ── Signature auth ───────────────────────────────────────────────────────
+  const { timestamp, nonce, signature } = body
+  if (!timestamp || !nonce || !signature) {
+    return NextResponse.json({ error: 'Missing signature, timestamp, or nonce.' }, { status: 401 })
+  }
+  const authAgeSec = (Date.now() - new Date(timestamp).getTime()) / 1000
+  if (!Number.isFinite(authAgeSec) || authAgeSec > WITHDRAW_TIMESTAMP_WINDOW_SECONDS || authAgeSec < -30) {
+    return NextResponse.json({ error: 'Request timestamp is expired or invalid.' }, { status: 401 })
+  }
+  const authMessage = buildConfirmMessage({
+    sellerWallet: seller_wallet,
+    withdrawalId: withdrawal_id,
+    timestamp,
+    nonce,
+  })
+  let sigValid: boolean
+  try {
+    sigValid = await publicClient.verifyMessage({
+      address: seller_wallet as `0x${string}`,
+      message: authMessage,
+      signature: signature as `0x${string}`,
+    })
+  } catch {
+    sigValid = false
+  }
+  if (!sigValid) {
+    return NextResponse.json({ error: 'Signature is invalid or does not match seller_wallet.' }, { status: 401 })
+  }
+  const { error: nonceErr } = await supabase
+    .from('withdraw_used_nonces')
+    .insert({ nonce, seller_wallet: seller_wallet.toLowerCase() })
+  if (nonceErr) {
+    if (nonceErr.code === '23505') {
+      return NextResponse.json({ error: 'Nonce has already been used.' }, { status: 401 })
+    }
+    return NextResponse.json({ error: nonceErr.message }, { status: 500 })
+  }
+
   const { data: row, error: readErr } = await supabase
     .from('seller_withdrawals')
     .select('id, seller_wallet, status, attestation, attestation_signature')
@@ -51,10 +99,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Withdrawal row is missing attestation payload' }, { status: 500 })
   }
 
-  const isMainnet = ARC.chainId === ARC_MAINNET.chainId
-  const chain = isMainnet ? arcMainnet : arcTestnet
-  const rpcUrl = isMainnet ? process.env.ARC_MAINNET_RPC_URL : undefined
-  const publicClient = createPublicClient({ chain, transport: http(rpcUrl) })
   const account = privateKeyToAccount(PLATFORM_PRIVATE_KEY)
   const walletClient = createWalletClient({ account, chain, transport: http(rpcUrl) })
 
