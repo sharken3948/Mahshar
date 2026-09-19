@@ -71,6 +71,8 @@ const NATIVE_TO_USDC_DIVISOR: bigint = BigInt(10) ** BigInt(12)
 // Keep in sync with dashboard/page.tsx MIN_WITHDRAW_USDC.
 const MIN_WITHDRAW_USDC = 1
 
+const WITHDRAW_COOLDOWN_SECONDS = 60
+
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as {
     seller_wallet?: string
@@ -94,6 +96,24 @@ export async function POST(request: NextRequest) {
   }
 
   const supabase = createServiceClient()
+
+  // ── Per-seller cooldown ──────────────────────────────────────────────────
+  const cooldownCutoff = new Date(Date.now() - WITHDRAW_COOLDOWN_SECONDS * 1000).toISOString()
+  const { data: recentRow, error: cooldownErr } = await supabase
+    .from('seller_withdrawals')
+    .select('id')
+    .ilike('seller_wallet', sellerWallet)
+    .in('status', ['pending_mint', 'minted', 'failed'])
+    .gte('created_at', cooldownCutoff)
+    .limit(1)
+    .maybeSingle()
+  if (cooldownErr) return NextResponse.json({ error: cooldownErr.message }, { status: 500 })
+  if (recentRow) {
+    return NextResponse.json(
+      { error: 'Please wait a minute before requesting another withdrawal.' },
+      { status: 429, headers: { 'Retry-After': String(WITHDRAW_COOLDOWN_SECONDS) } },
+    )
+  }
 
   // ── Balance check ────────────────────────────────────────────────────────
   const { data: apis, error: apisErr } = await supabase
