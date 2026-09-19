@@ -377,6 +377,11 @@ export default function DashboardPage() {
       const amt = parseFloat(earningsWithdrawAmount)
       if (!Number.isFinite(amt) || amt <= 0) throw new Error('Invalid amount')
 
+      const available = sellerEarnings?.withdrawable_balance ?? 0
+      if (amt > available) {
+        throw new Error(`Amount exceeds withdrawable balance ($${available.toFixed(4)} USDC).`)
+      }
+
       const res = await fetch('/api/seller/withdraw', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -793,7 +798,7 @@ export default function DashboardPage() {
           <h2 className="text-sm font-bold text-[#0D0D0D] mb-1">Withdraw Earnings</h2>
           <p className="text-xs text-[#6B7280] mb-3">
             Withdrawable balance: <span className="font-medium text-[#00B050]">${sellerEarnings ? sellerEarnings.withdrawable_balance.toFixed(4) : '0.0000'} USDC</span>.
-            You submit the mint on Arc from your own wallet and pay the gas.
+            The platform mints on Arc and deducts the estimated gas cost from your payout — no wallet signature needed.
           </p>
           <div className="flex gap-2 items-center">
             <input
