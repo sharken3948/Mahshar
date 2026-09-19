@@ -561,7 +561,7 @@ export default function DashboardPage() {
                 className="w-full bg-[#FAFAF8] border border-[#2775CA] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] focus:outline-none focus:border-[#2775CA] disabled:opacity-50"
               >
                 <option value="arc">{process.env.NEXT_PUBLIC_SHOW_TESTNET === 'true' ? 'Arc Testnet (current chain)' : 'Arc Mainnet (current chain)'}</option>
-                {bridgeBalances.map(b => (
+                {process.env.NEXT_PUBLIC_SHOW_TESTNET === 'true' && bridgeBalances.map(b => (
                   <option key={b.chainName} value={b.chainName}>
                     {b.displayName} — {b.isLoading ? 'loading...' : `${b.usdcBalance} USDC`}
                   </option>
@@ -569,7 +569,7 @@ export default function DashboardPage() {
               </select>
             </div>
 
-            {selectedDepositChain === 'arc' ? (
+            {selectedDepositChain === 'arc' || process.env.NEXT_PUBLIC_SHOW_TESTNET !== 'true' ? (
               <>
                 <div className="flex gap-2 items-center">
                   <input
