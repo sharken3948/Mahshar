@@ -69,7 +69,7 @@ const NATIVE_TO_USDC_DIVISOR: bigint = BigInt(10) ** BigInt(12)
 
 // Server-side floor so gas doesn't dominate the payout on tiny amounts.
 // Keep in sync with dashboard/page.tsx MIN_WITHDRAW_USDC.
-const MIN_WITHDRAW_USDC = 1
+const MIN_WITHDRAW_USDC = 0.0001
 
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as {
