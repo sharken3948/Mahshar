@@ -87,7 +87,7 @@ const GATEWAY_PENDING_WITHDRAWAL_ABI = [
 const IS_ARC_MAINNET = ARC.chainId === ARC_MAINNET.chainId
 
 // Keep in sync with src/app/api/seller/withdraw/route.ts MIN_WITHDRAW_USDC.
-const MIN_WITHDRAW_USDC = 0.0001
+const MIN_WITHDRAW_USDC = 1
 
 const appKit = new AppKit()
 
