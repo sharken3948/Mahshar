@@ -241,6 +241,44 @@ export async function POST(request: NextRequest) {
   }
   const netAtomic = requestedAtomic - gasCostAtomic
 
+  // ── Gateway balance pre-check ─────────────────────────────────────────────
+  // Confirm the platform depositor has enough confirmed balance before
+  // inserting a pending_mint row or calling /v1/transfer. Fails open on
+  // transient errors — Circle will reject the burn intent if balance is
+  // still insufficient.
+  try {
+    const balanceRes = await fetch(`${ARC.gatewayApi}/balances`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...arcPrivateMainnetHeaders(isMainnet),
+      },
+      body: JSON.stringify({
+        token: 'USDC',
+        sources: [{ depositor: platform, domain: ARC.gatewayDomain }],
+      }),
+    })
+    if (balanceRes.ok) {
+      const balanceData = await balanceRes.json().catch(() => null) as {
+        token?: string
+        balances?: Array<{ domain?: number; depositor?: string; balance?: string; pendingBatch?: string }>
+      } | null
+      const availableStr = balanceData?.balances?.[0]?.balance
+      if (availableStr != null) {
+        const availableAtomic = parseUnits(availableStr, 6)
+        if (availableAtomic < netAtomic) {
+          return NextResponse.json(
+            { error: 'Settlement is still pending, please try again in a few minutes.' },
+            { status: 409 },
+          )
+        }
+      }
+    }
+  } catch {
+    // Fail open: transient error querying Gateway balance — proceed and let
+    // /v1/transfer reject if funds are genuinely unavailable.
+  }
+
   // ── Build burn intent ────────────────────────────────────────────────────
   // destinationCaller = platform locks gatewayMint execution to the platform
   // wallet only; closes any race where a third party could front-run our mint.
