@@ -257,27 +257,35 @@ export default function DashboardPage() {
   // Pre-estimate the flat withdrawal fee (gas + forwarder) once per session so it
   // can be shown inline before the user submits. Arc→Arc fees are per-intent, not
   // proportional to amount, so a nominal 1 USDC estimate covers all amounts.
+  //
+  // Dep is connector?.id (stable string) not the connector object — the object
+  // reference from useAccount() is not guaranteed stable across renders and would
+  // retrigger the effect on every render, causing a fetch loop.
   useEffect(() => {
     if (!address || !connector) { setWithdrawFlatFee(null); return }
     let cancelled = false
-    ;(async () => {
-      try {
-        const provider = (await connector.getProvider()) as EIP1193Provider
-        const adapter = await createViemAdapterFromProvider({ provider })
-        const chain = IS_ARC_MAINNET ? UnifiedBalanceChain.Arc : UnifiedBalanceChain.Arc_Testnet
-        const est = await appKit.unifiedBalance.estimateSpend({
-          from: { adapter, allocations: [{ amount: '1', chain }] },
-          to: IS_ARC_MAINNET
-            ? { chain, recipientAddress: address, useForwarder: true }
-            : { adapter, chain, recipientAddress: address },
-          amount: '1',
-          token: 'USDC',
-        })
-        if (!cancelled) setWithdrawFlatFee(est.fees.reduce((s, f) => s + parseFloat(f.amount), 0))
-      } catch { /* fee estimate unavailable — withdraw still works without it */ }
-    })()
-    return () => { cancelled = true }
-  }, [address, connector])
+    const timer = setTimeout(() => {
+      ;(async () => {
+        try {
+          const provider = (await connector.getProvider()) as EIP1193Provider
+          const adapter = await createViemAdapterFromProvider({ provider })
+          const chain = IS_ARC_MAINNET ? UnifiedBalanceChain.Arc : UnifiedBalanceChain.Arc_Testnet
+          const est = await appKit.unifiedBalance.estimateSpend({
+            from: { adapter, allocations: [{ amount: '1', chain }] },
+            to: IS_ARC_MAINNET
+              ? { chain, recipientAddress: address, useForwarder: true }
+              : { adapter, chain, recipientAddress: address },
+            amount: '1',
+            token: 'USDC',
+          })
+          if (!cancelled) setWithdrawFlatFee(est.fees.reduce((s, f) => s + parseFloat(f.amount), 0))
+        } catch {
+          if (!cancelled) setWithdrawFlatFee(null)
+        }
+      })()
+    }, 500)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [address, connector?.id])
 
   async function handleDeposit() {
     if (!address || !depositAmount || !publicClient) return
