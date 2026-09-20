@@ -89,6 +89,7 @@ const IS_ARC_MAINNET = ARC.chainId === ARC_MAINNET.chainId
 
 // Keep in sync with src/app/api/seller/withdraw/route.ts MIN_WITHDRAW_USDC.
 const MIN_WITHDRAW_USDC = 1
+const MIN_BUYER_WITHDRAW_USDC = 1
 
 const appKit = new AppKit()
 
@@ -133,6 +134,7 @@ export default function DashboardPage() {
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [withdrawStep, setWithdrawStep] = useState<'idle' | 'withdrawing'>('idle')
   const [withdrawError, setWithdrawError] = useState<string | null>(null)
+  const [withdrawFlatFee, setWithdrawFlatFee] = useState<number | null>(null)
   const [initiateStep, setInitiateStep] = useState<'idle' | 'initiating'>('idle')
   const [initiateError, setInitiateError] = useState<string | null>(null)
   const [releaseStep, setReleaseStep] = useState<'idle' | 'releasing'>('idle')
@@ -252,6 +254,31 @@ export default function DashboardPage() {
     return () => clearInterval(id)
   }, [address, fetchLiveData])
 
+  // Pre-estimate the flat withdrawal fee (gas + forwarder) once per session so it
+  // can be shown inline before the user submits. Arc→Arc fees are per-intent, not
+  // proportional to amount, so a nominal 1 USDC estimate covers all amounts.
+  useEffect(() => {
+    if (!address || !connector) { setWithdrawFlatFee(null); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const provider = (await connector.getProvider()) as EIP1193Provider
+        const adapter = await createViemAdapterFromProvider({ provider })
+        const chain = IS_ARC_MAINNET ? UnifiedBalanceChain.Arc : UnifiedBalanceChain.Arc_Testnet
+        const est = await appKit.unifiedBalance.estimateSpend({
+          from: { adapter, allocations: [{ amount: '1', chain }] },
+          to: IS_ARC_MAINNET
+            ? { chain, recipientAddress: address, useForwarder: true }
+            : { adapter, chain, recipientAddress: address },
+          amount: '1',
+          token: 'USDC',
+        })
+        if (!cancelled) setWithdrawFlatFee(est.fees.reduce((s, f) => s + parseFloat(f.amount), 0))
+      } catch { /* fee estimate unavailable — withdraw still works without it */ }
+    })()
+    return () => { cancelled = true }
+  }, [address, connector])
+
   async function handleDeposit() {
     if (!address || !depositAmount || !publicClient) return
     setDepositStep('approving')
@@ -298,14 +325,30 @@ export default function DashboardPage() {
       const amt = parseFloat(withdrawAmount)
       if (!Number.isFinite(amt) || amt <= 0) throw new Error('Invalid amount')
 
+      if (amt < MIN_BUYER_WITHDRAW_USDC)
+        throw new Error(`Minimum withdrawal is $${MIN_BUYER_WITHDRAW_USDC.toFixed(2)} USDC.`)
+
+      // Fees come from the Gateway balance ON TOP of the requested amount.
+      // Recipient receives exactly amt; balance debited is amt + fees.
+      const available = parseFloat(gatewayStats?.gatewayAvailable ?? '0')
+      if (withdrawFlatFee !== null && amt + withdrawFlatFee > available) {
+        throw new Error(
+          `Insufficient balance. ${amt.toFixed(4)} USDC + ~${withdrawFlatFee.toFixed(4)} USDC fees = ` +
+          `~${(amt + withdrawFlatFee).toFixed(4)} USDC needed, you have ${available.toFixed(4)} USDC.`,
+        )
+      }
+
       await switchChainAsync({ chainId: ARC_CHAIN_ID })
 
       const provider = (await connector.getProvider()) as EIP1193Provider
       const adapter = await createViemAdapterFromProvider({ provider })
+      const destChain = IS_ARC_MAINNET ? UnifiedBalanceChain.Arc : UnifiedBalanceChain.Arc_Testnet
 
       await appKit.unifiedBalance.spend({
         from: { adapter },
-        to: { adapter, chain: UnifiedBalanceChain.Arc_Testnet, recipientAddress: address },
+        to: IS_ARC_MAINNET
+          ? { chain: destChain, recipientAddress: address, useForwarder: true }
+          : { adapter, chain: destChain, recipientAddress: address },
         token: 'USDC',
         amount: amt.toFixed(6),
       })
@@ -315,7 +358,12 @@ export default function DashboardPage() {
       await refetchWithdrawing()
       refetchUsdcBalance()
     } catch (err: unknown) {
-      setWithdrawError(err instanceof Error ? err.message : String(err))
+      const msg = err instanceof Error ? err.message : String(err)
+      setWithdrawError(
+        /signature|signer|isvalidsignature|1271/i.test(msg)
+          ? 'Signature validation failed — try the trustless withdrawal (7 days) instead.'
+          : msg,
+      )
     } finally {
       setWithdrawStep('idle')
     }
@@ -749,31 +797,34 @@ export default function DashboardPage() {
                 className="w-24 bg-[#FAFAF8] border border-[#2775CA] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA]"
               />
               <span className="text-sm text-[#6B7280]">USDC</span>
-              {IS_ARC_MAINNET ? (
-                <button
-                  onClick={handleInitiateWithdraw}
-                  disabled={initiateStep !== 'idle' || !withdrawAmount || !publicClient}
-                  className="bg-[#00B050] hover:bg-[#008F42] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
-                >
-                  {initiateStep === 'initiating' ? 'Initiating...' : 'Initiate Withdrawal'}
-                </button>
-              ) : (
-                <button
+              <button
                   onClick={handleWithdraw}
                   disabled={withdrawStep !== 'idle' || !withdrawAmount || !connector}
                   className="bg-[#00B050] hover:bg-[#008F42] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
                 >
                   {withdrawStep === 'withdrawing' ? 'Withdrawing...' : 'Withdraw'}
                 </button>
-              )}
             </div>
-            {IS_ARC_MAINNET && (
+            {withdrawFlatFee !== null && withdrawAmount && parseFloat(withdrawAmount) > 0 && (
               <p className="text-xs text-[#6B7280] mt-2">
-                Instant withdraw isn&apos;t yet available on Arc Mainnet. This starts a trustless withdrawal — release the funds below once ready.
+                Estimated fee: ~{withdrawFlatFee.toFixed(4)} USDC (gas + forwarder). You receive{' '}
+                <span className="font-medium">{parseFloat(withdrawAmount).toFixed(4)} USDC</span>; total deducted from your balance:{' '}
+                ~{(parseFloat(withdrawAmount) + withdrawFlatFee).toFixed(4)} USDC.
               </p>
             )}
-            {!IS_ARC_MAINNET && withdrawError && <p className="text-xs text-[#DC2626] mt-2">{withdrawError}</p>}
-            {IS_ARC_MAINNET && initiateError && <p className="text-xs text-[#DC2626] mt-2">{initiateError}</p>}
+            {withdrawError && <p className="text-xs text-[#DC2626] mt-2">{withdrawError}</p>}
+            {IS_ARC_MAINNET && (
+              <p className="text-xs text-[#6B7280] mt-2">
+                <button
+                  onClick={handleInitiateWithdraw}
+                  disabled={initiateStep !== 'idle' || !withdrawAmount || !publicClient}
+                  className="underline hover:text-[#0D0D0D] disabled:opacity-50 transition-colors"
+                >
+                  {initiateStep === 'initiating' ? 'Initiating...' : 'Trustless withdrawal (7 days)'}
+                </button>
+                {initiateError && <span className="text-[#DC2626] ml-1">{initiateError}</span>}
+              </p>
+            )}
 
             {withdrawingRaw != null && withdrawingRaw > BigInt(0) && (
               <div className="mt-4 pt-3 border-t border-[#E5E7EB]">
