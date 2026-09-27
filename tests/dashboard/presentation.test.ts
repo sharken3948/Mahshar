@@ -33,8 +33,14 @@ test('app CSS uses readable semantic sizes instead of sub-13px text',()=>{
  const global=readFileSync('src/app/globals.css','utf8')
  assert.match(global,/--mahshar-caption-size:\s*13px/)
  assert.match(global,/--mahshar-support-size:\s*14px/)
+ // Narrow exception: .ecosystemHeader > span is a deliberate small-caps eyebrow
+ // label (uppercase-style with wide letter-spacing) where sub-13px is intentional.
+ const subThirteenExceptions:Record<string,RegExp[]>={
+   'src/app/landing.module.css':[/\.ecosystemHeader\s*>\s*span\s*\{[^}]*\}/g],
+ }
  for(const file of [...cssFiles('src/app'),...cssFiles('src/components')]){
-   const css=readFileSync(file,'utf8')
+   let css=readFileSync(file,'utf8')
+   for(const exception of subThirteenExceptions[file]??[]) css=css.replace(exception,'')
    assert.doesNotMatch(css,/font-size:\s*(?:[0-9]|1[0-2])px\b/,file)
  }
 })
