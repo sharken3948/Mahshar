@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { withAdmin } from '@/lib/admin-auth';
 
 export const runtime = 'nodejs';
 
@@ -20,11 +21,7 @@ interface RawListing {
   created_at: string;
 }
 
-export async function GET(request: NextRequest) {
-  const adminSecret = process.env.ADMIN_SECRET;
-  if (adminSecret && request.headers.get('x-admin-key') !== adminSecret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const GET = withAdmin(async (request: NextRequest) => {
 
   const platformWallet = process.env.DISCOVERY_SELLER_WALLET;
   if (!platformWallet) {
@@ -145,4 +142,4 @@ export async function GET(request: NextRequest) {
     summary,
     categories,
   });
-}
+});

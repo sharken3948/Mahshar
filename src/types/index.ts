@@ -21,6 +21,13 @@ export interface ApiListing {
   created_at: string;
   is_active: boolean;
   verified_at: string | null;
+  expected_status_codes: number[] | null;
+  request_schema?: Record<string, unknown> | null;
+  response_schema?: Record<string, unknown> | null;
+  body_required?: boolean | null;
+  dynamic_path_supported?: boolean;
+  path_parameters?: unknown[] | null;
+  query_parameters?: unknown[] | null;
 }
 
 export interface Purchase {
@@ -47,28 +54,6 @@ export interface ApiCall {
   latency_ms: number;
   success: boolean;
   is_client_error: boolean | null;
+  is_declared_expected: boolean | null;
   created_at: string;
-}
-
-export interface X402PaymentRequired {
-  scheme: string;
-  network: string;
-  maxAmountRequired: string;
-  resource: { url: string; description: string; mimeType: string };
-  description: string;
-  mimeType: string;
-  payTo: string;
-  maxTimeoutSeconds: number;
-  asset: string;
-  extra?: Record<string, unknown>;
-}
-
-export interface ProxyRequest {
-  api_id: string;
-  buyer_wallet: string;
-  payment_type: PaymentModel;
-  method: string;
-  path: string;
-  headers: Record<string, string>;
-  body?: unknown;
 }

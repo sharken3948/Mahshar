@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { fetchPublicApis } from '@/lib/crawler';
 import { scoreForDiscovery, isSafeUrl } from '@/lib/discovery';
+import { safeOutboundFetch } from '@/lib/outbound-fetch';
+import { withAdmin } from '@/lib/admin-auth';
 
 export const runtime = 'nodejs';
 
@@ -20,11 +22,7 @@ interface CrawlQueueRow {
   source_name: string | null;
 }
 
-export async function GET(request: NextRequest) {
-  const adminSecret = process.env.ADMIN_SECRET;
-  if (adminSecret && request.headers.get('x-admin-key') !== adminSecret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const GET = withAdmin(async (request: NextRequest) => {
 
   const supabase = createServiceClient();
 
@@ -53,13 +51,9 @@ export async function GET(request: NextRequest) {
   };
 
   return NextResponse.json({ stats, rows: rows.slice(0, 20) });
-}
+});
 
-export async function POST(request: NextRequest) {
-  const adminSecret = process.env.ADMIN_SECRET;
-  if (adminSecret && request.headers.get('x-admin-key') !== adminSecret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const POST = withAdmin(async (request: NextRequest) => {
 
   const supabase = createServiceClient();
   const { searchParams } = new URL(request.url);
@@ -127,7 +121,7 @@ export async function POST(request: NextRequest) {
     // Check 1: auth required — skip without network call
     const auth = (row.auth ?? '').trim();
     if (auth && auth !== 'No') {
-      console.log(`[crawl:skip] auth_required — name="${row.name}" url="${row.endpoint_url}" auth="${auth}"`);
+      console.log(`[crawl:skip] auth_required — name="${row.name}"`);
       rejectReason = 'auth_required';
       skipped++;
       await supabase
@@ -140,7 +134,7 @@ export async function POST(request: NextRequest) {
 
     // Check 2: URL safety (HTTPS only, no private/loopback IPs)
     if (!isSafeUrl(row.endpoint_url)) {
-      console.log(`[crawl:skip] unsafe_url — name="${row.name}" url="${row.endpoint_url}"`);
+      console.log(`[crawl:skip] unsafe_url — name="${row.name}"`);
       rejectReason = 'unsafe_url';
       skipped++;
       await supabase
@@ -156,13 +150,14 @@ export async function POST(request: NextRequest) {
     let latencyMs: number | null = null;
     const liveStart = Date.now();
     try {
-      const liveRes = await fetch(row.endpoint_url, {
+      const liveRes = await safeOutboundFetch(row.endpoint_url, {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
-        redirect: 'follow',
-      });
+        redirect: 'manual',
+      }, { timeoutMs: 5000 });
       latencyMs = Date.now() - liveStart;
       liveOk = liveRes.status >= 200 && liveRes.status < 300;
+      await liveRes.body?.cancel().catch(() => undefined);
     } catch {
       liveOk = false;
     }
@@ -276,4 +271,4 @@ export async function POST(request: NextRequest) {
     next_offset: offset + batchSize,
     total_pending: totalPending ?? 0,
   });
-}
+});

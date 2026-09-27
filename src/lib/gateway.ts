@@ -1,35 +1,26 @@
 import { BatchFacilitatorClient } from '@circle-fin/x402-batching/server'
-import { GatewayClient } from '@circle-fin/x402-batching/client'
-import { AppKit } from '@circle-fin/app-kit'
-import { createViemAdapterFromPrivateKey } from '@circle-fin/adapter-viem-v2'
 import { NextRequest, NextResponse } from 'next/server'
-import { createPublicClient, createWalletClient, http, type PublicClient, type WalletClient } from 'viem'
-import { createServiceClient } from '@/lib/supabase/server'
-import { isValidWalletAddress } from '@/lib/wallet-validation'
-import { arcTestnet, arcMainnet } from '@/lib/chains'
-import { ARC_TESTNET, ARC_MAINNET } from '@/lib/arc'
+import { parsePayment, settleDurably, type SettlementResult } from '@/lib/payments/settlement'
+import { settlementStorageReady, settlementStore } from '@/lib/payments/server'
+import { ARC_MAINNET } from '@/lib/arc'
+import { encodePaymentResponseHeader } from '@x402/core/http'
+import type { Network } from '@x402/core/types'
 
 // USDC decimals are 6 on every supported chain — kept as a constant here
 // because reading decimals() at request time would add an RPC round-trip to
 // every 402 response with no real safety benefit for a fixed asset.
 const USDC_DECIMALS = 6
 
-type NetworkId = 'eip155:5042002' | 'eip155:5042'
+type NetworkId = 'eip155:5042'
 type ChainConfig = {
   usdc: `0x${string}`
   gatewayWallet: `0x${string}`
   gatewayMinter?: `0x${string}`
   facilitatorUrl: string
-  gatewayClientChain: 'arcTestnet' | 'arc'
+  gatewayClientChain: 'arc'
 }
 
 const CHAINS: Record<NetworkId, ChainConfig> = {
-  'eip155:5042002': {
-    usdc: ARC_TESTNET.usdcAddress,
-    gatewayWallet: ARC_TESTNET.gatewayWallet,
-    facilitatorUrl: 'https://gateway-api-testnet.circle.com',
-    gatewayClientChain: 'arcTestnet',
-  },
   'eip155:5042': {
     usdc: ARC_MAINNET.usdcAddress,
     gatewayWallet: ARC_MAINNET.gatewayWallet,
@@ -39,7 +30,7 @@ const CHAINS: Record<NetworkId, ChainConfig> = {
   },
 }
 
-const NETWORK_ORDER: NetworkId[] = ['eip155:5042002', 'eip155:5042']
+const NETWORK_ORDER: NetworkId[] = ['eip155:5042']
 
 const _platformAddress = process.env.PLATFORM_WALLET_ADDRESS
 const _platformPrivateKey = process.env.PLATFORM_WALLET_PRIVATE_KEY
@@ -67,85 +58,6 @@ function facilitatorFor(networkId: NetworkId): BatchFacilitatorClient {
     facilitators.set(url, f)
   }
   return f
-}
-
-const gatewayClients = new Map<NetworkId, GatewayClient>()
-function gatewayClientFor(networkId: NetworkId): GatewayClient {
-  let c = gatewayClients.get(networkId)
-  if (!c) {
-    // Arc Mainnet has no public RPC until ~2026-06-22, so GatewayClient requires an explicit
-    // rpcUrl for chain 'arc'. Testnet uses the SDK's default.
-    const gatewayClientChain = CHAINS[networkId].gatewayClientChain
-    const rpcUrl = gatewayClientChain === 'arc' ? process.env.ARC_MAINNET_RPC_URL : undefined
-    if (gatewayClientChain === 'arc' && !rpcUrl) {
-      throw new Error('ARC_MAINNET_RPC_URL must be set to construct a GatewayClient for Arc Mainnet')
-    }
-    c = new GatewayClient({
-      chain: gatewayClientChain,
-      privateKey: PLATFORM_PRIVATE_KEY,
-      rpcUrl,
-    })
-    gatewayClients.set(networkId, c)
-  }
-  return c
-}
-
-interface ReceiptPoller {
-  waitForTransactionReceipt(args: { hash: `0x${string}`; timeout?: number }): Promise<{ status: 'success' | 'reverted' }>
-  // Only used to distinguish "tx pending in mempool" from "tx never landed" on the
-  // unified-balance recovery path. Return shape is deliberately unknown — we only care
-  // whether it resolves (tx exists) or throws TransactionNotFoundError (tx absent).
-  getTransaction(args: { hash: `0x${string}` }): Promise<unknown>
-}
-
-// Signals that the on-chain state of the referenced tx is UNKNOWN — the poll
-// itself failed transiently (network, timeout, RPC 5xx/limit/gas-cap). Not a
-// confirmed mint failure; a caller may back off and re-poll.
-export class RpcTransientError extends Error {
-  readonly cause: unknown
-  constructor(message: string, cause: unknown) {
-    super(message)
-    this.name = 'RpcTransientError'
-    this.cause = cause
-  }
-}
-
-export function isTransientRpcError(err: unknown): boolean {
-  const name = err instanceof Error ? err.name : ''
-  if (
-    name === 'WaitForTransactionReceiptTimeoutError' ||
-    name === 'TimeoutError' ||
-    name === 'HttpRequestError' ||
-    name === 'InternalRpcError' ||
-    name === 'InvalidRequestRpcError' ||
-    name === 'LimitExceededRpcError'
-  ) {
-    return true
-  }
-  const msg = err instanceof Error ? err.message : String(err)
-  if (/gas cap|gas limit/i.test(msg)) return true
-  if (/(?<![\w-])(?:-32600|-32603|-32005)(?!\d)/.test(msg)) return true
-  if (/timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENETUNREACH|ENOTFOUND|socket hang up|fetch failed/i.test(msg)) return true
-  if (/\b429\b|rate.?limit|too many requests/i.test(msg)) return true
-  return false
-}
-
-// Cache keyed by network+URL so a change to PAYOUT_RECOVERY_RPC_URL between
-// test scenarios doesn't get stuck on a stale client bound to the previous URL.
-// The env var is test-only (see platformAdapterForSpend for the sibling hook);
-// when unset, http(undefined) resolves to viem's default (the chain's built-in
-// RPC), matching pre-hook production behavior.
-const publicClients = new Map<string, ReceiptPoller>()
-function publicClientFor(networkId: NetworkId): ReceiptPoller {
-  const rpcUrl = process.env.PAYOUT_RECOVERY_RPC_URL
-  const cacheKey = `${networkId}|${rpcUrl ?? ''}`
-  let c = publicClients.get(cacheKey)
-  if (!c) {
-    const chain = networkId === 'eip155:5042002' ? arcTestnet : arcMainnet
-    c = createPublicClient({ chain, transport: http(rpcUrl) })
-    publicClients.set(cacheKey, c)
-  }
-  return c
 }
 
 function buildPaymentRequirements(networkId: NetworkId, sellerPriceUsd: number) {
@@ -190,346 +102,45 @@ export function build402Response(sellerPriceUsd: number, resourceUrl = '/api/pro
   })
 }
 
+export async function paymentInfrastructureStatus(): Promise<
+  { ready: true } | { ready: false; error: 'payment_storage_unavailable'; status: 503 }
+> {
+  try {
+    await settlementStorageReady()
+    return { ready: true }
+  } catch {
+    return { ready: false, error: 'payment_storage_unavailable', status: 503 }
+  }
+}
+
 export async function verifyAndSettlePayment(
   request: NextRequest,
   sellerPriceUsd: number,
   sellerAddress: `0x${string}`,
   apiId: string,
-): Promise<{ success: boolean; payer?: string; error?: string; callId?: string }> {
-  const paymentSignature = request.headers.get('payment-signature')
-  if (!paymentSignature) {
-    return { success: false, error: 'no_payment' }
-  }
-
-  try {
-    const paymentPayload = JSON.parse(
-      Buffer.from(paymentSignature, 'base64').toString('utf-8')
-    )
-
-    // Payment payloads don't self-identify their network — try each
-    // requirement in accepts order until one verifies. First hit wins.
-    let matched: {
-      networkId: NetworkId
-      verifyResult: Awaited<ReturnType<BatchFacilitatorClient['verify']>>
-    } | null = null
-    let lastInvalidReason = 'no_matching_network'
-    for (const networkId of NETWORK_ORDER) {
-      const requirements = buildPaymentRequirements(networkId, sellerPriceUsd)
-      const verifyResult = await facilitatorFor(networkId).verify(paymentPayload, requirements)
-      if (verifyResult.isValid) {
-        matched = { networkId, verifyResult }
-        break
-      }
-      lastInvalidReason = verifyResult.invalidReason ?? lastInvalidReason
-    }
-    if (!matched) {
-      return { success: false, error: `verification_failed: ${lastInvalidReason}` }
-    }
-
-    const { networkId, verifyResult } = matched
-    const requirements = buildPaymentRequirements(networkId, sellerPriceUsd)
-    const settleResult = await facilitatorFor(networkId).settle(paymentPayload, requirements)
-    if (!settleResult.success) {
-      return { success: false, error: `settlement_failed: ${settleResult.errorReason}` }
-    }
-
-    const payer = settleResult.payer ?? verifyResult.payer
-    if (!payer) {
-      return { success: false, error: 'settlement_failed: payer address could not be determined from settlement response' }
-    }
-    if (!isValidWalletAddress(payer)) {
-      return { success: false, error: `settlement_failed: payer address is not a valid Ethereum address: ${payer}` }
-    }
-
-    const sellerShare = sellerPriceUsd * (1 - SELLER_FEE_RATE)
-    if (sellerShare <= 0) {
-      return { success: false, error: 'invalid_amount' }
-    }
-
-    console.log(`[payment] api=${apiId} network=${networkId} buyer=${payer} buyer_paid=$${(sellerPriceUsd * 1.1).toFixed(6)} seller_gets=$${sellerShare.toFixed(6)} platform=$${(sellerPriceUsd * 0.2).toFixed(6)}`)
-
-    const supabase = createServiceClient()
-    // tx_hash carries a UNIQUE constraint (see migration 20260710_multichain_payments.sql).
-    // The upsert-ignore path collapses a replayed settled payload to a no-op instead of
-    // inserting a duplicate purchase row.
-    // seller_share_usdc is what the seller can withdraw for this purchase — accumulated
-    // into a payable balance and consumed by /api/seller/withdraw (Phase 2). The old
-    // per-purchase GatewayClient.transfer() payout is intentionally gone.
-    const txHash = settleResult.transaction ?? `gateway-${Date.now()}`
-    const insertRes = await supabase
-      .from('purchases')
-      .upsert({
-        buyer_wallet: payer.toLowerCase(),
-        api_id: apiId,
-        amount_usdc: Math.round(sellerPriceUsd * 1.1 * 1_000_000) / 1_000_000,
-        seller_share_usdc: Math.round(sellerShare * 1_000_000) / 1_000_000,
-        tx_hash: txHash,
-      }, { onConflict: 'tx_hash', ignoreDuplicates: true })
-      .select('id')
-      .maybeSingle()
-    if (!insertRes.data) {
-      return { success: false, error: 'duplicate_payment: tx_hash already settled' }
-    }
-    const purchase = insertRes.data
-
-    return { success: true, payer, callId: purchase?.id }
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err)
-    console.error('[payment] error:', message)
-    return { success: false, error: message }
-  }
-}
-
-// Feature flag: when 'true', route payouts through unified balance (spend) with the
-// wrapped-adapter capture pattern; otherwise the default GatewayClient.transfer path
-// (unchanged production behavior) is used. Any value other than the exact string 'true'
-// — including unset — leaves the default active.
-//
-// Rollback: unset the env var (or set it to anything but 'true'). No code revert needed.
-// On-chain mints executed while the flag was on are irreversible, but the routing
-// itself flips atomically per request.
-function payoutUsesUnifiedBalance(): boolean {
-  return process.env.PAYOUT_USE_UNIFIED_BALANCE === 'true'
-}
-
-// AppKit's UnifiedBalanceChain enum does not yet include Arc Mainnet, so the
-// unified-balance payout path is unavailable for eip155:5042. transferViaUnifiedBalance
-// checks for this and returns an error rather than routing through the fallback.
-const UB_KIT_CHAIN: Partial<Record<NetworkId, 'Arc_Testnet'>> = {
-  'eip155:5042002': 'Arc_Testnet',
-}
-
-// Lazy singleton — instantiated only when the feature flag routes a payout here.
-let _appKit: AppKit | undefined
-function appKitInstance(): AppKit {
-  _appKit ??= new AppKit()
-  return _appKit
-}
-
-// Wrap a viem PublicClient so waitForTransactionReceipt records the mint tx hash
-// into an external capture object BEFORE polling. The capture survives any thrown
-// error, letting the caller re-poll the hash against a fresh (unwrapped) client
-// when the SDK's own poll fails transiently. Preserves the invariant established
-// in gateway.ts's legacy path: mint-tx state UNKNOWN must not be classified as failed.
-// Generic over the concrete client type — preserves viem's chain-specific Block/Transaction
-// unions instead of widening to viem's base PublicClient (which triggers the same cross-chain
-// type-mismatch class documented in ~/memory/feedback_verify_with_next_build.md).
-function wrapPublicClientCapturingHash<T extends object>(
-  real: T,
-  capture: { hash?: `0x${string}` },
-): T {
-  return new Proxy(real, {
-    get(target, prop, receiver) {
-      if (prop === 'waitForTransactionReceipt') {
-        return async (args: { hash?: `0x${string}` }) => {
-          if (args?.hash) capture.hash = args.hash
-          const fn = (target as Record<string, (a: unknown) => Promise<unknown>>)['waitForTransactionReceipt']
-          return fn.call(target, args)
-        }
-      }
-      return Reflect.get(target, prop, receiver)
-    },
-  }) as T
-}
-
-function viemChainForId(id: number) {
-  if (id === arcTestnet.id) return arcTestnet
-  if (id === arcMainnet.id) return arcMainnet
-  return undefined
-}
-
-// Build a per-call adapter with a per-call hash-capture closure. Fresh per spend so
-// concurrent payouts can't race on shared module state. The client/factory return
-// values are cast to viem's chain-agnostic base types: the SDK's callbacks are typed
-// to return the base PublicClient/WalletClient, while createPublicClient/createWalletClient
-// with a specific chain produce chain-parameterized shapes whose transaction/block
-// unions don't structurally match the base — the same class of mismatch documented
-// in ~/memory/feedback_verify_with_next_build.md.
-//
-// PAYOUT_ADAPTER_RPC_URL is a test-only env override: when set, both the public and
-// wallet clients passed to the SDK point at that URL (e.g. a fault-injecting proxy).
-// When unset, http(undefined) resolves to viem's default (the chain's built-in RPC),
-// matching pre-hook production behavior. Sibling hook: PAYOUT_RECOVERY_RPC_URL on
-// publicClientFor above.
-function platformAdapterForSpend(capture: { hash?: `0x${string}` }) {
-  const rpcUrl = process.env.PAYOUT_ADAPTER_RPC_URL
-  return createViemAdapterFromPrivateKey({
-    privateKey: PLATFORM_PRIVATE_KEY,
-    getPublicClient: ({ chain }) => {
-      const resolved = viemChainForId(chain.id) ?? chain
-      const client = createPublicClient({ chain: resolved, transport: http(rpcUrl) })
-      return wrapPublicClientCapturingHash(client, capture) as unknown as PublicClient
-    },
-    getWalletClient: ({ chain, account }) => {
-      const resolved = viemChainForId(chain.id) ?? chain
-      return createWalletClient({ chain: resolved, account, transport: http(rpcUrl) }) as unknown as WalletClient
-    },
+): Promise<SettlementResult> {
+  const signature = request.headers.get('payment-signature')
+  if (!signature) return { success: false, error: 'no_payment', status: 402 }
+  let payment: ReturnType<typeof parsePayment>
+  try { payment = parsePayment(signature) }
+  catch { return { success: false, error: 'invalid_payment', status: 400 } }
+  const sellerAtomic = Math.round(sellerPriceUsd * (1 - SELLER_FEE_RATE) * 10 ** USDC_DECIMALS)
+  if (!Number.isSafeInteger(sellerAtomic) || sellerAtomic <= 0) return { success: false, error: 'invalid_amount', status: 400 }
+  return settleDurably({
+    payment, apiId, seller: sellerAddress, sellerAtomic: String(sellerAtomic),
+    candidates: NETWORK_ORDER.map(n => buildPaymentRequirements(n, sellerPriceUsd)),
+    facilitator: network => facilitatorFor(network as NetworkId), store: settlementStore(),
   })
 }
 
-async function transferViaUnifiedBalance(
-  sellerAddress: `0x${string}`,
-  amountUsd: number,
-  apiId: string,
-  networkId: NetworkId,
-): Promise<{ success: boolean; error?: string; transient?: boolean }> {
-  const amountStr = amountUsd.toFixed(6)
-  const destChain = UB_KIT_CHAIN[networkId]
-  if (!destChain) {
-    return { success: false, error: `unified balance payout not supported for network ${networkId}` }
-  }
-  const capture: { hash?: `0x${string}` } = {}
-  const adapter = platformAdapterForSpend(capture)
-  const kit = appKitInstance()
-
-  try {
-    const result = await kit.unifiedBalance.spend({
-      from: { adapter },
-      to: { adapter, chain: destChain, recipientAddress: sellerAddress },
-      token: 'USDC',
-      amount: amountStr,
-    })
-    console.log(`[transfer-ub] $${amountStr} USDC (${destChain}) -> seller ${sellerAddress} api=${apiId} tx=${result.txHash} allocations=${JSON.stringify(result.allocations ?? [])}`)
-    return { success: true }
-  } catch (err: unknown) {
-    const capturedHash = capture.hash
-    const message = err instanceof Error ? err.message : String(err)
-
-    // No mint tx was submitted (pre-mint failure: validation, allocation, burn intent, attestation fetch).
-    // Nothing on-chain to recover.
-    if (!capturedHash) {
-      return { success: false, error: message }
-    }
-
-    // Mint tx was submitted. Re-poll the captured hash against a fresh, unwrapped client
-    // to determine the on-chain outcome. The four outcomes below preserve the invariant:
-    // only classify as failed when we have positive on-chain evidence of failure.
-    try {
-      const receipt = await publicClientFor(networkId).waitForTransactionReceipt({
-        hash: capturedHash,
-        timeout: 60_000,
-      })
-      if (receipt.status === 'success') {
-        console.log(`[transfer-ub-ok-despite-sdk-error] $${amountStr} USDC (${destChain}) -> seller ${sellerAddress} api=${apiId} tx=${capturedHash}`)
-        return { success: true }
-      }
-      return { success: false, error: `Mint tx reverted on-chain: ${capturedHash}` }
-    } catch (pollErr: unknown) {
-      const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr)
-      if (!isTransientRpcError(pollErr)) {
-        return { success: false, error: `${message} | recovery poll failed: ${pollMsg}` }
-      }
-
-      // Poll failed transiently. To distinguish "tx pending in mempool" (state unknown,
-      // do not retry) from "tx never landed" (safe to retry via SDK's config.retry), do
-      // one lightweight existence probe. A TransactionNotFoundError is the only signal
-      // that lets us call config.retry without risking a second mint against an already-
-      // consumed attestation (which would revert with TransferSpecHashUsed).
-      let txExists: boolean
-      try {
-        await publicClientFor(networkId).getTransaction({ hash: capturedHash })
-        txExists = true
-      } catch (getErr: unknown) {
-        const getName = getErr instanceof Error ? getErr.name : ''
-        if (getName === 'TransactionNotFoundError') {
-          txExists = false
-        } else {
-          return {
-            success: false,
-            error: `mint tx state unknown for ${capturedHash} — recovery poll failed transiently: ${pollMsg}`,
-            transient: true,
-          }
-        }
-      }
-
-      if (txExists) {
-        return {
-          success: false,
-          error: `mint tx state unknown for ${capturedHash} — recovery poll failed transiently: ${pollMsg}`,
-          transient: true,
-        }
-      }
-
-      // Tx not on chain. If the SDK gave us the attestation + signature, retry the mint
-      // via config.retry — this uses the same attestation and hits the on-chain replay
-      // guard if we somehow guessed wrong, so it is safe by construction.
-      const trace = (err as { cause?: { trace?: { attestation?: string; signature?: string } } }).cause?.trace
-      if (!trace?.attestation || !trace?.signature) {
-        return { success: false, error: `mint not found on-chain and no retry attestation available: ${message}` }
-      }
-
-      const retryCapture: { hash?: `0x${string}` } = {}
-      const retryAdapter = platformAdapterForSpend(retryCapture)
-      try {
-        const retryResult = await kit.unifiedBalance.spend({
-          from: { adapter: retryAdapter },
-          to: { adapter: retryAdapter, chain: destChain, recipientAddress: sellerAddress },
-          token: 'USDC',
-          amount: amountStr,
-          config: { retry: { attestation: trace.attestation, signature: trace.signature } },
-        })
-        console.log(`[transfer-ub-retry-ok] $${amountStr} USDC (${destChain}) -> seller ${sellerAddress} api=${apiId} tx=${retryResult.txHash}`)
-        return { success: true }
-      } catch (retryErr: unknown) {
-        const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr)
-        return { success: false, error: `retry after not-found failed: ${retryMsg}` }
-      }
-    }
-  }
-}
-
-// Exported for the in-process test harness at
-// scripts/repro-sdk-false-negative/test-ub-payout.mts.
-// Not intended for direct use by other production code — the payment path lives
-// in verifyAndSettlePayment above; call that instead.
-export async function transferToSeller(
-  sellerAddress: `0x${string}`,
-  amountUsd: number,
-  apiId: string,
-  networkId: NetworkId,
-): Promise<{ success: boolean; error?: string; transient?: boolean }> {
-  if (payoutUsesUnifiedBalance()) {
-    return transferViaUnifiedBalance(sellerAddress, amountUsd, apiId, networkId)
-  }
-  const amountStr = amountUsd.toFixed(6)
-  const chain = CHAINS[networkId].gatewayClientChain
-  try {
-    await gatewayClientFor(networkId).transfer(amountStr, chain, sellerAddress)
-    console.log(`[transfer] $${amountStr} USDC (${chain}) -> seller ${sellerAddress} api=${apiId}`)
-    return { success: true }
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err)
-    // The SDK wraps any waitForTransactionReceipt failure as
-    // `Mint transaction failed: 0x...`, but the underlying tx often succeeded
-    // (RPC receipt lag or transient 5xx exhausted viem's default retry budget).
-    // Recover the hash from the message and re-check on-chain before giving up.
-    const hashMatch = message.match(/Mint transaction failed: (0x[a-fA-F0-9]{64})/)
-    if (hashMatch) {
-      const mintTxHash = hashMatch[1] as `0x${string}`
-      try {
-        const receipt = await publicClientFor(networkId).waitForTransactionReceipt({
-          hash: mintTxHash,
-          timeout: 60_000,
-        })
-        if (receipt.status === 'success') {
-          console.log(`[transfer-ok-despite-sdk-error] $${amountStr} USDC (${chain}) -> seller ${sellerAddress} api=${apiId} tx=${mintTxHash}`)
-          return { success: true }
-        }
-        return { success: false, error: `Mint tx reverted on-chain: ${mintTxHash}` }
-      } catch (pollErr: unknown) {
-        const pollMsg = pollErr instanceof Error ? pollErr.message : String(pollErr)
-        // If the poll itself failed transiently, on-chain state is UNKNOWN —
-        // do not declare the mint failed. Callers can re-poll later.
-        if (isTransientRpcError(pollErr)) {
-          const transient = new RpcTransientError(
-            `mint tx state unknown for ${mintTxHash} — recovery poll failed transiently: ${pollMsg}`,
-            pollErr,
-          )
-          return { success: false, error: transient.message, transient: true }
-        }
-        return { success: false, error: `${message} | recovery poll failed: ${pollMsg}` }
-      }
-    }
-    return { success: false, error: message }
-  }
+/** Standard x402 v2 settlement metadata consumed by Circle and third-party clients. */
+export function paymentResponseHeader(result: SettlementResult): string {
+  if (!result.success || !result.payer || !result.network) throw new Error('Settlement metadata unavailable')
+  return encodePaymentResponseHeader({
+    success: true,
+    payer: result.payer,
+    transaction: result.transaction ?? '',
+    network: result.network as Network,
+    amount: result.amount,
+  })
 }

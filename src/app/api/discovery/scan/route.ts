@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { fetchPaidApis } from '@/lib/crawler';
+import { withAdmin } from '@/lib/admin-auth';
 
 export const runtime = 'nodejs';
 
-export async function GET(request: NextRequest) {
-  const adminSecret = process.env.ADMIN_SECRET;
-  if (adminSecret && request.headers.get('x-admin-key') !== adminSecret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const GET = withAdmin(async (request: NextRequest) => {
 
   const supabase = createServiceClient();
   const { data } = await supabase
@@ -16,13 +13,9 @@ export async function GET(request: NextRequest) {
     .select('id, api_name, owner_github, owner_email, owner_x, invited, created_at')
     .order('created_at', { ascending: false });
   return NextResponse.json({ apis: data ?? [] });
-}
+});
 
-export async function POST(request: NextRequest) {
-  const adminSecret = process.env.ADMIN_SECRET;
-  if (adminSecret && request.headers.get('x-admin-key') !== adminSecret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const POST = withAdmin(async (request: NextRequest) => {
 
   const supabase = createServiceClient();
 
@@ -66,4 +59,4 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ new: newApis.length, existing: existingUrls.size });
-}
+});

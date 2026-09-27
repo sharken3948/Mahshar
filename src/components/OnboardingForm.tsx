@@ -1,9 +1,12 @@
 'use client';
+import { useWalletAuthorization } from '@/hooks/useWalletAuthorization'
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
+import { MahsharFlowMotif } from '@/components/MahsharFlowMotif';
 import type { AuthType, PaymentModel } from '@/types';
+import styles from './onboarding-form.module.css';
 
 const CATEGORIES = ['AI', 'Data', 'Finance', 'Weather', 'Geo', 'Social', 'Media', 'Utility', 'Other'];
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE'];
@@ -22,6 +25,7 @@ interface FormState {
   auth_param_name: string;
   example_request: string;
   example_response: string;
+  expected_status_codes: string;
 }
 
 interface FieldError {
@@ -70,7 +74,29 @@ const initialState: FormState = {
   auth_param_name: '',
   example_request: '',
   example_response: '',
+  expected_status_codes: '',
 };
+
+// Parse the comma-separated field into a validated integer array (300-599).
+// Returns { ok: true, codes } — codes is undefined when the field is blank.
+// Returns { ok: false, error } for any malformed entry.
+function parseExpectedStatusCodesInput(
+  raw: string,
+): { ok: true; codes: number[] | undefined } | { ok: false; error: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { ok: true, codes: undefined };
+  const parts = trimmed.split(',').map(s => s.trim()).filter(Boolean);
+  if (parts.length === 0) return { ok: true, codes: undefined };
+  if (parts.length > 20) return { ok: false, error: 'Enter at most 20 status codes' };
+  const codes: number[] = [];
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) return { ok: false, error: `"${part}" is not a valid HTTP status code` };
+    const n = Number(part);
+    if (n < 300 || n > 599) return { ok: false, error: `Codes must be between 300 and 599 — got ${n}` };
+    if (!codes.includes(n)) codes.push(n);
+  }
+  return { ok: true, codes };
+}
 
 export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
   const [form, setForm] = useState<FormState>({ ...initialState, seller_wallet: sellerWallet ?? '' });
@@ -82,8 +108,18 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
   const [showDescHelp, setShowDescHelp] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const router = useRouter();
+  const { request: marketplaceFetch } = useWalletAuthorization()
+  useEffect(() => {
+    setForm({ ...initialState, seller_wallet: sellerWallet ?? '' });
+    setApiId(null);
+    setScoreResult(null);
+    setError(null);
+  }, [sellerWallet]);
 
   const isBodyMethod = form.method === 'POST' || form.method === 'PUT';
+  const authComplete = form.auth_type === 'public' || Boolean(form.auth_key.trim() && (form.auth_type !== 'queryparam' || form.auth_param_name.trim()));
+  const requestComplete = !isBodyMethod || needsRequestBody(form.example_request);
+  const readyForReview = Boolean(form.name && form.description && form.example_response && form.endpoint_url && form.seller_wallet && authComplete && requestComplete);
 
   function update(field: keyof FormState, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -95,8 +131,8 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
         return next;
       });
     }
-    // Re-run score on method/example_request change so stale results don't persist
-    if (field === 'method' || field === 'example_request') {
+    // Re-run score on method/example_request/expected-codes change so stale results don't persist
+    if (field === 'method' || field === 'example_request' || field === 'expected_status_codes') {
       setScoreResult(null);
     }
   }
@@ -121,6 +157,13 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
       setError(null);
       return;
     }
+    const expectedParsed = parseExpectedStatusCodesInput(form.expected_status_codes);
+    if (!expectedParsed.ok) {
+      setFieldErrors({ expected_status_codes: expectedParsed.error });
+      setError(null);
+      return;
+    }
+    const expectedCodes = expectedParsed.codes;
     setScoring(true);
     setError(null);
     setFieldErrors({});
@@ -128,7 +171,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
       let currentApiId = apiId;
 
       if (!currentApiId) {
-        const createRes = await fetch('/api/apis', {
+        const createRes = await marketplaceFetch('/api/apis', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
@@ -136,6 +179,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
             price_per_call: parseFloat(form.price_per_call) || 0.001,
             auth_key: form.auth_key || undefined,
             auth_param_name: form.auth_param_name || undefined,
+            expected_status_codes: expectedCodes,
           }),
         });
         if (!createRes.ok) {
@@ -148,7 +192,15 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
         currentApiId = created.id;
       }
 
-      const scoreRes = await fetch('/api/ai/score', {
+      else {
+        const save = await marketplaceFetch(`/api/apis/${currentApiId}`, {
+          method: 'PATCH', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...form, price_per_call: parseFloat(form.price_per_call) || 0.001, expected_status_codes: expectedCodes ?? [] }),
+        });
+        if (!save.ok) { setError((await save.json()).error ?? 'Failed to save listing'); return; }
+      }
+
+      const scoreRes = await marketplaceFetch('/api/ai/score', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -163,6 +215,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
           auth_type: form.auth_type,
           auth_key: form.auth_key || undefined,
           auth_param_name: form.auth_param_name || undefined,
+          expected_status_codes: expectedCodes,
         }),
       });
       const data = await scoreRes.json() as AiReport & { error?: string };
@@ -203,7 +256,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
     setError(null);
 
     try {
-      const res = await fetch(`/api/apis/${apiId}`, {
+      const res = await marketplaceFetch(`/api/apis/${apiId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -226,321 +279,124 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-8">
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
-          {error}
-        </div>
-      )}
-
-      {/* Basic info */}
-      <section className="space-y-4">
-        <h2 className="text-base font-semibold text-[#0D0D0D]">Basic Info</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="API Name" required>
-            <input
-              required
-              value={form.name}
-              onChange={(e) => update('name', e.target.value)}
-              placeholder="Weather Forecast API"
-              className={inputCls()}
-            />
-          </Field>
-          <Field label="Category" required>
-            <select value={form.category} onChange={(e) => update('category', e.target.value)} className={inputCls()}>
-              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </Field>
-        </div>
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <label className="block text-sm font-medium text-[#0D0D0D]">
-              Description<span className="text-[#2775CA] ml-0.5">*</span>
-            </label>
-            <button
-              type="button"
-              onClick={() => setShowDescHelp(true)}
-              className="w-4 h-4 rounded-full border border-[#6B7280] text-[#6B7280] flex items-center justify-center text-[10px] font-bold leading-none hover:border-[#2775CA] hover:text-[#2775CA] transition-colors"
-            >i</button>
-          </div>
-          <textarea
-            required
-            rows={3}
-            maxLength={300}
-            value={form.description}
-            onChange={(e) => update('description', e.target.value)}
-            placeholder="What does your API do? Who is it for?"
-            className={inputCls()}
-          />
-          <div className="flex items-center justify-between mt-1">
-            <p className="text-xs text-[#6B7280]">More detail = better AI matching. Describe what your API does, what data it returns, and who it&apos;s for.</p>
-            <span className="text-xs text-[#6B7280] flex-shrink-0 ml-2">{form.description.length}/300 characters</span>
-          </div>
-        </div>
-      </section>
-
-      {/* Endpoint */}
-      <section className="space-y-4">
-        <h2 className="text-base font-semibold text-[#0D0D0D]">Endpoint</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Field label="HTTP Method" required>
-            <select
-              value={form.method}
-              onChange={(e) => update('method', e.target.value)}
-              className={inputCls(fieldErrors.method)}
-            >
-              {HTTP_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-            {fieldErrors.method && (
-              <p className="text-xs text-[#DC2626] mt-1">{fieldErrors.method}</p>
-            )}
-          </Field>
-          <div className="sm:col-span-2">
-            <Field label="Endpoint URL" required>
-              <input
-                required
-                type="url"
-                value={form.endpoint_url}
-                onChange={(e) => update('endpoint_url', e.target.value)}
-                placeholder="https://api.example.com/v1"
-                className={inputCls(fieldErrors.endpoint_url)}
-              />
-              {fieldErrors.endpoint_url && (
-                <p className="text-xs text-[#DC2626] mt-1">{fieldErrors.endpoint_url}</p>
-              )}
-            </Field>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Auth Type" required>
-            <select value={form.auth_type} onChange={(e) => update('auth_type', e.target.value as AuthType)} className={inputCls()}>
-              <option value="public">Public (no auth)</option>
-              <option value="apikey">API Key header (x-api-key)</option>
-              <option value="bearer">Bearer Token (Authorization header)</option>
-              <option value="queryparam">Query Parameter (e.g. ?appid=KEY)</option>
-            </select>
-            {form.auth_type === 'public' && (
-              <p className="text-xs text-[#D97706] mt-1">⚠️ Public APIs can be accessed directly by anyone who discovers your endpoint URL, bypassing Mahshar&apos;s payment gate. Use API Key or Bearer Token if you need guaranteed revenue protection.</p>
-            )}
-          </Field>
-          {form.auth_type !== 'public' && (
-            <Field label="Auth Key / Token">
-              <input
-                type="password"
-                value={form.auth_key}
-                onChange={(e) => update('auth_key', e.target.value)}
-                placeholder="Stored encrypted"
-                className={inputCls(fieldErrors.auth_key)}
-              />
-              {fieldErrors.auth_key && (
-                <p className="text-xs text-[#DC2626] mt-1">{fieldErrors.auth_key}</p>
-              )}
-              {!form.auth_key && !fieldErrors.auth_key && (
-                <p className="text-xs text-[#DC2626] mt-1">⚠️ Auth key is required for this auth type. Without it, buyers will receive errors after paying.</p>
-              )}
-            </Field>
-          )}
-        </div>
-        {form.auth_type === 'queryparam' && (
-          <Field label="Query Parameter Name">
-            <input
-              value={form.auth_param_name}
-              onChange={(e) => update('auth_param_name', e.target.value)}
-              placeholder='e.g. appid, api_key, token'
-              className={inputCls(fieldErrors.auth_param_name)}
-            />
-            {fieldErrors.auth_param_name ? (
-              <p className="text-xs text-[#DC2626] mt-1">{fieldErrors.auth_param_name}</p>
-            ) : (
-              <p className="text-xs text-[#6B7280] mt-1">The parameter name your API expects — your key will be appended as ?{form.auth_param_name || 'param'}=KEY</p>
-            )}
-          </Field>
-        )}
-      </section>
-
-      {/* Wallet */}
-      <section className="space-y-4">
-        <h2 className="text-base font-semibold text-[#0D0D0D]">Payments</h2>
-        <Field label="Payment Model">
-          <div className="bg-[#F5F5F0] border border-[#2775CA] rounded-lg px-4 py-3 text-sm text-[#0D0D0D]">
-            Pay-per-call (x402): buyer pays USDC for each API call
-          </div>
-        </Field>
-      </section>
-
-      {/* Examples + AI scoring */}
-      <section className="space-y-4">
-        <h2 className="text-base font-semibold text-[#0D0D0D]">Example Request / Response</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label={`Example Request (JSON)${isBodyMethod ? ' *' : ''}`}>
-            <textarea
-              rows={5}
-              required={isBodyMethod}
-              value={form.example_request}
-              onChange={(e) => update('example_request', e.target.value)}
-              placeholder='{"city": "London"}'
-              className={`${inputCls(fieldErrors.example_request)} font-mono text-xs`}
-            />
-            {fieldErrors.example_request ? (
-              <p className="text-xs text-[#DC2626] mt-1">{fieldErrors.example_request}</p>
-            ) : isBodyMethod ? (
-              <p className="text-xs text-[#2775CA] mt-1">Required for {form.method} APIs — buyers see this as a template when calling your API.</p>
-            ) : null}
-          </Field>
-          <Field label="Example Response (JSON)" required>
-            <textarea
-              rows={5}
-              value={form.example_response}
-              onChange={(e) => update('example_response', e.target.value)}
-              placeholder='{"temp": 18, "condition": "Cloudy"}'
-              className={`${inputCls()} font-mono text-xs`}
-            />
-          </Field>
-        </div>
-
-        <Button type="button" variant="primary" size="lg" onClick={handleScore} disabled={scoring || (form.auth_type !== 'public' && !form.auth_key) || (form.auth_type === 'queryparam' && !form.auth_param_name)} className="w-full">
-          {scoring ? 'AI is analyzing your API...' : 'Send to AI Review'}
-        </Button>
-
-        {scoreResult && (
-          <div className="mt-6 border border-[#2775CA] rounded-xl overflow-hidden">
-
-            <div className={`px-6 py-4 flex items-center justify-between ${scoreResult.approved ? 'bg-[#F0FDF4]' : 'bg-[#FEF2F2]'}`}>
-              <div>
-                <span className={`text-lg font-bold ${scoreResult.approved ? 'text-[#16A34A]' : 'text-[#DC2626]'}`}>
-                  {scoreResult.approved ? '✓ AI Review Passed' : '✗ AI Review Failed'}
-                </span>
-                <p className="text-sm text-[#6B7280] mt-0.5">{scoreResult.summary}</p>
+    <form onSubmit={handleSubmit} className={styles.form}>
+      {error && <div className={styles.alert}>{error}</div>}
+      <div className={styles.workspace}>
+        <div className={styles.mainColumn}>
+          <PublishingSection number="01" title="API Details" helper="Tell buyers what your service does and who it helps." tone="blue">
+            <div className={styles.stack}>
+              <div className={styles.twoColumns}>
+                <Field label="API Name" required><input required value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="Weather Forecast API" className={inputCls()} /></Field>
+                <Field label="Category" required><select value={form.category} onChange={(e) => update('category', e.target.value)} className={inputCls()}>{CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select></Field>
               </div>
-              <span className="text-2xl font-black text-[#2775CA]">{scoreResult.score}<span className="text-sm font-normal text-[#6B7280]">/10</span></span>
+              <div className={styles.field}>
+                <label className={styles.label}>Description<span className={styles.required}>*</span><button type="button" onClick={() => setShowDescHelp(true)} className={styles.helpButton} aria-label="Description writing guidance">i</button></label>
+                <textarea required rows={3} maxLength={300} value={form.description} onChange={(e) => update('description', e.target.value)} placeholder="What does your API do? Who is it for?" className={inputCls()} />
+                <div className={styles.descriptionMeta}><p>More detail helps agents understand your API&apos;s inputs, outputs, and use cases.</p><span>{form.description.length}/300 characters</span></div>
+              </div>
             </div>
+          </PublishingSection>
 
-            {scoreResult.endpoint_test_diagnostic && (() => {
-              const d = scoreResult.endpoint_test_diagnostic!;
-              const isSuccess = d.status != null && d.status >= 200 && d.status < 300;
-              const statusText = d.status != null ? (HTTP_STATUS_LABELS[d.status] ?? '') : '';
-              const statusLine = d.status != null
-                ? `→ ${d.status}${statusText ? ` ${statusText}` : ''}`
-                : '→ No response (timeout or network error)';
-              const truncBody = d.body_sent && d.body_sent.length > 120
-                ? d.body_sent.slice(0, 120) + '…'
-                : d.body_sent;
-              return (
-                <div className="px-6 py-4 border-t border-[#2775CA]">
-                  <p className="text-xs text-[#6B7280] font-medium mb-2">Live endpoint test</p>
-                  <div className="bg-[#0D0D0D] rounded-xl p-4 font-mono text-xs overflow-x-auto">
-                    <p className="text-[#9CA3AF]">{d.method} {d.url}</p>
-                    {truncBody && <p className="text-[#9CA3AF] mt-0.5">Body: {truncBody}</p>}
-                    <p className={`mt-1 font-bold ${isSuccess ? 'text-[#4ADE80]' : 'text-[#F87171]'}`}>{statusLine}</p>
-                    {d.response_snippet && (
-                      <p className="text-[#E2E4E9] mt-1 whitespace-pre-wrap break-all">{d.response_snippet}</p>
-                    )}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {scoreResult.critical_issues && scoreResult.critical_issues.length > 0 && (
-              <div className="px-6 py-4 border-t border-[#2775CA] bg-[#FEF2F2]">
-                <p className="text-sm font-bold text-[#DC2626] mb-2">🚨 Critical Issues: Listing Blocked</p>
-                <ul className="space-y-1">
-                  {scoreResult.critical_issues.map((issue, i) => (
-                    <li key={i} className="text-sm text-[#DC2626] flex gap-2"><span>•</span>{issue}</li>
-                  ))}
-                </ul>
+          <PublishingSection number="02" title="Endpoint & Access" helper="Configure how Mahshar reaches your existing API." tone="purple">
+            <div className={styles.stack}>
+              <div className={styles.endpointGrid}>
+                <Field label="HTTP Method" required><select value={form.method} onChange={(e) => update('method', e.target.value)} className={inputCls(fieldErrors.method)}>{HTTP_METHODS.map(m => <option key={m} value={m}>{m}</option>)}</select>{fieldErrors.method && <p className={styles.fieldError}>{fieldErrors.method}</p>}</Field>
+                <Field label="Endpoint URL" required><input required type="url" value={form.endpoint_url} onChange={(e) => update('endpoint_url', e.target.value)} placeholder="https://api.example.com/v1" className={inputCls(fieldErrors.endpoint_url)} />{fieldErrors.endpoint_url && <p className={styles.fieldError}>{fieldErrors.endpoint_url}</p>}</Field>
               </div>
-            )}
-
-            {scoreResult.warnings && scoreResult.warnings.length > 0 && (
-              <div className="px-6 py-4 border-t border-[#2775CA]">
-                <p className="text-sm font-bold text-[#D97706] mb-2">⚠️ Warnings: Please Fix</p>
-                <ul className="space-y-1">
-                  {scoreResult.warnings.map((w, i) => (
-                    <li key={i} className="text-sm text-[#D97706] flex gap-2"><span>•</span>{w}</li>
-                  ))}
-                </ul>
+              <div className={styles.twoColumns}>
+                <Field label="Auth Type" required>
+                  <select value={form.auth_type} onChange={(e) => update('auth_type', e.target.value as AuthType)} className={inputCls()}><option value="public">Public (no auth)</option><option value="apikey">API Key header (x-api-key)</option><option value="bearer">Bearer Token (Authorization header)</option><option value="queryparam">Query Parameter (e.g. ?appid=KEY)</option></select>
+                </Field>
+                {form.auth_type !== 'public' && <Field label="Auth Key / Token"><input type="password" value={form.auth_key} onChange={(e) => update('auth_key', e.target.value)} placeholder="Stored encrypted" className={inputCls(fieldErrors.auth_key)} />{fieldErrors.auth_key ? <p className={styles.fieldError}>{fieldErrors.auth_key}</p> : !form.auth_key && <p className={styles.fieldError}>Auth key is required for this auth type. Without it, buyers will receive errors after paying.</p>}</Field>}
               </div>
-            )}
-
-            {scoreResult.positives && scoreResult.positives.length > 0 && (
-              <div className="px-6 py-4 border-t border-[#2775CA]">
-                <p className="text-sm font-bold text-[#16A34A] mb-2">✓ Looks Good</p>
-                <ul className="space-y-1">
-                  {scoreResult.positives.map((p, i) => (
-                    <li key={i} className="text-sm text-[#16A34A] flex gap-2"><span>•</span>{p}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {scoreResult.approved && (
-              <div className="px-6 py-4 border-t border-[#2775CA] bg-[#FAFAF8]">
-                <p className="text-sm text-[#6B7280]">AI suggested price: <span className="font-bold text-[#0D0D0D]">${scoreResult.suggested_price} USDC/call</span></p>
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* Price — shown only after scoring */}
-      {scoreResult && (
-        <section className="space-y-4">
-          <h2 className="text-base font-semibold text-[#0D0D0D]">Pricing</h2>
-          <div className="space-y-1.5">
-            <label className="block text-sm font-medium text-[#0D0D0D]">
-              Price per call (USDC)<span className="text-[#2775CA] ml-0.5">*</span>
-            </label>
-            <p className="text-xs text-[#6B7280] mb-2">AI suggested: ${scoreResult.suggested_price} (you can adjust this)</p>
-            <input
-              required
-              type="number"
-              step="0.0001"
-              min="0.0001"
-              value={form.price_per_call}
-              onChange={(e) => update('price_per_call', e.target.value)}
-              className={inputCls()}
-            />
-          </div>
-        </section>
-      )}
-
-      {/* Submit — shown only after scoring */}
-      {scoreResult && (
-        <>
-          <Button type="submit" variant="accent" size="lg" disabled={!scoreResult || !scoreResult.approved || loading} className="w-full disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-[#6B7280]">
-            {loading ? 'Listing API...' : 'List My API'}
-          </Button>
-          {scoreResult && !scoreResult.approved && (
-            <p className="text-sm text-[#DC2626] text-center mt-2">Fix the critical issues above before listing.</p>
-          )}
-        </>
-      )}
-
-      {showDescHelp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setShowDescHelp(false)} />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
-            <div className="px-6 py-4 border-b border-[#2775CA] flex items-center justify-between">
-              <span className="font-bold text-[#0D0D0D]">Writing a Great Description</span>
-              <button type="button" onClick={() => setShowDescHelp(false)} className="text-[#6B7280] hover:text-[#0D0D0D] transition-colors text-xl leading-none">&times;</button>
+              {form.auth_type === 'public' && <div className={styles.warning}><span className={styles.warningIcon}>!</span><div><strong>Public endpoint</strong>Public endpoints can be called directly outside Mahshar. For stronger monetization protection, use API Key or Bearer Token authentication.</div></div>}
+              {form.auth_type === 'queryparam' && <Field label="Query Parameter Name"><input value={form.auth_param_name} onChange={(e) => update('auth_param_name', e.target.value)} placeholder="e.g. appid, api_key, token" className={inputCls(fieldErrors.auth_param_name)} />{fieldErrors.auth_param_name ? <p className={styles.fieldError}>{fieldErrors.auth_param_name}</p> : <p className={styles.fieldHint}>The parameter name your API expects — your key will be appended as ?{form.auth_param_name || 'param'}=KEY</p>}</Field>}
+              <Field label="Expected non-2xx status codes (optional)"><input value={form.expected_status_codes} onChange={(e) => update('expected_status_codes', e.target.value)} placeholder="e.g. 401, 409" className={inputCls(fieldErrors.expected_status_codes)} />{fieldErrors.expected_status_codes ? <p className={styles.fieldError}>{fieldErrors.expected_status_codes}</p> : <p className={styles.fieldHint}>If your API intentionally returns specific error codes in some cases (e.g. 401 for unauthenticated probes, 409 for conflicting writes), list them comma-separated so AI review doesn&apos;t auto-reject those responses. Transient codes (429, 502, 503, 504) and timeouts cannot be declared expected — they always signal infrastructure issues.</p>}</Field>
             </div>
-            <div className="px-6 py-5 space-y-4">
-              <div className="bg-[#F0FDF4] border border-[#BBF7D0] rounded-lg p-4">
-                <p className="text-sm text-[#16A34A]">✅ Good: &apos;Returns real-time weather data (temperature, humidity, wind speed) for any city worldwide. Accepts a city name or lat/lng coordinates. Response time under 200ms. Useful for travel apps, agriculture tools, or any service needing current conditions.&apos;</p>
-              </div>
-              <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-lg p-4">
-                <p className="text-sm text-[#DC2626]">❌ Too vague: &apos;Weather API&apos;</p>
-              </div>
-              <p className="text-sm text-[#6B7280]">AI agents and buyers read this description to decide if your API fits their needs. The more specific you are about inputs, outputs, and use cases, the more your API will be discovered and used.</p>
+          </PublishingSection>
+
+          <PublishingSection number="03" title="Pricing" helper="Mahshar handles pay-per-call payment requirements for buyers." tone="green">
+            <div className={styles.stack}>
+              <div className={styles.paymentModel}><div><strong>Payment model</strong><span>Pay-per-call (x402)</span></div><div className={styles.chips}><span className={styles.chip}>x402</span><span className={styles.chip}>USDC</span><span className={styles.chip}>Arc Mainnet</span></div></div>
+              {scoreResult && <div className={styles.pricePanel}><Field label="Price per call (USDC)" required><p className={styles.priceNote}>AI suggested: ${scoreResult.suggested_price} (you can adjust this)</p><input required type="number" step="0.0001" min="0.0001" value={form.price_per_call} onChange={(e) => update('price_per_call', e.target.value)} className={inputCls()} /></Field></div>}
             </div>
-            <div className="px-6 py-4 border-t border-[#2775CA]">
-              <button type="button" onClick={() => setShowDescHelp(false)} className="w-full bg-[#0D0D0D] hover:bg-[#2D2D2D] text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">Close</button>
+          </PublishingSection>
+
+          <PublishingSection number="04" title="Example Request & Response" helper="Give buyers a clear template for calling your API." tone="pink">
+            <div className={styles.stack}>
+              <div className={styles.codeGrid}>
+                <Field label={`Example Request (JSON)${isBodyMethod ? ' *' : ''}`}><textarea rows={5} required={isBodyMethod} value={form.example_request} onChange={(e) => update('example_request', e.target.value)} placeholder={'{"city": "London"}'} className={`${inputCls(fieldErrors.example_request)} ${styles.codeInput}`} />{fieldErrors.example_request ? <p className={styles.fieldError}>{fieldErrors.example_request}</p> : isBodyMethod ? <p className={`${styles.fieldHint} ${styles.fieldHintBlue}`}>Required for {form.method} APIs — buyers see this as a template when calling your API.</p> : null}</Field>
+                <Field label="Example Response (JSON)" required><textarea rows={5} value={form.example_response} onChange={(e) => update('example_response', e.target.value)} placeholder={'{"temp": 18, "condition": "Cloudy"}'} className={`${inputCls()} ${styles.codeInput}`} /></Field>
+              </div>
             </div>
-          </div>
+          </PublishingSection>
         </div>
-      )}
+
+        <aside className={styles.previewRail} aria-label="Listing preview and readiness">
+          <MarketplacePreview form={form} />
+          <Readiness form={form} requestComplete={requestComplete} authComplete={authComplete} readyForReview={readyForReview} />
+        </aside>
+        <div className={styles.actionColumn}>
+          <div className={styles.reviewAction}><Button type="button" variant="primary" size="lg" onClick={handleScore} disabled={scoring || (form.auth_type !== 'public' && !form.auth_key) || (form.auth_type === 'queryparam' && !form.auth_param_name)} className={styles.reviewButton}>{scoring ? 'AI is analyzing your API...' : 'Continue to AI Review'}</Button><p className={styles.reviewHelp}>Your API will not be published yet.</p></div>
+          {scoreResult && <ReviewReport result={scoreResult} />}
+          {scoreResult && <div className={styles.publishBlock}><Button type="submit" variant="accent" size="lg" disabled={!scoreResult || !scoreResult.approved || loading} className={styles.publishButton}>{loading ? 'Listing API...' : 'List My API'}</Button>{!scoreResult.approved && <p className={styles.publishWarning}>Fix the critical issues above before listing.</p>}</div>}
+        </div>
+      </div>
+
+      {showDescHelp && <div className={styles.modalOverlay}><div className={styles.modalBackdrop} onClick={() => setShowDescHelp(false)} /><div className={styles.modal}><div className={styles.modalHeader}><span>Writing a Great Description</span><button type="button" onClick={() => setShowDescHelp(false)} className={styles.modalClose}>&times;</button></div><div className={styles.modalBody}><div className={styles.modalExample}>✅ Good: &apos;Returns real-time weather data (temperature, humidity, wind speed) for any city worldwide. Accepts a city name or lat/lng coordinates. Response time under 200ms. Useful for travel apps, agriculture tools, or any service needing current conditions.&apos;</div><div className={`${styles.modalExample} ${styles.modalPoor}`}>❌ Too vague: &apos;Weather API&apos;</div><p>AI agents and buyers read this description to decide if your API fits their needs. The more specific you are about inputs, outputs, and use cases, the more your API will be discovered and used.</p></div><div className={styles.modalFooter}><button type="button" onClick={() => setShowDescHelp(false)} className={styles.modalButton}>Close</button></div></div></div>}
     </form>
   );
+}
+
+function PublishingSection({ number, title, helper, tone, children }: { number: string; title: string; helper: string; tone: 'blue' | 'purple' | 'green' | 'pink'; children: React.ReactNode }) {
+  const toneClass = {
+    blue: styles.sectionHeaderBlue,
+    purple: styles.sectionHeaderPurple,
+    green: styles.sectionHeaderGreen,
+    pink: styles.sectionHeaderPink,
+  }[tone];
+
+  return <section className={styles.section}><header className={`${styles.sectionHeader} ${toneClass}`}><MahsharFlowMotif variant="card" tone={tone} className={styles.sectionFlow} /><span className={styles.sectionNumber}>{number}</span><div className={styles.sectionTitle}><h2>{title}</h2><p>{helper}</p></div></header><div className={styles.sectionBody}>{children}</div></section>;
+}
+
+function MarketplacePreview({ form }: { form: FormState }) {
+  const wallet = form.seller_wallet ? `${form.seller_wallet.slice(0, 6)}...${form.seller_wallet.slice(-4)}` : 'Wallet not connected';
+  const hasPrice = Boolean(form.price_per_call);
+
+  return <section className={`${styles.railCard} ${styles.previewCard}`}><header className={styles.railHeader}><span>Marketplace Preview</span><span className={styles.liveIndicator}><i />Live preview</span></header><div className={styles.preview}><div className={styles.previewTop}><div><p className={`${styles.previewName} ${!form.name.trim() ? styles.placeholder : ''}`}>{form.name.trim() || 'Your API name'}</p><div className={styles.previewSubline}><span className={styles.categoryPill}>{form.category || 'Category'}</span><span>{form.auth_type === 'public' ? 'Public access' : form.auth_type}</span></div></div></div><p className={`${styles.previewDescription} ${!form.description.trim() ? styles.placeholder : ''}`}>{form.description.trim() || 'A clear description of your API will appear here for agents and applications.'}</p><div className={styles.previewMeta}><span className={styles.methodPill}>{form.method || 'Method'}</span><span className={styles.chip}>x402</span><span className={styles.chip}>Arc Mainnet</span></div><div className={styles.previewPriceRow}><div><span className={styles.previewPriceLabel}>Price per call</span><p className={`${styles.previewPrice} ${!hasPrice ? styles.placeholder : ''}`}>{hasPrice ? `$${form.price_per_call}` : 'Set after review'}{hasPrice && <small>USDC / call</small>}</p></div></div><div className={styles.previewFooter}><span className={styles.sellerLabel}>Seller wallet</span><p className={styles.wallet}>{wallet}</p></div></div></section>;
+}
+
+function Readiness({ form, requestComplete, authComplete, readyForReview }: { form: FormState; requestComplete: boolean; authComplete: boolean; readyForReview: boolean }) {
+  const basicInformation = Boolean(form.seller_wallet && form.name.trim() && form.category && form.description.trim() && form.description.length <= 300);
+  const endpointConfigured = Boolean(form.endpoint_url.trim() && form.method);
+  const examplesProvided = Boolean(form.example_response.trim() && requestComplete);
+  const accessState = form.auth_type === 'public' ? 'attention' : authComplete ? 'ready' : 'pending';
+  const checks = [
+    ['Basic information', basicInformation, 'ready'],
+    ['Endpoint configured', endpointConfigured, 'ready'],
+    ['Access configured', accessState !== 'pending', accessState],
+    ['Examples provided', examplesProvided, 'ready'],
+    ['Payment model · x402', form.payment_model === 'pay-per-call', 'ready'],
+    ['Ready for AI review', readyForReview, 'final'],
+  ] as const;
+
+  return <section className={`${styles.railCard} ${styles.readinessCard}`}><header className={styles.railHeader}>Listing Readiness</header><div className={styles.readiness}>{checks.map(([label, complete, state]) => <div key={label} className={`${styles.readinessRow} ${complete ? styles.ready : ''} ${state === 'attention' ? styles.attention : ''} ${state === 'final' ? styles.readinessFinal : ''}`}><span className={styles.check}>{state === 'attention' ? '!' : complete ? '✓' : '·'}</span><span>{label}{state === 'attention' && <small>Public access</small>}</span></div>)}</div></section>;
+}
+
+function ReviewReport({ result }: { result: AiReport }) {
+  return <section className={styles.report}><div className={`${styles.reportHeader} ${result.approved ? styles.reportPassed : styles.reportFailed}`}><div><p className={styles.reportTitle}>{result.approved ? '✓ AI Review Passed' : '✗ AI Review Failed'}</p><p className={styles.reportSummary}>{result.summary}</p></div><p className={styles.score}>{result.score}<small>/10</small></p></div>{result.endpoint_test_diagnostic && <EndpointDiagnostic diagnostic={result.endpoint_test_diagnostic} />}{result.critical_issues?.length > 0 && <ReportList className={styles.issues} title="Critical Issues: Listing Blocked" items={result.critical_issues} />}{result.warnings?.length > 0 && <ReportList className={styles.warnings} title="Warnings: Please Fix" items={result.warnings} />}{result.positives?.length > 0 && <ReportList className={styles.positives} title="Looks Good" items={result.positives} />}{result.approved && <div className={styles.reportBlock}><p className={styles.reportSummary}>AI suggested price: <strong>${result.suggested_price} USDC/call</strong></p></div>}</section>;
+}
+
+function EndpointDiagnostic({ diagnostic }: { diagnostic: EndpointTestDiagnostic }) {
+  const isSuccess = diagnostic.status != null && diagnostic.status >= 200 && diagnostic.status < 300;
+  const statusText = diagnostic.status != null ? (HTTP_STATUS_LABELS[diagnostic.status] ?? '') : '';
+  const statusLine = diagnostic.status != null ? `→ ${diagnostic.status}${statusText ? ` ${statusText}` : ''}` : '→ No response (timeout or network error)';
+  const body = diagnostic.body_sent && diagnostic.body_sent.length > 120 ? `${diagnostic.body_sent.slice(0, 120)}…` : diagnostic.body_sent;
+  return <div className={styles.reportBlock}><p className={styles.reportBlockLabel}>Live endpoint test</p><div className={styles.diagnostic}><p className={styles.diagnosticMuted}>{diagnostic.method} {diagnostic.url}</p>{body && <p className={styles.diagnosticMuted}>Body: {body}</p>}<p className={isSuccess ? styles.diagnosticSuccess : styles.diagnosticFailure}>{statusLine}</p>{diagnostic.response_snippet && <p>{diagnostic.response_snippet}</p>}</div></div>;
+}
+
+function ReportList({ title, items, className }: { title: string; items: string[]; className: string }) {
+  return <div className={`${styles.reportBlock} ${className}`}><strong>{title}</strong><ul className={styles.reportList}>{items.map((item, index) => <li key={index}>• {item}</li>)}</ul></div>;
 }
 
 function needsRequestBody(exampleRequest: string): boolean {
@@ -555,9 +411,9 @@ function needsRequestBody(exampleRequest: string): boolean {
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
-    <div className="space-y-1.5">
-      <label className="block text-sm font-medium text-[#0D0D0D]">
-        {label}{required && <span className="text-[#2775CA] ml-0.5">*</span>}
+    <div className={styles.field}>
+      <label className={styles.label}>
+        {label}{required && <span className={styles.required}>*</span>}
       </label>
       {children}
     </div>
@@ -565,8 +421,5 @@ function Field({ label, required, children }: { label: string; required?: boolea
 }
 
 function inputCls(error?: string): string {
-  const base = 'w-full rounded-lg border bg-[#FAFAF8] px-3 py-2.5 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:ring-1 transition-colors';
-  return error
-    ? `${base} border-[#DC2626] ring-[#DC2626] focus:border-[#DC2626]`
-    : `${base} border-[#2775CA] focus:border-[#2775CA] focus:ring-[#2775CA]`;
+  return error ? `${styles.input} ${styles.inputError}` : styles.input;
 }

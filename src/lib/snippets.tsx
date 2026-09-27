@@ -1,5 +1,5 @@
 export function buildViewCodeSnippet(apiId: string, appUrl: string, method: string): string {
-  const isBodyMethod = method === 'POST' || method === 'PUT'
+  const isBodyMethod = method !== 'GET'
   const bodyLines = isBodyMethod
     ? [
         `    api_id: '${apiId}',`,
@@ -15,7 +15,8 @@ export function buildViewCodeSnippet(apiId: string, appUrl: string, method: stri
     "import { GatewayClient } from '@circle-fin/x402-batching/client'",
     '',
     'const gateway = new GatewayClient({',
-    "  chain: 'arcTestnet',",
+    "  chain: 'arc',",
+    '  rpcUrl: process.env.ARC_MAINNET_RPC_URL,',
     '  privateKey: process.env.WALLET_PRIVATE_KEY,',
     '})',
     '',

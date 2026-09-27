@@ -1,14 +1,13 @@
+import { withOperationAuthorization } from '@/lib/marketplace/server'
+import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { isValidWalletAddress } from '@/lib/wallet-validation'
 
 export const runtime = 'nodejs'
 
-export async function GET(request: NextRequest) {
+export const GET = withOperationAuthorization(async (request: NextRequest, wallet: string) => {
   const { searchParams } = new URL(request.url)
-  const wallet = searchParams.get('buyer_wallet')
-  if (!wallet) return NextResponse.json({ error: 'buyer_wallet required' }, { status: 400 })
-  if (!isValidWalletAddress(wallet)) return NextResponse.json({ error: 'Invalid buyer_wallet address' }, { status: 400 })
+  assertWalletClaim(searchParams.get('buyer_wallet'), wallet)
 
   const supabase = createServiceClient()
   const { data, error } = await supabase
@@ -20,4 +19,4 @@ export async function GET(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ purchases: data })
-}
+})

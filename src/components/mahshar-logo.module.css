@@ -1,0 +1,43 @@
+.link {
+  display: grid;
+  width: 116px;
+  aspect-ratio: 906 / 182;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: visible;
+}
+
+.image {
+  display: block;
+  width: 113.0243%;
+  max-width: none;
+  height: auto;
+  transform: translate(-5.7617%, -33.8104%);
+}
+
+.landing {
+  position: relative;
+  width: 142px;
+}
+
+.landing .image {
+  position: absolute;
+  top: -103.8462%;
+  left: -6.5121%;
+  transform: none;
+}
+
+@media (min-width: 768px) {
+  .link { width: 142px; }
+  .landing { width: 170px; }
+}
+
+@media (min-width: 1200px) {
+  .link { width: 160px; }
+  .landing { width: 190px; }
+}
+
+@media (min-width: 2200px) {
+  .link { width: 184px; }
+  .landing { width: 215px; }
+}

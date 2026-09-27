@@ -7,11 +7,18 @@ create table if not exists api_listings (
   price_per_call numeric(10, 6) not null,
   payment_model text not null check (payment_model in ('pay-per-call', 'credits', 'both')),
   seller_wallet text not null,
-  auth_type text not null check (auth_type in ('public', 'apikey', 'bearer')),
+  auth_type text not null check (auth_type in ('public', 'apikey', 'bearer', 'queryparam')),
   encrypted_key text,
+  auth_param_name text,
   endpoint_url text not null,
   example_request text,
   example_response text,
+  request_schema jsonb,
+  response_schema jsonb,
+  body_required boolean,
+  dynamic_path_supported boolean not null default false,
+  path_parameters jsonb,
+  query_parameters jsonb,
   score numeric(3, 1),
   uptime numeric(5, 2),
   created_at timestamptz not null default now(),
@@ -62,9 +69,9 @@ alter table purchases enable row level security;
 alter table credit_balances enable row level security;
 alter table api_calls enable row level security;
 
--- Public read access for active listings
-create policy "public read active listings"
-  on api_listings for select
-  using (is_active = true);
+-- Listing rows contain endpoint_url and encrypted_key. Public catalog reads go
+-- through server routes with explicit column allowlists; anon/authenticated
+-- roles intentionally have no direct api_listings SELECT policy.
+revoke select on api_listings from anon, authenticated;
 
 -- Service role bypasses RLS for server-side operations

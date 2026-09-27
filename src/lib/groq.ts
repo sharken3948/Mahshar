@@ -23,6 +23,7 @@ export interface RealTestResult {
   body?: unknown;
   error?: string;
   response_snippet?: string;
+  declared_expected?: boolean;
 }
 
 interface ScoreListing {
@@ -56,10 +57,13 @@ CONTENT SAFETY: Examine the Actual Response Body carefully. If it contains any o
 - Malware, exploit code, or phishing content
 If none of the above are present, do not mention content safety in your response.`;
     } else {
+      const declaredNote = realTestResult.declared_expected
+        ? '\n\nNote: the seller has explicitly declared this HTTP status code as an expected response for their endpoint (not a bug). Treat it as intentional behaviour and weigh the response accordingly — the endpoint is behaving as the seller advertised.'
+        : '';
       testSection = `
 Real Endpoint Test: FAILED — ${realTestResult.error ?? 'unknown error'}${realTestResult.status ? ` (HTTP ${realTestResult.status})` : ''}
 
-The endpoint did not respond correctly during automated testing. Add a warning about this in the warnings array, but do NOT automatically block approval — weigh it alongside all other quality signals.`;
+The endpoint did not respond correctly during automated testing. Add a warning about this in the warnings array, but do NOT automatically block approval — weigh it alongside all other quality signals.${declaredNote}`;
     }
   }
 
@@ -86,7 +90,7 @@ Analyze this API listing carefully. Return ONLY a valid JSON object with NO mark
   let completion
   try {
     completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
       temperature: 0.3,
@@ -131,7 +135,7 @@ Return the best matching API IDs (up to 5) sorted by relevance. Respond with val
   let completion
   try {
     completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },
       temperature: 0.3,

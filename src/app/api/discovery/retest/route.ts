@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { scoreForDiscovery, isSafeUrl } from '@/lib/discovery';
+import { safeOutboundFetch } from '@/lib/outbound-fetch';
+import { withAdmin } from '@/lib/admin-auth';
 
 export const runtime = 'nodejs';
 
@@ -11,11 +13,7 @@ interface RetestListing {
   endpoint_url: string;
 }
 
-export async function GET(request: NextRequest) {
-  const adminSecret = process.env.ADMIN_SECRET;
-  if (adminSecret && request.headers.get('x-admin-key') !== adminSecret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const GET = withAdmin(async (request: NextRequest) => {
 
   const platformWallet = process.env.DISCOVERY_SELLER_WALLET;
   if (!platformWallet) {
@@ -32,13 +30,9 @@ export async function GET(request: NextRequest) {
     .ilike('seller_wallet', platformWallet);
 
   return NextResponse.json({ total_inactive: count ?? 0 });
-}
+});
 
-export async function POST(request: NextRequest) {
-  const adminSecret = process.env.ADMIN_SECRET;
-  if (adminSecret && request.headers.get('x-admin-key') !== adminSecret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const POST = withAdmin(async (request: NextRequest) => {
 
   const platformWallet = process.env.DISCOVERY_SELLER_WALLET;
   if (!platformWallet) {
@@ -73,12 +67,13 @@ export async function POST(request: NextRequest) {
     // Check 1: live GET test (5s timeout)
     let liveOk = false;
     try {
-      const liveRes = await fetch(listing.endpoint_url, {
+      const liveRes = await safeOutboundFetch(listing.endpoint_url, {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
-        redirect: 'follow',
-      });
+        redirect: 'manual',
+      }, { timeoutMs: 5000 });
       liveOk = liveRes.status >= 200 && liveRes.status < 300;
+      await liveRes.body?.cancel().catch(() => undefined);
     } catch {
       liveOk = false;
     }
@@ -117,4 +112,4 @@ export async function POST(request: NextRequest) {
     still_inactive: tested - reactivated,
     remaining: remaining ?? 0,
   });
-}
+});

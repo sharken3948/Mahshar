@@ -1,4 +1,5 @@
 import { groq } from '@/lib/groq';
+import { isOutboundUrlShapeAllowed } from '@/lib/outbound-fetch';
 
 // Shared by crawl and retest routes — keeps Groq model/prompt in one place
 export async function scoreForDiscovery(
@@ -6,7 +7,7 @@ export async function scoreForDiscovery(
   description: string,
 ): Promise<{ score: number; reason: string }> {
   const completion = await groq.chat.completions.create({
-    model: 'llama-3.3-70b-versatile',
+    model: 'openai/gpt-oss-120b',
     messages: [
       {
         role: 'user',
@@ -29,25 +30,5 @@ export async function scoreForDiscovery(
 
 // Rejects non-HTTPS and private/loopback/link-local URLs (SSRF protection)
 export function isSafeUrl(url: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'https:') return false;
-  const host = parsed.hostname.toLowerCase();
-  if (host === 'localhost' || host.endsWith('.localhost')) return false;
-  if (host === '::1' || host === '[::1]') return false;
-  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (ipv4) {
-    const a = Number(ipv4[1]);
-    const b = Number(ipv4[2]);
-    if (a === 0 || a === 127 || a === 255) return false;        // loopback / broadcast
-    if (a === 10) return false;                                  // RFC1918 class A
-    if (a === 172 && b >= 16 && b <= 31) return false;          // RFC1918 class B
-    if (a === 192 && b === 168) return false;                    // RFC1918 class C
-    if (a === 169 && b === 254) return false;                    // link-local / AWS metadata
-  }
-  return true;
+  return isOutboundUrlShapeAllowed(url);
 }

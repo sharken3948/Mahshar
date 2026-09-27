@@ -1,23 +1,12 @@
 'use client';
 
-import { useAccount } from 'wagmi';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useAdminRequest } from '@/components/AdminAccess';
 import { useState, useEffect, useCallback } from 'react';
 import { NavBar } from '@/components/NavBar';
 import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 
-const ADMIN_WALLET = '0x540a0027509b1c9aa0a2c5c65491cc97083e16de';
-
-// Adds x-admin-key header to discovery API calls when NEXT_PUBLIC_ADMIN_SECRET is configured
-const ADMIN_KEY = process.env.NEXT_PUBLIC_ADMIN_SECRET;
-function aFetch(url: string, init?: RequestInit): Promise<Response> {
-  if (!ADMIN_KEY) return fetch(url, init);
-  const h = new Headers(init?.headers);
-  h.set('x-admin-key', ADMIN_KEY);
-  return fetch(url, { ...init, headers: h });
-}
 
 interface CrawlStats {
   total: number;
@@ -68,7 +57,7 @@ function invitedBadge(invited: boolean) {
 }
 
 export default function DiscoveryAdminPage() {
-  const { address, isConnected } = useAccount();
+  const aFetch = useAdminRequest();
 
   const [stats, setStats] = useState<CrawlStats | null>(null);
   const [crawlRows, setCrawlRows] = useState<CrawlRow[]>([]);
@@ -96,7 +85,7 @@ export default function DiscoveryAdminPage() {
     } catch {
       // network error — leave existing data in place
     }
-  }, []);
+  }, [aFetch]);
 
   const refreshScanData = useCallback(async () => {
     try {
@@ -107,7 +96,7 @@ export default function DiscoveryAdminPage() {
     } catch {
       // network error — leave existing data in place
     }
-  }, []);
+  }, [aFetch]);
 
   useEffect(() => {
     void refreshCrawlData();
@@ -185,38 +174,6 @@ export default function DiscoveryAdminPage() {
     } finally {
       setOutreachRunning(false);
     }
-  }
-
-  if (!isConnected) {
-    return (
-      <>
-        <NavBar />
-        <main className="min-h-screen bg-[#F5F5F0] flex flex-col items-center justify-center gap-6 px-6 pt-36">
-          <h1 className="text-2xl font-bold text-[#0D0D0D]">Connect Your Wallet</h1>
-          <p className="text-[#6B7280] text-center max-w-sm">
-            Admin access requires a connected wallet.
-          </p>
-          <ConnectButton />
-        </main>
-      </>
-    );
-  }
-
-  if (address?.toLowerCase() !== ADMIN_WALLET) {
-    return (
-      <>
-        <NavBar />
-        <main className="min-h-screen bg-[#F5F5F0] flex flex-col items-center justify-center gap-4 px-6 pt-36">
-          <h1 className="text-2xl font-bold text-[#0D0D0D]">Access Denied</h1>
-          <p className="text-[#6B7280] text-center max-w-sm">
-            This page is restricted to the Mahshar admin wallet.
-          </p>
-          <code className="text-xs text-[#6B7280] bg-[#F0F0E8] px-3 py-1 rounded">
-            {address}
-          </code>
-        </main>
-      </>
-    );
   }
 
   return (

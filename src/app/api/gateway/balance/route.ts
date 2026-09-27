@@ -1,15 +1,15 @@
+import { marketplaceErrors } from '@/lib/marketplace/server'
+import { normalizedWallet } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { isValidWalletAddress } from '@/lib/wallet-validation'
 import { ARC, ARC_MAINNET } from '@/lib/arc'
 
 export const runtime = 'nodejs'
 
-export async function GET(request: NextRequest) {
+export const GET = marketplaceErrors(async (request: NextRequest) => {
+  const includeHistory = request.nextUrl.searchParams.get('include_history') === 'true'
   const walletRaw = request.nextUrl.searchParams.get('wallet')
-  if (!walletRaw) return NextResponse.json({ error: 'wallet is required' }, { status: 400 })
-  if (!isValidWalletAddress(walletRaw)) return NextResponse.json({ error: 'Invalid wallet address' }, { status: 400 })
-  const wallet = walletRaw.toLowerCase()
+  const wallet = normalizedWallet(walletRaw)
 
   let gatewayAvailable = '0'
   try {
@@ -33,6 +33,8 @@ export async function GET(request: NextRequest) {
   } catch {
     // return 0 on error
   }
+
+  if (!includeHistory) return NextResponse.json({ gatewayAvailable }, { headers: { 'Cache-Control': 'no-store' } })
 
   const supabase = createServiceClient()
   let callData: { id: string }[] | null = null
@@ -59,5 +61,5 @@ export async function GET(request: NextRequest) {
     purchasesByApiId[p.api_id] = (purchasesByApiId[p.api_id] ?? 0) + Number(p.amount_usdc)
   })
 
-  return NextResponse.json({ gatewayAvailable, totalCalls, totalSpent, purchasesByApiId })
-}
+  return NextResponse.json({ gatewayAvailable, totalCalls, totalSpent, purchasesByApiId }, { headers: { 'Cache-Control': 'no-store' } })
+})

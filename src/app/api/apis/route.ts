@@ -1,21 +1,27 @@
+import { withOperationAuthorization, marketplaceErrors } from '@/lib/marketplace/server'
+import { assertWalletClaim, normalizedWallet } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { encryptKey } from '@/lib/crypto';
 import { validateEndpointUrl } from '@/lib/url-validation';
 import { isValidWalletAddress } from '@/lib/wallet-validation';
+import { normalizeExpectedStatusCodes } from '@/lib/marketplace/listing-security';
 import type { AuthType, PaymentModel } from '@/types';
+import { PUBLIC_LISTING_COLUMNS, publicListing } from '@/lib/marketplace/public-listing';
+import { listingContractMetadata } from '@/lib/marketplace/listing-contract-metadata';
 
 export const runtime = 'nodejs';
 
-export async function GET(request: NextRequest) {
+export const GET = marketplaceErrors(async (request: NextRequest) => {
   const supabase = createServiceClient();
   const { searchParams } = new URL(request.url);
 
-  const sellerWallet = searchParams.get('seller_wallet')
+  const sellerClaim = searchParams.get('seller_wallet')
+  const sellerWallet = sellerClaim !== null ? normalizedWallet(sellerClaim) : null
 
   let query = supabase
     .from('api_listings')
-    .select('id, name, description, category, price_per_call, payment_model, score, uptime, is_active, seller_wallet, auth_type, created_at, verified_at, endpoint_url, method, example_request')
+    .select(PUBLIC_LISTING_COLUMNS)
 
   if (!sellerWallet) {
     query = query.eq('is_active', true)
@@ -45,10 +51,11 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await query.order('created_at', { ascending: false })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ apis: data });
-}
+  const rows = (data ?? []) as unknown as Record<string, unknown>[]
+  return NextResponse.json({ apis: rows.map(publicListing) }, sellerWallet ? { headers: { 'Cache-Control': 'no-store' } } : undefined);
+})
 
-export async function POST(request: NextRequest) {
+export const POST = withOperationAuthorization(async (request: NextRequest, authenticatedWallet: string) => {
   const supabase = createServiceClient();
 
   const body = await request.json() as {
@@ -65,11 +72,24 @@ export async function POST(request: NextRequest) {
     method?: string;
     example_request?: string;
     example_response?: string;
+    expected_status_codes?: number[];
+    request_schema?: Record<string, unknown> | null;
+    response_schema?: Record<string, unknown> | null;
+    body_required?: boolean | null;
+    dynamic_path_supported?: boolean;
+    path_parameters?: unknown[] | null;
+    query_parameters?: unknown[] | null;
   };
 
   const { name, description, category, price_per_call, payment_model, seller_wallet, auth_type, auth_key, auth_param_name, endpoint_url, method, example_request, example_response } = body;
+  const expectedResult = normalizeExpectedStatusCodes(body.expected_status_codes);
+  if (!expectedResult.ok) return NextResponse.json({ error: expectedResult.error }, { status: 400 });
+  const contractResult = listingContractMetadata(body as unknown as Record<string, unknown>, (method ?? 'GET').toUpperCase());
+  if (!contractResult.ok) return NextResponse.json({ error: contractResult.error }, { status: 400 });
 
-  if (!name || !description || !category || !payment_model || !seller_wallet || !endpoint_url) {
+  assertWalletClaim(seller_wallet, authenticatedWallet);
+
+  if (!name || !description || !category || !payment_model || !endpoint_url) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
   if (typeof price_per_call !== 'number' || !isFinite(price_per_call) || price_per_call <= 0) {
@@ -91,7 +111,7 @@ export async function POST(request: NextRequest) {
       category,
       price_per_call,
       payment_model,
-      seller_wallet: seller_wallet.toLowerCase(),
+      seller_wallet: authenticatedWallet,
       auth_type,
       encrypted_key,
       auth_param_name: auth_param_name ?? null,
@@ -99,6 +119,8 @@ export async function POST(request: NextRequest) {
       method: method ?? 'GET',
       example_request,
       example_response,
+      expected_status_codes: expectedResult.codes,
+      ...contractResult.patch,
       is_active: false,
     })
     .select('id')
@@ -106,4 +128,4 @@ export async function POST(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ id: data.id }, { status: 201 });
-}
+})

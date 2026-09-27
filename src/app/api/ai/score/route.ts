@@ -1,7 +1,13 @@
+import { withOperationAuthorization, requireListingOwner } from '@/lib/marketplace/server'
+import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
+import { matchListingConfiguration, normalizeExpectedStatusCodes } from '@/lib/marketplace/listing-security'
+import { decryptKey } from '@/lib/crypto'
 import { NextRequest, NextResponse } from 'next/server';
 import { scoreApi, type RealTestResult } from '@/lib/groq';
 import { createServiceClient } from '@/lib/supabase/server';
 import { validateEndpointUrl } from '@/lib/url-validation';
+import { OutboundPolicyError, safeOutboundFetch } from '@/lib/outbound-fetch';
+import { readResponseBytes } from '@/lib/proxy-response';
 import type { AuthType } from '@/types';
 
 export const runtime = 'nodejs';
@@ -73,7 +79,7 @@ function hardBlock(
   });
 }
 
-export async function POST(request: NextRequest) {
+export const POST = withOperationAuthorization(async (request: NextRequest, authenticatedWallet: string) => {
   const body = await request.json() as {
     api_id?: string;
     name: string;
@@ -86,7 +92,28 @@ export async function POST(request: NextRequest) {
     auth_type?: AuthType;
     auth_key?: string;
     auth_param_name?: string;
+    expected_status_codes?: number[];
   };
+
+  assertWalletClaim((body as { seller_wallet?: unknown }).seller_wallet, authenticatedWallet);
+  const db = createServiceClient();
+  const persistedListing = body.api_id ? await requireListingOwner(db, body.api_id, authenticatedWallet) : null;
+  if (persistedListing) {
+    // Existing listings are tested with server-stored configuration and credentials.
+    body.endpoint_url = persistedListing.endpoint_url;
+    body.method = persistedListing.method ?? 'GET';
+    body.auth_type = persistedListing.auth_type;
+    body.auth_param_name = persistedListing.auth_param_name ?? undefined;
+    body.auth_key = persistedListing.encrypted_key ? decryptKey(persistedListing.encrypted_key) : undefined;
+    body.example_request = persistedListing.example_request ?? '';
+    body.expected_status_codes = (persistedListing.expected_status_codes as number[] | null) ?? undefined;
+  }
+
+  const expectedResult = normalizeExpectedStatusCodes(body.expected_status_codes);
+  if (!expectedResult.ok) {
+    return NextResponse.json({ error: expectedResult.error }, { status: 400 });
+  }
+  const expectedCodes: number[] = expectedResult.codes ?? [];
 
   const {
     api_id, name, category, description,
@@ -175,34 +202,38 @@ export async function POST(request: NextRequest) {
     const startTime = Date.now();
     let timedOut = false;
 
-    const testUrlObj = new URL(endpoint_url);
-    if (auth_type === 'queryparam' && auth_key && auth_param_name) {
-      testUrlObj.searchParams.set(auth_param_name, auth_key);
-    }
-    const testUrl = testUrlObj.toString();
+    const testUrl = new URL(endpoint_url).toString();
 
     try {
-      const headers: Record<string, string> = { 'content-type': 'application/json' };
-      if (auth_type === 'apikey' && auth_key) headers['x-api-key'] = auth_key;
-      else if (auth_type === 'bearer' && auth_key) headers['Authorization'] = `Bearer ${auth_key}`;
-
-      const response = await fetch(testUrl, {
-        method,
-        headers,
-        body: bodySent ?? undefined,
-        redirect: 'manual',
-        signal: controller.signal,
-      });
+      const response = await safeOutboundFetch(testUrl, () => {
+        const requestUrl = new URL(testUrl);
+        if (auth_type === 'queryparam' && auth_key && auth_param_name) requestUrl.searchParams.set(auth_param_name, auth_key);
+        const headers: Record<string, string> = { 'content-type': 'application/json' };
+        if (auth_type === 'apikey' && auth_key) headers['x-api-key'] = auth_key;
+        else if (auth_type === 'bearer' && auth_key) headers.Authorization = `Bearer ${auth_key}`;
+        return { url: requestUrl, outboundInit: {
+          method,
+          headers,
+          body: bodySent ?? undefined,
+          redirect: 'manual',
+          signal: controller.signal,
+        } };
+      }, { timeoutMs: 5000 });
 
       clearTimeout(timeoutId);
       const latency_ms = Date.now() - startTime;
 
       // Always read body as text first (avoids double-consume of response stream)
       let rawBody = '';
-      try { rawBody = await response.text(); } catch { /* ignore */ }
+      let responseTooLarge = false;
+      try { rawBody = new TextDecoder().decode(await readResponseBytes(response.body, 5 * 1024 * 1024)); }
+      catch { responseTooLarge = true; }
+      if (auth_key) rawBody = rawBody.split(auth_key).join('[redacted]');
       const snippet = rawBody ? (rawBody.length > 200 ? rawBody.slice(0, 200) + '…' : rawBody) : null;
 
-      if (response.status >= 300 && response.status < 400) {
+      if (responseTooLarge) {
+        realTestResult = { success: false, status: response.status, latency_ms, error: 'Response exceeds the 5MB size limit' };
+      } else if (response.status >= 300 && response.status < 400) {
         realTestResult = { success: false, status: response.status, latency_ms, error: `Redirect (${response.status})`, response_snippet: snippet ?? undefined };
       } else if (response.ok) {
         let parsedBody: unknown;
@@ -214,11 +245,11 @@ export async function POST(request: NextRequest) {
     } catch (err: unknown) {
       clearTimeout(timeoutId);
       const latency_ms = Date.now() - startTime;
-      timedOut = err instanceof Error && err.name === 'AbortError';
+      timedOut = (err instanceof OutboundPolicyError && err.classification === 'timeout') || (err instanceof Error && err.name === 'AbortError');
       realTestResult = {
         success: false,
         latency_ms,
-        error: timedOut ? 'Request timed out after 5 seconds' : (err instanceof Error ? err.message : 'Network error'),
+        error: timedOut ? 'Request timed out after 5 seconds' : 'Endpoint request failed',
       };
     }
 
@@ -249,13 +280,27 @@ export async function POST(request: NextRequest) {
       await supabase
         .from('api_listings')
         .update({ consecutive_transient_count: newCount })
-        .eq('id', api_id);
+        .eq('id', api_id).ilike('seller_wallet', authenticatedWallet);
       transientCount = newCount; // use updated count in messages
     }
 
+    // If the seller declared this exact non-2xx status as expected, skip the hard-block
+    // and let Groq weigh it qualitatively (see failure-branch prompt in src/lib/groq.ts).
+    // Transient statuses (429/502/503/504) and timeouts are never treated as "declared
+    // expected" — those signal infrastructure problems that a seller shouldn't be able to opt out of.
+    const status = realTestResult.status ?? null;
+    const isDeclaredExpectedFailure =
+      !realTestResult.success &&
+      status != null &&
+      !timedOut &&
+      !isTransientStatus(status, false) &&
+      expectedCodes.includes(status);
+    if (isDeclaredExpectedFailure) {
+      realTestResult.declared_expected = true;
+    }
+
     // Hard block on any non-2xx — with contextual messaging
-    if (!realTestResult.success) {
-      const status = realTestResult.status ?? null;
+    if (!realTestResult.success && !isDeclaredExpectedFailure) {
       const isTransient = isTransientStatus(status, timedOut);
       let criticalIssue: string;
       let fieldErrors: FieldError[] = [];
@@ -301,7 +346,9 @@ export async function POST(request: NextRequest) {
     endpointTestNote = 'Endpoint test skipped — auth key not provided';
   }
 
-  // Reached here: test passed (2xx) or was skipped — run Groq qualitative scoring
+  // Reached here: test passed (2xx), was skipped, OR returned a seller-declared expected non-2xx.
+  // Run Groq qualitative scoring — for declared expected-failures the failure-branch prompt
+  // (with the declared_expected note) fires, letting Groq make the final call.
   let result;
   try {
     result = await scoreApi(
@@ -313,13 +360,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 
+  // Treat a Groq-approved declared expected-failure as verified so activation is allowed
+  // (credentialProxyAllowed requires verified_at when the listing has an auth key).
+  const declaredExpectedApproved = realTestResult?.declared_expected === true && result.approved;
+
   if (api_id) {
     const updates: Record<string, unknown> = { score: result.score };
     if (result.approved) updates.consecutive_transient_count = 0;
-    const { error: scoreError } = await supabase
-      .from('api_listings')
-      .update(updates)
-      .eq('id', api_id);
+    if (realTestResult?.success || declaredExpectedApproved) updates.verified_at = new Date().toISOString();
+    const { data: saved, error: scoreError } = await matchListingConfiguration(supabase
+      .from('api_listings').update(updates).eq('id', api_id).ilike('seller_wallet', authenticatedWallet), persistedListing!).select('id');
+    if (!scoreError && !saved?.length) return NextResponse.json({ error: 'Listing changed during review; retry' }, { status: 409 });
     if (scoreError) {
       return NextResponse.json({ error: `Score computed but failed to save: ${scoreError.message}` }, { status: 500 });
     }
@@ -327,9 +378,9 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     ...result,
-    endpoint_verified: realTestResult?.success === true,
+    endpoint_verified: realTestResult?.success === true || declaredExpectedApproved,
     endpoint_test_note: endpointTestNote,
     endpoint_test_diagnostic: diagnostic,
     field_errors: [] satisfies FieldError[],
   });
-}
+});

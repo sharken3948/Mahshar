@@ -1,7 +1,6 @@
 'use client';
 
-import { useAccount } from 'wagmi';
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useAdminRequest } from '@/components/AdminAccess';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { NavBar } from '@/components/NavBar';
@@ -9,18 +8,8 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardHeader, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 
-const ADMIN_WALLET = '0x540a0027509b1c9aa0a2c5c65491cc97083e16de';
 const CATEGORIES = ['AI', 'Data', 'Finance', 'Weather', 'Geo', 'Social', 'Media', 'Utility', 'Other'];
 const PAGE_SIZE = 20;
-
-// Adds x-admin-key header to discovery API calls when NEXT_PUBLIC_ADMIN_SECRET is configured
-const ADMIN_KEY = process.env.NEXT_PUBLIC_ADMIN_SECRET;
-function aFetch(url: string, init?: RequestInit): Promise<Response> {
-  if (!ADMIN_KEY) return fetch(url, init);
-  const h = new Headers(init?.headers);
-  h.set('x-admin-key', ADMIN_KEY);
-  return fetch(url, { ...init, headers: h });
-}
 
 interface DiscoveryListing {
   id: string;
@@ -81,7 +70,7 @@ interface ApiResponse {
 type StatusFilter = 'all' | 'active' | 'inactive';
 
 export default function DiscoveryListingsPage() {
-  const { address, isConnected } = useAccount();
+  const aFetch = useAdminRequest();
 
   // ── Data ──────────────────────────────────────────────────────
   const [listings, setListings] = useState<DiscoveryListing[]>([]);
@@ -145,7 +134,7 @@ export default function DiscoveryListingsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [aFetch]);
 
   const refresh = useCallback(() => {
     void loadListings(page, search, categoryFilter, statusFilter);
@@ -191,10 +180,10 @@ export default function DiscoveryListingsPage() {
     setActionLoading(listing.id);
     clearError(listing.id);
     try {
-      const res = await fetch(`/api/apis/${listing.id}`, {
+      const res = await aFetch(`/api/discovery/listings/${listing.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seller_wallet: listing.seller_wallet, is_active: !listing.is_active }),
+        body: JSON.stringify({ is_active: !listing.is_active }),
       });
       const data = await res.json() as { error?: string };
       if (!res.ok) {
@@ -213,10 +202,10 @@ export default function DiscoveryListingsPage() {
     setActionLoading(listing.id);
     clearError(listing.id);
     try {
-      const res = await fetch(`/api/apis/${listing.id}`, {
+      const res = await aFetch(`/api/discovery/listings/${listing.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seller_wallet: listing.seller_wallet, is_active: true }),
+        body: JSON.stringify({ is_active: true }),
       });
       const data = await res.json() as { error?: string };
       if (!res.ok) {
@@ -257,11 +246,10 @@ export default function DiscoveryListingsPage() {
     setActionLoading(listing.id);
     clearError(listing.id);
     try {
-      const res = await fetch(`/api/apis/${listing.id}`, {
+      const res = await aFetch(`/api/discovery/listings/${listing.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          seller_wallet: listing.seller_wallet,
           name: editForm.name.trim(),
           description: editForm.description.trim(),
           price_per_call: price,
@@ -286,10 +274,9 @@ export default function DiscoveryListingsPage() {
     setActionLoading(listing.id);
     clearError(listing.id);
     try {
-      const res = await fetch(`/api/apis/${listing.id}`, {
+      const res = await aFetch(`/api/discovery/listings/${listing.id}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seller_wallet: listing.seller_wallet }),
       });
       const data = await res.json() as { error?: string };
       if (!res.ok) {
@@ -396,34 +383,6 @@ export default function DiscoveryListingsPage() {
     refresh();
   }
 
-  // ── Guards ────────────────────────────────────────────────────
-  if (!isConnected) {
-    return (
-      <>
-        <NavBar />
-        <main className="min-h-screen bg-[#F5F5F0] flex flex-col items-center justify-center gap-6 px-6 pt-36">
-          <h1 className="text-2xl font-bold text-[#0D0D0D]">Connect Your Wallet</h1>
-          <p className="text-[#6B7280] text-center max-w-sm">Admin access requires a connected wallet.</p>
-          <ConnectButton />
-        </main>
-      </>
-    );
-  }
-
-  if (address?.toLowerCase() !== ADMIN_WALLET) {
-    return (
-      <>
-        <NavBar />
-        <main className="min-h-screen bg-[#F5F5F0] flex flex-col items-center justify-center gap-4 px-6 pt-36">
-          <h1 className="text-2xl font-bold text-[#0D0D0D]">Access Denied</h1>
-          <p className="text-[#6B7280] text-center max-w-sm">This page is restricted to the Mahshar admin wallet.</p>
-          <code className="text-xs text-[#6B7280] bg-[#F0F0E8] px-3 py-1 rounded">{address}</code>
-        </main>
-      </>
-    );
-  }
-
-  // ── Render ────────────────────────────────────────────────────
   return (
     <>
       <NavBar />

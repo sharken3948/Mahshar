@@ -1,5 +1,6 @@
 import {
   createWalletClient,
+  createPublicClient,
   http,
   keccak256,
   toHex,
@@ -8,10 +9,11 @@ import {
   encodeFunctionData,
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { arcTestnet, arcMainnet } from '@/lib/chains'
-import { ARC, ARC_MAINNET } from '@/lib/arc'
+import { arcMainnet } from '@/lib/chains'
+import { ARC } from '@/lib/arc'
 import { PLATFORM_PRIVATE_KEY } from '@/lib/gateway'
 
+// Official Mainnet deployment: https://docs.arc.io/arc/references/contract-addresses
 const MEMO_CONTRACT = '0x5294E9927c3306DcBaDb03fe70b92e01cCede505' as `0x${string}`
 const ARC_USDC = '0x3600000000000000000000000000000000000000' as `0x${string}`
 
@@ -49,12 +51,15 @@ export async function writeMemo(
   callId: string,
 ): Promise<void> {
   const account = privateKeyToAccount(PLATFORM_PRIVATE_KEY)
-  const chain = ARC.chainId === ARC_MAINNET.chainId ? arcMainnet : arcTestnet
+  const chain = arcMainnet
   const walletClient = createWalletClient({
     account,
     chain,
-    transport: http(),
+    transport: http(process.env.ARC_MAINNET_RPC_URL),
   })
+
+  const publicClient = createPublicClient({ chain, transport: http(process.env.ARC_MAINNET_RPC_URL) })
+  if (await publicClient.getChainId() !== ARC.chainId) throw new Error('Memo requires Arc Mainnet RPC')
 
   const memoId = keccak256(toHex(callId))
 
@@ -78,6 +83,9 @@ export async function writeMemo(
     functionName: 'memo',
     args: [ARC_USDC, subcallData, memoId, memoData],
   })
+
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
+  if (receipt.status !== 'success') throw new Error(`Memo transaction reverted: ${txHash}`)
 
   console.log(`[memo] api=${apiName} call_id=${callId} tx=${txHash}`)
 }

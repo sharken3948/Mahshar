@@ -1,9 +1,13 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Connection, PublicKey } from '@solana/web3.js'
+import { Solana } from '@circle-fin/bridge-kit'
+import { formatUnits } from 'viem'
 
-export const SOLANA_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
-export const SOLANA_RPC_URL = `https://mainnet.helius-rpc.com/?api-key=${process.env.NEXT_PUBLIC_HELIUS_API_KEY}`
+export const SOLANA_USDC_MINT = Solana.usdcAddress
+export const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || (process.env.NEXT_PUBLIC_HELIUS_API_KEY
+  ? `https://mainnet.helius-rpc.com/?api-key=${process.env.NEXT_PUBLIC_HELIUS_API_KEY}`
+  : 'https://api.mainnet-beta.solana.com')
 
 export interface SolanaBridgeBalance {
   displayName: 'Solana'
@@ -25,19 +29,23 @@ const IDLE: SolanaBridgeBalance = {
   error: null,
 }
 
-export function useSolanaBridgeBalance(pubkey: string | null): SolanaBridgeBalance {
+export function useSolanaBridgeBalance(pubkey: string | null) {
   const [state, setState] = useState<SolanaBridgeBalance>(IDLE)
+  const inFlight = useRef<{ pubkey: string; promise: Promise<boolean> } | null>(null)
+  const loadedPubkey = useRef<string | null>(null)
+  const currentPubkey = useRef(pubkey)
+  currentPubkey.current = pubkey
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
     if (!pubkey) {
+      loadedPubkey.current = null
       setState(IDLE)
-      return
+      return Promise.resolve(true)
     }
-
-    let cancelled = false
-    setState({ ...IDLE, isLoading: true })
-
-    ;(async () => {
+    if (inFlight.current?.pubkey === pubkey) return inFlight.current.promise
+    const hasSnapshot = loadedPubkey.current === pubkey
+    if (!hasSnapshot) setState({ ...IDLE, isLoading: true })
+    const request = (async () => {
       try {
         const connection = new Connection(SOLANA_RPC_URL, 'confirmed')
         const owner = new PublicKey(pubkey)
@@ -51,23 +59,21 @@ export function useSolanaBridgeBalance(pubkey: string | null): SolanaBridgeBalan
           if (typeof amount === 'string') raw += BigInt(amount)
         }
 
-        if (!cancelled) {
-          setState({ ...IDLE, usdcBalance: (Number(raw) / 1_000_000).toFixed(2), isLoading: false })
-        }
+        if (currentPubkey.current !== pubkey) return false
+        loadedPubkey.current = pubkey
+        setState({ ...IDLE, usdcBalance: formatUnits(raw, 6), isLoading: false })
+        return true
       } catch (err) {
-        if (!cancelled) {
-          setState({
-            ...IDLE,
-            usdcBalance: '?',
-            isLoading: false,
-            error: err instanceof Error ? err.message : String(err),
-          })
-        }
+        if (currentPubkey.current !== pubkey) return false
+        const error = err instanceof Error ? err.message : String(err)
+        setState(current => hasSnapshot ? { ...current, isLoading: false, error } : { ...IDLE, usdcBalance: '?', isLoading: false, error })
+        return false
       }
-    })()
-
-    return () => { cancelled = true }
+    })().finally(() => { if (inFlight.current?.promise === request) inFlight.current = null })
+    inFlight.current = { pubkey, promise: request }
+    return request
   }, [pubkey])
 
-  return state
+  useEffect(() => { void refresh() }, [refresh])
+  return { ...state, refresh }
 }

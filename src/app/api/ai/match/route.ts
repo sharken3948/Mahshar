@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { matchApis } from '@/lib/groq';
 import { createServiceClient } from '@/lib/supabase/server';
 import type { ApiListing } from '@/types';
+import { enforceRateLimit } from '@/lib/rate-limit';
+import { agentExecutionContract, type AgentListingRow } from '@/lib/marketplace/agent-contract';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
+  const limited = await enforceRateLimit({ request, scope: 'ai-match', limit: 20, windowSeconds: 60 })
+  if (limited) return limited
   const body = await request.json() as { query: string };
   const { query } = body;
 
@@ -32,8 +36,37 @@ export async function POST(request: NextRequest) {
 
   const { data: matched } = await supabase
     .from('api_listings')
-    .select('id, name, description, category, price_per_call, payment_model, score, uptime, example_request')
+    .select('id, name, description, category, price_per_call, payment_model, score, uptime, auth_type, method, example_request, example_response, request_schema, response_schema, body_required, dynamic_path_supported, path_parameters, query_parameters')
     .in('id', matchResult.api_ids);
 
-  return NextResponse.json({ apis: matched, reasoning: matchResult.reasoning });
+  const publicOrigin = new URL(request.url).origin
+  const safeMatched = ((matched ?? []) as unknown as Array<AgentListingRow & Record<string, unknown>>).map(row => {
+    const execution = agentExecutionContract(row, publicOrigin)
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      category: row.category,
+      price_per_call_usdc: row.price_per_call,
+      payment_model: 'x402-pay-per-call',
+      score: row.score,
+      uptime: row.uptime,
+      auth: { type: row.auth_type, injected_by: 'mahshar', seller_credentials_exposed: false },
+      method: execution.method,
+      proxy_url: execution.proxy_url,
+      proxy_style: execution.proxy_style,
+      request: execution.request,
+      response: execution.response,
+    }
+  })
+
+  return NextResponse.json({
+    contract_version: '2.1',
+    discovery_url: `${publicOrigin}/api/agent/discover`,
+    openapi_url: `${publicOrigin}/api/openapi`,
+    network: 'eip155:5042',
+    payment_protocol: 'x402',
+    apis: safeMatched,
+    reasoning: matchResult.reasoning,
+  });
 }

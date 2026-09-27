@@ -1,13 +1,13 @@
+import { marketplaceErrors } from '@/lib/marketplace/server'
+import { normalizedWallet } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
-import { isValidWalletAddress } from '@/lib/wallet-validation'
 
 export const runtime = 'nodejs'
 
 interface ApiCallRow {
   id: string
   api_id: string
-  buyer_wallet: string
   created_at: string
   latency_ms: number
   success: boolean
@@ -18,16 +18,9 @@ interface ApiListingRow {
   name: string
 }
 
-export async function GET(request: NextRequest) {
+export const GET = marketplaceErrors(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url)
-  const sellerWallet = searchParams.get('seller_wallet')
-
-  if (!sellerWallet) {
-    return NextResponse.json({ error: 'seller_wallet required' }, { status: 400 })
-  }
-  if (!isValidWalletAddress(sellerWallet)) {
-    return NextResponse.json({ error: 'Invalid seller_wallet address' }, { status: 400 })
-  }
+  const sellerWallet = normalizedWallet(searchParams.get('seller_wallet'))
 
   const supabase = createServiceClient()
 
@@ -45,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   const { data: calls, error: callsError } = await supabase
     .from('api_calls')
-    .select('id, api_id, buyer_wallet, created_at, latency_ms, success')
+    .select('id, api_id, created_at, latency_ms, success')
     .in('api_id', apiIds)
     .order('created_at', { ascending: false })
 
@@ -67,7 +60,6 @@ export async function GET(request: NextRequest) {
     lastCalled: grp[0].created_at,
     calls: grp.map(c => ({
       id: c.id,
-      buyer_wallet: c.buyer_wallet,
       created_at: c.created_at,
       latency_ms: c.latency_ms,
       success: c.success,
@@ -75,4 +67,4 @@ export async function GET(request: NextRequest) {
   }))
 
   return NextResponse.json({ groups })
-}
+})

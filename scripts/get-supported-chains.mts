@@ -1,5 +1,9 @@
-import { BridgeKit } from '@circle-fin/bridge-kit'
+import { MAINNET_CHAINS, discoverCircleRoutes } from '../src/lib/circle-bridge'
 
-const kit = new BridgeKit()
-const chains = await kit.getSupportedChains()
-console.log(JSON.stringify(chains.filter((c: { isTestnet: boolean }) => c.isTestnet), null, 2))
+const { routes, excluded } = await discoverCircleRoutes()
+console.log(JSON.stringify({
+  candidateMainnets: MAINNET_CHAINS.length,
+  confirmedRoutes: routes.length,
+  routes: routes.map(({ source, useForwarder }) => ({ name: source.name, chain: source.chain, ecosystem: source.type, destination: 'Arc', token: 'USDC', useForwarder })),
+  excluded,
+}, null, 2))

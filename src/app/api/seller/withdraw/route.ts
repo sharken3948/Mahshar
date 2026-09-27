@@ -9,9 +9,10 @@ import { randomBytes } from 'node:crypto'
 import { arcPrivateMainnetHeaders } from '@circle-fin/x402-batching/client'
 import { createServiceClient } from '@/lib/supabase/server'
 import { isValidWalletAddress } from '@/lib/wallet-validation'
-import { ARC, ARC_MAINNET, GATEWAY_MINTER_ABI } from '@/lib/arc'
+import { marketplaceErrors } from '@/lib/marketplace/server'
+import { ARC, GATEWAY_MINTER_ABI } from '@/lib/arc'
 import { PLATFORM_PRIVATE_KEY } from '@/lib/gateway'
-import { arcMainnet, arcTestnet } from '@/lib/chains'
+import { arcMainnet } from '@/lib/chains'
 import { buildWithdrawMessage, WITHDRAW_TIMESTAMP_WINDOW_SECONDS } from '@/lib/withdraw-auth-message'
 
 export const runtime = 'nodejs'
@@ -74,7 +75,7 @@ const MIN_WITHDRAW_USDC = 1
 
 const WITHDRAW_COOLDOWN_SECONDS = 60
 
-export async function POST(request: NextRequest) {
+export const POST = marketplaceErrors(async (request: NextRequest) => {
   const body = (await request.json().catch(() => ({}))) as {
     seller_wallet?: string
     amount_usdc?: number | string
@@ -101,9 +102,8 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceClient()
 
-  const isMainnet = ARC.chainId === ARC_MAINNET.chainId
-  const chain = isMainnet ? arcMainnet : arcTestnet
-  const rpcUrl = isMainnet ? process.env.ARC_MAINNET_RPC_URL : undefined
+  const chain = arcMainnet
+  const rpcUrl = process.env.ARC_MAINNET_RPC_URL
   const publicClient = createPublicClient({ chain, transport: http(rpcUrl) })
 
   // ── Signature auth ───────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const networkId = isMainnet ? 'eip155:5042' : 'eip155:5042002'
+  const networkId = 'eip155:5042'
 
   const account = privateKeyToAccount(PLATFORM_PRIVATE_KEY)
   const platform = account.address
@@ -251,7 +251,7 @@ export async function POST(request: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...arcPrivateMainnetHeaders(isMainnet),
+        ...arcPrivateMainnetHeaders(true),
       },
       body: JSON.stringify({
         token: 'USDC',
@@ -371,7 +371,7 @@ export async function POST(request: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...arcPrivateMainnetHeaders(isMainnet),
+        ...arcPrivateMainnetHeaders(true),
       },
       body: JSON.stringify([{ burnIntent, signature: burnSignature }], bigintReplacer),
     })
@@ -513,4 +513,4 @@ export async function POST(request: NextRequest) {
     mint_tx_hash: mintTxHash,
     status: 'minted',
   })
-}
+})

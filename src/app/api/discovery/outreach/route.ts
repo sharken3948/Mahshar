@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { withAdmin } from '@/lib/admin-auth';
 
 export const runtime = 'nodejs';
 
@@ -10,11 +11,7 @@ interface DiscoveredApiRow {
   owner_email: string;
 }
 
-export async function POST(request: NextRequest) {
-  const adminSecret = process.env.ADMIN_SECRET;
-  if (adminSecret && request.headers.get('x-admin-key') !== adminSecret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const POST = withAdmin(async (request: NextRequest) => {
 
   if (process.env.MAINNET_MODE !== 'true') {
     return NextResponse.json(
@@ -97,4 +94,4 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ sent, skipped });
-}
+});

@@ -9,6 +9,8 @@
   --border: #E2E4E9;
   --text-secondary: #6B7280;
   --primary-light: #EBF3FC;
+  --mahshar-caption-size: 13px;
+  --mahshar-support-size: 14px;
 }
 
 @theme inline {
@@ -21,4 +23,10 @@
 body {
   background: var(--background);
   color: var(--foreground);
+}
+
+/* Keep supporting copy readable across Tailwind and CSS-module surfaces. */
+body .text-xs {
+  font-size: var(--mahshar-support-size);
+  line-height: 1.45;
 }

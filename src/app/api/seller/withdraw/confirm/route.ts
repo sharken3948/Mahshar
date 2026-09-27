@@ -3,10 +3,11 @@ import { createPublicClient, createWalletClient, http, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { createServiceClient } from '@/lib/supabase/server'
 import { isValidWalletAddress } from '@/lib/wallet-validation'
-import { arcMainnet, arcTestnet } from '@/lib/chains'
+import { arcMainnet } from '@/lib/chains'
 import { buildConfirmMessage, WITHDRAW_TIMESTAMP_WINDOW_SECONDS } from '@/lib/withdraw-auth-message'
-import { ARC, ARC_MAINNET, GATEWAY_MINTER_ABI } from '@/lib/arc'
+import { ARC, GATEWAY_MINTER_ABI } from '@/lib/arc'
 import { PLATFORM_PRIVATE_KEY } from '@/lib/gateway'
+import { marketplaceErrors } from '@/lib/marketplace/server'
 
 export const runtime = 'nodejs'
 
@@ -16,7 +17,7 @@ export const runtime = 'nodejs'
 // stored attestation + signature. Idempotent: if the original mint actually
 // landed on-chain, the contract's replay guard rejects the retry and we
 // mark the row failed for ops to look at.
-export async function POST(request: NextRequest) {
+export const POST = marketplaceErrors(async (request: NextRequest) => {
   const body = (await request.json().catch(() => ({}))) as {
     withdrawal_id?: string
     seller_wallet?: string
@@ -35,9 +36,8 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServiceClient()
 
-  const isMainnet = ARC.chainId === ARC_MAINNET.chainId
-  const chain = isMainnet ? arcMainnet : arcTestnet
-  const rpcUrl = isMainnet ? process.env.ARC_MAINNET_RPC_URL : undefined
+  const chain = arcMainnet
+  const rpcUrl = process.env.ARC_MAINNET_RPC_URL
   const publicClient = createPublicClient({ chain, transport: http(rpcUrl) })
 
   // ── Signature auth ───────────────────────────────────────────────────────
@@ -143,4 +143,4 @@ export async function POST(request: NextRequest) {
   if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 })
 
   return NextResponse.json({ withdrawal_id, mint_tx_hash: mintTxHash, status: mintStatus })
-}
+})

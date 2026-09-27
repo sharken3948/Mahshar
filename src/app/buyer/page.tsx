@@ -1,11 +1,18 @@
 'use client'
+import { useWalletAuthorization } from '@/hooks/useWalletAuthorization'
 import { useAccount, useSignTypedData } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useState, useEffect, useMemo } from 'react'
-import Link from 'next/link'
-import type { ApiListing } from '@/types'
+import { BackButton } from '@/components/BackButton'
+import type { ApiListing, AuthType } from '@/types'
 import { NavBar } from '@/components/NavBar'
 import { buildViewCodeSnippet, renderHighlightedSnippet } from '@/lib/snippets'
+import { paymentErrorMessage } from '@/lib/payments/errors'
+import { readPurchasedResponse, rememberPurchaseAccess } from '@/lib/marketplace/purchase-access-client'
+import { coalescedJsonGet } from '@/lib/client-read'
+import { buildBuyerProxyEnvelope, exampleRequestHasForwardableBody, type BuyerProxyEnvelope } from '@/lib/marketplace/buyer-proxy-request'
+import { MahsharFlowMotif } from '@/components/MahsharFlowMotif'
+import styles from './buyer.module.css'
 
 interface PaymentRequirements {
   scheme: string
@@ -27,7 +34,7 @@ interface PaymentRequired {
   accepts: PaymentRequirements[]
 }
 
-type ApiCardFields = Pick<ApiListing, 'id' | 'name' | 'description' | 'category' | 'price_per_call' | 'payment_model' | 'score' | 'uptime' | 'example_request' | 'method'>
+type ApiCardFields = Pick<ApiListing, 'id' | 'name' | 'description' | 'category' | 'price_per_call' | 'payment_model' | 'score' | 'uptime' | 'example_request' | 'method' | 'auth_type' | 'created_at'>
 
 
 const CHAIN_LABELS: Record<number, string> = {
@@ -51,16 +58,6 @@ function generateNonce(): `0x${string}` {
   return `0x${Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')}`
 }
 
-function needsRequestBody(exampleRequest: string | null | undefined): boolean {
-  if (!exampleRequest) return false
-  try {
-    const parsed = JSON.parse(exampleRequest)
-    return typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length > 0
-  } catch {
-    return false
-  }
-}
-
 function ApiRow({ api, avgLatency, calling, paymentStep, onUse, purchased, onView }: {
   api: ApiCardFields
   avgLatency: number | null
@@ -71,67 +68,54 @@ function ApiRow({ api, avgLatency, calling, paymentStep, onUse, purchased, onVie
   onView: (id: string, name: string, method: string, exampleRequest: string | null) => void
 }) {
   return (
-    <div className="bg-white border border-[#2775CA] rounded-xl px-4 py-4 flex items-center gap-4">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5">
-          <span className="font-bold text-[#0D0D0D] text-sm">{api.name}</span>
-          <span className="text-xs bg-[#EBF3FC] text-[#2775CA] border border-[#BFDBFE] px-2 py-0.5 rounded-full">{api.category}</span>
+    <article className={styles.apiCard}>
+      <div className={styles.apiPrimary}>
+        <div className={styles.apiTop}>
+          <span className={styles.apiGlyph} aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m8 6-6 6 6 6m8-12 6 6-6 6m-3-15-2 18" /></svg></span>
+          <div className="min-w-0"><h3 className={styles.apiName}>{api.name}</h3><div className={styles.apiSubline}><span className={styles.categoryBadge}>{api.category}</span><span>{api.auth_type === 'public' ? 'Public access' : api.auth_type}</span></div></div>
         </div>
-        <p className="text-sm text-[#6B7280] line-clamp-3" title={api.description}>{api.description}</p>
-      </div>
-      <div className="hidden sm:flex items-center gap-6 flex-shrink-0">
-        <div className="text-center">
-          <div className="text-xs text-[#6B7280] mb-0.5">Price</div>
-          <div className="text-sm font-bold text-[#0D0D0D]">${api.price_per_call}</div>
-          <div className="text-xs text-[#6B7280]">USDC/call</div>
-        </div>
-        <div className="text-center">
-          <div className="text-xs text-[#6B7280] mb-0.5">Avg Latency</div>
-          <div className="text-sm font-bold text-[#0D0D0D]">{avgLatency != null ? `${avgLatency}ms` : '—'}</div>
-        </div>
-        <div className="text-center">
-          <div className="text-xs text-[#6B7280] mb-0.5">Score</div>
-          <div className="text-sm font-bold text-[#2775CA]">{api.score != null ? `${api.score}/10` : '—'}</div>
+        <p className={styles.apiDescription} title={api.description}>{api.description}</p>
+        <div className={styles.apiMetrics}>
+          <span className={styles.methodBadge}>{api.method ?? 'GET'}</span><span className={styles.contextBadge}>x402</span><span className={styles.contextBadge}>USDC</span><span className={styles.contextBadge}>Arc</span>
+          <span className={styles.metric}><span className={styles.metricLabel}>Latency</span><span className={`${styles.metricValue} ${avgLatency == null ? styles.metricUnknown : ''}`}>{avgLatency != null ? `${avgLatency}ms` : 'Unknown'}</span></span>
+          <span className={styles.metric}><span className={styles.metricLabel}>AI Score</span><span className={`${styles.metricValue} ${api.score == null ? styles.metricUnknown : ''}`}>{api.score != null ? `${api.score}/10` : '—'}</span></span>
         </div>
       </div>
-      {purchased ? (
-        <button
-          onClick={() => onView(api.id, api.name, api.method ?? 'GET', api.example_request ?? null)}
-          className="flex-shrink-0 bg-[#2775CA] hover:bg-[#1E63B5] text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors"
-        >
-          View API
-        </button>
+      <div className={styles.apiSide}><p className={styles.price}>${api.price_per_call}<small>USDC / call</small></p>{purchased ? (
+        <button onClick={() => onView(api.id, api.name, api.method ?? 'GET', api.example_request ?? null)} className={styles.apiAction}>View API</button>
       ) : (
-        <button
-          onClick={() => onUse(api.id)}
-          disabled={calling === api.id}
-          className="flex-shrink-0 bg-[#00B050] hover:bg-[#008F42] text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-        >
+        <button onClick={() => onUse(api.id)} disabled={calling === api.id} className={`${styles.apiAction} ${styles.apiActionUse}`}>
           {calling === api.id
-            ? paymentStep === 'signing' ? 'Sign in wallet...'
+            ? paymentStep === 'signing' ? 'Confirm in wallet...'
             : paymentStep === 'submitting' ? 'Submitting...'
             : 'Getting price...'
             : 'Use API'}
         </button>
       )}
-    </div>
+      </div>
+    </article>
   )
 }
 
 export default function BuyerPage() {
   const { address, isConnected, chainId } = useAccount()
   const { signTypedDataAsync } = useSignTypedData()
+  const { request: protectedFetch } = useWalletAuthorization()
 
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ApiCardFields[]>([])
   const [searching, setSearching] = useState(false)
+  const [searchHasRun, setSearchHasRun] = useState(false)
+  const [searchError, setSearchError] = useState<string | null>(null)
+  const [listingsLoading, setListingsLoading] = useState(true)
+  const [listingsError, setListingsError] = useState<string | null>(null)
   const [calling, setCalling] = useState<string | null>(null)
   const [paymentStep, setPaymentStep] = useState<'probing' | 'signing' | 'submitting'>('probing')
   const [paymentError, setPaymentError] = useState<string | null>(null)
   const [allApis, setAllApis] = useState<ApiCardFields[]>([])
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [latencyMap, setLatencyMap] = useState<Record<string, number>>({})
-  const [requestModal, setRequestModal] = useState<{ apiId: string } | null>(null)
+  const [requestModal, setRequestModal] = useState<{ apiId: string; method: string } | null>(null)
   const [requestBodyText, setRequestBodyText] = useState('')
   const [requestBodyError, setRequestBodyError] = useState<string | null>(null)
   const [purchasedApiIds, setPurchasedApiIds] = useState<Set<string>>(new Set())
@@ -139,24 +123,44 @@ export default function BuyerPage() {
   const [viewApiResponse, setViewApiResponse] = useState<unknown>(null)
   const [viewApiLoading, setViewApiLoading] = useState(false)
   const [viewApiCopied, setViewApiCopied] = useState(false)
+  const [priceMin, setPriceMin] = useState('')
+  const [priceMax, setPriceMax] = useState('')
+  const [latencyFilter, setLatencyFilter] = useState('all')
+  const [scoreFilter, setScoreFilter] = useState('all')
+  const [authFilters, setAuthFilters] = useState<Set<AuthType>>(new Set())
+  const [sortBy, setSortBy] = useState<'newest' | 'price-low' | 'price-high' | 'score' | 'latency'>('newest')
 
   useEffect(() => {
-    fetch('/api/apis')
-      .then(r => r.json())
-      .then((data: { apis?: ApiCardFields[] }) => setAllApis(data.apis ?? []))
-    fetch('/api/apis/latency')
-      .then(r => r.json())
-      .then((data: { latencies?: Record<string, number> }) => setLatencyMap(data.latencies ?? {}))
+    setListingsLoading(true)
+    setListingsError(null)
+    coalescedJsonGet<{ apis?: ApiCardFields[]; error?: string }>('/api/apis')
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data.error ?? 'Unable to load marketplace listings')
+        setAllApis(data.apis ?? [])
+      })
+      .catch((err: unknown) => {
+        setAllApis([])
+        setListingsError(err instanceof Error ? err.message : 'Unable to load marketplace listings')
+      })
+      .finally(() => setListingsLoading(false))
+    coalescedJsonGet<{ latencies?: Record<string, number> }>('/api/apis/latency')
+      .then(({ data }) => setLatencyMap(data.latencies ?? {}))
+      .catch(() => setLatencyMap({}))
   }, [])
 
   useEffect(() => {
+    setPurchasedApiIds(new Set())
+    setViewApiResponse(null)
+    setViewApiModal(null)
     if (!address) return
-    fetch(`/api/calls?buyer_wallet=${address.toLowerCase()}`)
-      .then(r => r.json())
-      .then((data: { calls?: Array<{ api_id: string }> }) => {
-        setPurchasedApiIds(new Set(data.calls?.map(c => c.api_id) ?? []))
+    let cancelled = false
+    coalescedJsonGet<{ calls?: Array<{ api_id: string }> }>(`/api/calls?buyer_wallet=${address.toLowerCase()}`)
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error('Purchase history unavailable')
+        if (!cancelled) setPurchasedApiIds(new Set(data.calls?.map(call => call.api_id) ?? []))
       })
       .catch(() => {})
+    return () => { cancelled = true }
   }, [address])
 
   const topCategories = useMemo(() => {
@@ -184,23 +188,88 @@ export default function BuyerPage() {
     if (!categoryTabs.includes(selectedCategory)) setSelectedCategory('All')
   }, [categoryTabs, selectedCategory])
 
+  const sourceApis = searchHasRun
+    ? results.map(result => allApis.find(api => api.id === result.id) ?? result)
+    : allApis
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const api of allApis) counts.set(api.category, (counts.get(api.category) ?? 0) + 1)
+    return counts
+  }, [allApis])
+
   const filteredApis = useMemo(() => {
-    if (selectedCategory === 'All') return allApis
-    if (selectedCategory === 'Other') return allApis.filter(a => a.category && !topSet.has(a.category))
-    return allApis.filter(a => a.category === selectedCategory)
-  }, [allApis, selectedCategory, topSet])
+    const min = priceMin ? Number(priceMin) : null
+    const max = priceMax ? Number(priceMax) : null
+    const filtered = sourceApis.filter(api => {
+      const categoryMatches = selectedCategory === 'All'
+        || (selectedCategory === 'Other' ? Boolean(api.category && !topSet.has(api.category)) : api.category === selectedCategory)
+      if (!categoryMatches) return false
+      if (min != null && Number.isFinite(min) && api.price_per_call < min) return false
+      if (max != null && Number.isFinite(max) && api.price_per_call > max) return false
+      const latency = latencyMap[api.id]
+      if (latencyFilter === 'under-100' && !(latency != null && latency < 100)) return false
+      if (latencyFilter === '100-500' && !(latency != null && latency >= 100 && latency <= 500)) return false
+      if (latencyFilter === 'over-500' && !(latency != null && latency > 500)) return false
+      if (scoreFilter === '8-plus' && !(api.score != null && api.score >= 8)) return false
+      if (scoreFilter === '5-to-7' && !(api.score != null && api.score >= 5 && api.score < 8)) return false
+      if (scoreFilter === 'under-5' && !(api.score != null && api.score < 5)) return false
+      return authFilters.size === 0 || authFilters.has(api.auth_type)
+    })
+    const unknownLast = (a: number | null | undefined, b: number | null | undefined, direction: 1 | -1) => {
+      if (a == null) return b == null ? 0 : 1
+      if (b == null) return -1
+      return (a - b) * direction
+    }
+    return [...filtered].sort((a, b) => {
+      if (sortBy === 'price-low') return a.price_per_call - b.price_per_call
+      if (sortBy === 'price-high') return b.price_per_call - a.price_per_call
+      if (sortBy === 'score') return unknownLast(a.score, b.score, -1)
+      if (sortBy === 'latency') return unknownLast(latencyMap[a.id], latencyMap[b.id], 1)
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    })
+  }, [authFilters, latencyFilter, latencyMap, priceMax, priceMin, scoreFilter, selectedCategory, sortBy, sourceApis, topSet])
+
+  const filtersActive = selectedCategory !== 'All' || Boolean(priceMin || priceMax) || latencyFilter !== 'all' || scoreFilter !== 'all' || authFilters.size > 0
+
+  function toggleAuthFilter(authType: AuthType) {
+    setAuthFilters(previous => {
+      const next = new Set(previous)
+      if (next.has(authType)) next.delete(authType)
+      else next.add(authType)
+      return next
+    })
+  }
+
+  function clearFilters() {
+    setSelectedCategory('All')
+    setPriceMin('')
+    setPriceMax('')
+    setLatencyFilter('all')
+    setScoreFilter('all')
+    setAuthFilters(new Set())
+  }
 
   async function handleSearch() {
     if (!query.trim()) return
     setSearching(true)
+    setSearchHasRun(true)
+    setSearchError(null)
     try {
       const res = await fetch('/api/ai/match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query }),
       })
-      const data = await res.json()
+      const data = await res.json() as { apis?: ApiCardFields[]; error?: string }
+      if (!res.ok) {
+        setResults([])
+        setSearchError(data.error ?? 'AI search is temporarily unavailable. Try again.')
+        return
+      }
       setResults(data.apis ?? [])
+    } catch {
+      setResults([])
+      setSearchError('AI search is temporarily unavailable. Try again.')
     } finally {
       setSearching(false)
     }
@@ -208,7 +277,7 @@ export default function BuyerPage() {
 
   async function executePaymentFlow(
     apiId: string,
-    proxyBody: { api_id: string; buyer_wallet: string; method?: string; body?: unknown },
+    proxyBody: BuyerProxyEnvelope,
   ) {
     setCalling(apiId)
     setPaymentError(null)
@@ -226,7 +295,11 @@ export default function BuyerPage() {
       })
 
       if (probeRes.status !== 402) {
-        const data = await probeRes.json() as { response?: Record<string, unknown>; latency_ms?: number }
+        const data = await probeRes.json() as { response?: Record<string, unknown>; latency_ms?: number; error?: string; message?: string; attemptId?: string }
+        if (!probeRes.ok) {
+          setPaymentError(paymentErrorMessage(data.error, data.message, data.attemptId))
+          return
+        }
         setViewApiModal({ apiId, apiName, method: apiMethod, exampleRequest: api?.example_request ?? null })
         setViewApiResponse(data.response ?? (data as Record<string, unknown>))
         setViewApiLoading(false)
@@ -314,10 +387,12 @@ export default function BuyerPage() {
         body: JSON.stringify(proxyBody),
       })
 
-      const paidData = await paidRes.json() as { response?: Record<string, unknown>; latency_ms?: number; error?: string }
+      const paidData = await paidRes.json() as { response?: Record<string, unknown>; latency_ms?: number; error?: string; message?: string; attemptId?: string; purchase_access_token?: string }
+
+      if (address) rememberPurchaseAccess(address, apiId, paidData.purchase_access_token)
 
       if (!paidRes.ok) {
-        setPaymentError(paidData.error ?? `Request failed: ${paidRes.status}`)
+        setPaymentError(paymentErrorMessage(paidData.error, paidData.message ?? `Request failed: ${paidRes.status}`, paidData.attemptId))
         return
       }
 
@@ -336,8 +411,9 @@ export default function BuyerPage() {
   function handleUseApi(apiId: string) {
     if (!address) return
     const api = [...allApis, ...results].find(a => a.id === apiId)
+    const method = api?.method ?? 'GET'
 
-    if (api && needsRequestBody(api.example_request)) {
+    if (api && exampleRequestHasForwardableBody(method, api.example_request)) {
       try {
         const formatted = JSON.stringify(JSON.parse(api.example_request!), null, 2)
         setRequestBodyText(formatted)
@@ -345,11 +421,11 @@ export default function BuyerPage() {
         setRequestBodyText(api.example_request ?? '')
       }
       setRequestBodyError(null)
-      setRequestModal({ apiId })
+      setRequestModal({ apiId, method })
       return
     }
 
-    void executePaymentFlow(apiId, { api_id: apiId, buyer_wallet: address })
+    void executePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method))
   }
 
   async function handleModalSubmit() {
@@ -361,30 +437,25 @@ export default function BuyerPage() {
       setRequestBodyError('Invalid JSON, fix before submitting')
       return
     }
-    const { apiId } = requestModal
+    const { apiId, method } = requestModal
     setRequestModal(null)
-    await executePaymentFlow(apiId, {
-      api_id: apiId,
-      buyer_wallet: address,
-      method: 'POST',
-      body: parsed,
-    })
+    await executePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method, parsed))
   }
 
   function handleNewQuery() {
     if (!viewApiModal || !address) return
-    const { apiId, exampleRequest } = viewApiModal
+    const { apiId, method, exampleRequest } = viewApiModal
     setViewApiModal(null)
-    if (needsRequestBody(exampleRequest)) {
+    if (exampleRequestHasForwardableBody(method, exampleRequest)) {
       try {
         setRequestBodyText(JSON.stringify(JSON.parse(exampleRequest!), null, 2))
       } catch {
         setRequestBodyText(exampleRequest ?? '')
       }
       setRequestBodyError(null)
-      setRequestModal({ apiId })
+      setRequestModal({ apiId, method })
     } else {
-      void executePaymentFlow(apiId, { api_id: apiId, buyer_wallet: address })
+      void executePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method))
     }
   }
 
@@ -393,11 +464,9 @@ export default function BuyerPage() {
     setViewApiResponse(null)
     setViewApiLoading(true)
     try {
-      const res = await fetch(`/api/calls/last-response?api_id=${apiId}&buyer_wallet=${address ?? ''}`)
-      if (res.ok) {
-        const data = await res.json() as { response_body: unknown }
-        setViewApiResponse(data.response_body)
-      }
+      if (!address) return
+      const result = await readPurchasedResponse({ wallet: address, apiId, authorize: protectedFetch })
+      if (result.ok) setViewApiResponse(result.data.response_body)
     } finally {
       setViewApiLoading(false)
     }
@@ -407,10 +476,13 @@ export default function BuyerPage() {
     return (
       <>
         <NavBar />
-        <main className="min-h-screen bg-[#F5F5F0] flex flex-col items-center justify-center gap-6 px-6 pt-36">
-          <h1 className="text-2xl font-bold text-[#0D0D0D]">Connect Your Wallet</h1>
-          <p className="text-[#6B7280] text-center max-w-sm">Connect your wallet to find and use APIs on Mahshar.</p>
-          <ConnectButton />
+        <main className={styles.connectMain}>
+          <MahsharFlowMotif variant="background" tone="purple" className={styles.connectBackgroundFlow} />
+          <section className={styles.connectCard}>
+            <MahsharFlowMotif variant="card" tone="blue" className={styles.connectCardFlow} />
+            <span className={styles.walletChip} aria-hidden="true"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M20 8V5a2 2 0 0 0-2-2H6a3 3 0 0 0 0 6h14v11H6a3 3 0 0 1-3-3V6" /><path d="M20 12h-5v5h5M17 14.5h.01" /></svg></span>
+            <h1>Connect Your Wallet</h1><p>Connect your wallet to discover and use paid APIs on Mahshar.</p><div className={styles.connectCta}><ConnectButton /></div><span className={styles.connectHelper}>Pay securely with USDC via x402.</span>
+          </section>
         </main>
       </>
     )
@@ -422,120 +494,61 @@ export default function BuyerPage() {
   return (
     <>
     <NavBar />
-    <main className="min-h-screen bg-[#F5F5F0] px-6 pt-40 pb-16">
-      <div className="mx-auto max-w-4xl">
+    <main className={styles.page}><div className={styles.main}>
+      <MahsharFlowMotif variant="background" tone="blue" className={styles.backgroundFlow} />
+      <header className={styles.hero}>
+        <BackButton href="/" label="Back to Mahshar" />
+        <p className={styles.eyebrow}>MARKETPLACE</p><h1>Find an API</h1><p>Power your agents and applications with real-world data, tools, and services.</p>
+        <div className={styles.searchSurface}><div className={styles.searchRow}><svg className={styles.searchIcon} width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path strokeLinecap="round" d="m21 21-4.5-4.5m2-5.5a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z" /></svg><input type="text" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} placeholder="Describe what you need, e.g. wallet risk scoring, weather data..." className={styles.searchInput} /><button onClick={handleSearch} disabled={searching} className={styles.searchButton}>{searching ? 'Searching...' : 'Search'}</button></div></div>
+        {searching && <p className={styles.searchFeedback}>Matching your request against active marketplace APIs…</p>}
+        {searchError && <p className={`${styles.searchFeedback} ${styles.searchError}`}>{searchError}</p>}
+        <div className={styles.categoryBar}>{categoryTabs.map(cat => <button key={cat} onClick={() => setSelectedCategory(cat)} className={`${styles.categoryPill} ${selectedCategory === cat ? styles.categoryPillActive : ''}`}>{cat}</button>)}</div>
+      </header>
 
-        {/* Page header */}
-        <div className="mb-6 flex items-center gap-3">
-          <Link href="/" className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-[#00B050] hover:bg-[#008F42] text-white transition-colors">
-            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24">
-              <path d="M19 12H5M12 5l-7 7 7 7"/>
-            </svg>
-          </Link>
-        </div>
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-[#0D0D0D]">Find an API</h1>
-        </div>
-
-        {/* AI Search section */}
-        <section className="mb-8">
-          <h2 className="font-bold text-xl text-[#0D0D0D] mb-4">AI Search</h2>
-          <div className="flex gap-3 mb-4">
-            <input
-              type="text"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSearch()}
-              placeholder="Describe what you need, e.g. wallet risk scoring, weather data..."
-              className="flex-1 bg-[#FAFAF8] border border-[#2775CA] rounded-xl px-4 py-3 text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA] text-sm"
-            />
-            <button
-              onClick={handleSearch}
-              disabled={searching}
-              className="bg-[#2775CA] hover:bg-[#1E63B5] text-white px-6 py-3 rounded-xl text-sm font-medium disabled:opacity-50 transition-colors"
-            >
-              {searching ? 'Searching...' : 'Search'}
-            </button>
-          </div>
-          {results.length > 0 && (
-            <div className="flex flex-col gap-2">
-              {results.map(api => (
-                <ApiRow key={api.id} api={api} avgLatency={latencyMap[api.id] ?? null} calling={calling} paymentStep={paymentStep} onUse={handleUseApi} purchased={purchasedApiIds.has(api.id)} onView={handleViewApi} />
-              ))}
-            </div>
-          )}
-        </section>
-
-        <div className="border-t border-[#FAFAF8] my-8" />
-
-        {/* Marketplace Manual Search section */}
-        <section className="mb-8">
-          <h2 className="font-bold text-xl text-[#0D0D0D] mb-4">Marketplace Manual Search</h2>
-          <div className="flex flex-wrap gap-2 mb-4">
-            {categoryTabs.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={selectedCategory === cat
-                  ? 'bg-[#2775CA] text-white rounded-lg px-3 py-1.5 text-sm font-medium transition-colors'
-                  : 'bg-white border border-[#2775CA] text-[#6B7280] rounded-lg px-3 py-1.5 text-sm font-medium hover:border-[#2775CA] transition-colors'}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-          {filteredApis.length === 0 ? (
-            <p className="text-sm text-[#6B7280]">No APIs found.</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {filteredApis.map(api => (
-                <ApiRow key={api.id} api={api} avgLatency={latencyMap[api.id] ?? null} calling={calling} paymentStep={paymentStep} onUse={handleUseApi} purchased={purchasedApiIds.has(api.id)} onView={handleViewApi} />
-              ))}
-            </div>
-          )}
-        </section>
-
-        {paymentError && (
-          <div className="mb-6 bg-[#FEF2F2] border border-[#FECACA] rounded-xl px-6 py-4 text-sm text-[#DC2626]">
-            {paymentError}
-          </div>
-        )}
+      <div className={styles.workspace}><section className={styles.resultsColumn}><div className={styles.resultsHeader}><div><h2>{searchHasRun ? 'AI search results' : 'Marketplace APIs'}</h2><p>{filteredApis.length} {filteredApis.length === 1 ? 'API found' : 'APIs found'}{searchHasRun ? ' for your search' : ''}</p></div><select value={sortBy} onChange={event => setSortBy(event.target.value as typeof sortBy)} className={styles.sortSelect} aria-label="Sort marketplace results"><option value="newest">Newest</option><option value="price-low">Price: Low to High</option><option value="price-high">Price: High to Low</option><option value="score">AI Score</option><option value="latency">Latency</option></select></div>
+        {paymentError && <div className={`${styles.emptyState} ${styles.errorState}`}><h3>Request needs attention</h3><p>{paymentError}</p></div>}
+        {listingsLoading ? <div className={styles.loadingState}><div className={styles.skeleton} /><div className={styles.skeleton} /><div className={styles.skeleton} /></div> : listingsError ? <div className={`${styles.emptyState} ${styles.errorState}`}><h3>Marketplace unavailable</h3><p>{listingsError}</p></div> : searchHasRun && !searching && !searchError && results.length === 0 ? <div className={styles.emptyState}><h3>No AI matches found</h3><p>Try describing the capability, data source, or task in a different way.</p></div> : filteredApis.length === 0 ? <div className={styles.emptyState}><h3>No APIs match these filters</h3><p>Clear a filter or choose another category to see active marketplace listings.</p></div> : <div className={styles.resultsList}>{filteredApis.map(api => <ApiRow key={api.id} api={api} avgLatency={latencyMap[api.id] ?? null} calling={calling} paymentStep={paymentStep} onUse={handleUseApi} purchased={purchasedApiIds.has(api.id)} onView={handleViewApi} />)}</div>}
+      </section>
+      <aside className={styles.filterRail}><header className={styles.filterHeader}><h2>Filters</h2>{filtersActive && <button onClick={clearFilters} className={styles.clearButton}>Clear all</button>}</header><div className={styles.filterBody}>
+        <div className={styles.filterGroup}><h3>Category</h3><div className={styles.filterOptions}>{categoryTabs.map(category => <button key={category} onClick={() => setSelectedCategory(category)} className={`${styles.filterOption} ${selectedCategory === category ? styles.filterOptionActive : ''}`}><span>{category}</span><span className={styles.filterCount}>{category === 'All' ? allApis.length : category === 'Other' ? allApis.filter(api => api.category && !topSet.has(api.category)).length : categoryCounts.get(category) ?? 0}</span></button>)}</div></div>
+        <div className={styles.filterGroup}><h3>Price range · USDC</h3><div className={styles.rangeFields}><input type="number" min="0" step="0.0001" value={priceMin} onChange={event => setPriceMin(event.target.value)} placeholder="Min" className={styles.rangeInput} /><input type="number" min="0" step="0.0001" value={priceMax} onChange={event => setPriceMax(event.target.value)} placeholder="Max" className={styles.rangeInput} /></div></div>
+        <div className={styles.filterGroup}><h3>Average latency</h3><select value={latencyFilter} onChange={event => setLatencyFilter(event.target.value)} className={styles.filterSelect}><option value="all">Any latency</option><option value="under-100">Under 100ms</option><option value="100-500">100–500ms</option><option value="over-500">Over 500ms</option></select></div>
+        <div className={styles.filterGroup}><h3>AI score</h3><select value={scoreFilter} onChange={event => setScoreFilter(event.target.value)} className={styles.filterSelect}><option value="all">Any score</option><option value="8-plus">8 and above</option><option value="5-to-7">5 to 7</option><option value="under-5">Under 5</option></select></div>
+        <div className={styles.filterGroup}><h3>Auth type</h3><div className={styles.filterOptions}>{(['public', 'apikey', 'bearer', 'queryparam'] as AuthType[]).filter(type => allApis.some(api => api.auth_type === type)).map(type => <label key={type} className={styles.checkboxOption}><input type="checkbox" checked={authFilters.has(type)} onChange={() => toggleAuthFilter(type)} />{type === 'public' ? 'Public' : type}</label>)}</div></div>
+      </div></aside></div>
 
         {/* Request body modal */}
         {requestModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/50" onClick={() => setRequestModal(null)} />
-            <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
-              <div className="px-6 py-4 border-b border-[#2775CA] flex items-center justify-between">
-                <div>
-                  <span className="font-bold text-[#0D0D0D]">Request Body</span>
-                  <span className="ml-3 text-xs bg-[#EBF3FC] text-[#2775CA] border border-[#BFDBFE] px-2 py-0.5 rounded-full font-mono">POST</span>
-                </div>
-                <button onClick={() => setRequestModal(null)} className="text-[#6B7280] hover:text-[#0D0D0D] transition-colors text-xl leading-none">&times;</button>
+          <div className={styles.modalOverlay}>
+            <div className={styles.modalBackdrop} onClick={() => setRequestModal(null)} />
+            <div className={styles.modal}>
+              <div className={styles.modalHeader}>
+                <div><span className={styles.modalTitle}>Request Body</span><span className={styles.methodBadge}>{requestModal.method}</span></div>
+                <button onClick={() => setRequestModal(null)} className={styles.modalClose}>&times;</button>
               </div>
-              <div className="p-6">
-                <p className="text-sm text-[#6B7280] mb-3">Edit the JSON body that will be forwarded to this API. The template below is pre-filled from the listing&apos;s example request.</p>
+              <div className={styles.modalBody}>
+                <p className={styles.modalLead}>Edit the JSON body that will be forwarded to this API. The template below is pre-filled from the listing&apos;s example request.</p>
                 <textarea
                   value={requestBodyText}
                   onChange={e => { setRequestBodyText(e.target.value); setRequestBodyError(null) }}
                   rows={10}
                   maxLength={10000}
-                  className="w-full font-mono text-xs bg-[#0D0D0D] text-[#E2E4E9] rounded-xl p-4 focus:outline-none resize-none"
+                  className={styles.codeArea}
                   spellCheck={false}
                 />
-                <div className="mt-1 flex items-center justify-between">
+                <div className={styles.modalMeta}>
                   <div>
                     {requestBodyError && (
-                      <p className="text-xs text-[#DC2626]">{requestBodyError}</p>
+                      <p className={styles.modalError}>{requestBodyError}</p>
                     )}
                   </div>
-                  <span className={`text-xs ${requestBodyText.length >= 10000 ? 'text-[#DC2626]' : 'text-[#6B7280]'}`}>
+                  <span className={requestBodyText.length >= 10000 ? styles.modalError : undefined}>
                     {requestBodyText.length.toLocaleString()}/10,000 characters
                   </span>
                 </div>
                 <button
                   onClick={() => void handleModalSubmit()}
-                  className="mt-4 w-full bg-[#00B050] hover:bg-[#008F42] text-white py-2.5 rounded-lg text-sm font-medium transition-colors"
+                  className={styles.modalSubmit}
                 >
                   Send Request
                 </button>
@@ -549,45 +562,45 @@ export default function BuyerPage() {
 
     {/* View API modal */}
     {viewApiModal && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-black/50" onClick={() => setViewApiModal(null)} />
-        <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
-          <div className="px-6 py-4 border-b border-[#2775CA] flex items-center justify-between">
-            <span className="font-bold text-[#0D0D0D]">{viewApiModal.apiName}</span>
-            <button onClick={() => setViewApiModal(null)} className="text-[#6B7280] hover:text-[#0D0D0D] transition-colors text-xl leading-none">&times;</button>
+      <div className={styles.modalOverlay}>
+        <div className={styles.modalBackdrop} onClick={() => setViewApiModal(null)} />
+        <div className={styles.modal}>
+          <div className={styles.modalHeader}>
+            <span className={styles.modalTitle}>{viewApiModal.apiName}</span>
+            <button onClick={() => setViewApiModal(null)} className={styles.modalClose}>&times;</button>
           </div>
-          <div className="p-6 space-y-5">
-            <div>
-              <h3 className="text-sm font-medium text-[#0D0D0D] mb-2">Last Response</h3>
+          <div className={styles.modalBody}>
+            <div className={styles.responseSection}>
+              <h3>Last Response</h3>
               {viewApiLoading ? (
-                <p className="text-sm text-[#6B7280]">Loading...</p>
+                <p className={styles.modalLead}>Loading...</p>
               ) : viewApiResponse !== null ? (
-                <pre className="bg-[#F5F5F0] rounded-lg p-4 text-sm text-[#0D0D0D] overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
+                <pre className={styles.responseCode}>
                   {JSON.stringify(viewApiResponse, null, 2)}
                 </pre>
               ) : (
-                <p className="text-sm text-[#6B7280]">No response data available yet.</p>
+                <p className={styles.modalLead}>No response data available yet.</p>
               )}
             </div>
-            <div>
-              <h3 className="text-sm font-medium text-[#0D0D0D] mb-2">Integration Code</h3>
-              <pre className="bg-[#0D0D0D] text-[#E2E4E9] text-xs rounded-xl p-4 overflow-x-auto whitespace-pre leading-relaxed">
+            <div className={styles.responseSection}>
+              <h3>Integration Code</h3>
+              <pre className={styles.snippetCode}>
                 {renderHighlightedSnippet(viewCodeSnippet)}
               </pre>
-              <div className="mt-3 flex gap-2">
+              <div className={styles.modalActions}>
                 <button
                   onClick={() => {
                     void navigator.clipboard.writeText(viewCodeSnippet)
                     setViewApiCopied(true)
                     setTimeout(() => setViewApiCopied(false), 2000)
                   }}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${viewApiCopied ? 'bg-[#F0FDF4] border-[#86EFAC] text-[#16A34A]' : 'bg-white border-[#2775CA] text-[#6B7280] hover:border-[#2775CA] hover:text-[#2775CA]'}`}
+                  className={`${styles.modalAction} ${viewApiCopied ? styles.modalActionCopied : ''}`}
                 >
                   {viewApiCopied ? 'Copied!' : 'Copy to clipboard'}
                 </button>
                 <button
                   onClick={handleNewQuery}
-                  className="flex-1 py-2 rounded-lg text-sm font-medium border border-[#2775CA] text-[#6B7280] hover:border-[#0D0D0D] hover:text-[#0D0D0D] transition-colors"
+                  className={styles.modalAction}
                 >
                   New Query
                 </button>

@@ -1,0 +1,5 @@
+.backButton { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; max-width: 100%; margin-bottom: 18px; padding: 8px 12px; border: 1px solid #d7e3ef; border-radius: 11px; background: #f7faff; color: #334d69; font-size: 13px; font-weight: 700; line-height: 1.25; transition: background-color .18s ease, border-color .18s ease, color .18s ease, transform .18s ease; }
+.backButton:hover { border-color: #b7cce2; background: #edf5ff; color: #1f5fae; transform: translateX(-1px); }
+.backButton:focus-visible { outline: 2px solid #2775ca; outline-offset: 3px; }
+.backButton svg { flex: 0 0 auto; }
+@media (max-width: 480px) { .backButton { white-space: normal; } }

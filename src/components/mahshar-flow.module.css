@@ -1,0 +1,11 @@
+.flowMotif { display: block; overflow: visible; color: var(--flow-tone); pointer-events: none; }
+.flowMotif path { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.flowStrong { stroke-width: 1.45; opacity: .94; }
+.flowMedium { stroke-width: 1.2; opacity: .72; }
+.flowFaint { stroke-width: 1; opacity: .46; }
+.flowNode circle:first-child { fill: currentColor; opacity: .14; }
+.flowNode circle:last-child { fill: currentColor; }
+.flowToneBlue { --flow-tone: #1f5fae; }
+.flowToneGreen { --flow-tone: #167647; }
+.flowTonePink { --flow-tone: #aa455f; }
+.flowTonePurple { --flow-tone: #6543a4; }

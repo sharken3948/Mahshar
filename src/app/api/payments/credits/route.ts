@@ -1,3 +1,5 @@
+import { withOperationAuthorization } from '@/lib/marketplace/server'
+import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { isValidWalletAddress } from '@/lib/wallet-validation';
@@ -5,26 +7,23 @@ import type { CreditBalance } from '@/types';
 
 export const runtime = 'nodejs';
 
-export async function GET(request: NextRequest) {
+export const GET = withOperationAuthorization(async (request: NextRequest, wallet: string) => {
   const { searchParams } = new URL(request.url);
-  const wallet = searchParams.get('wallet');
-  if (!wallet) return NextResponse.json({ error: 'wallet is required' }, { status: 400 });
-  if (!isValidWalletAddress(wallet)) return NextResponse.json({ error: 'Invalid wallet address' }, { status: 400 });
-
-  const normalizedWallet = wallet.toLowerCase();
+  assertWalletClaim(searchParams.get('wallet'), wallet)
+  const walletKey = wallet.toLowerCase();
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from('credit_balances')
     .select('*')
-    .eq('buyer_wallet', normalizedWallet)
+    .eq('buyer_wallet', walletKey)
     .single<CreditBalance>();
 
   if (error && error.code === 'PGRST116') {
-    return NextResponse.json({ balance_usdc: 0, buyer_wallet: normalizedWallet });
+    return NextResponse.json({ balance_usdc: 0, buyer_wallet: walletKey });
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
-}
+})
 
 export async function POST(request: NextRequest) {
   const secret = request.headers.get('x-internal-secret');
@@ -52,13 +51,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'amount_usdc must be a positive number' }, { status: 400 });
   }
 
-  const normalizedWallet = buyer_wallet.toLowerCase();
+  const normalizedBuyerWallet = buyer_wallet.toLowerCase();
   const supabase = createServiceClient();
 
   if (action === 'deduct') {
     // C1: single atomic UPDATE — prevents race condition / double-spend
     const { data: rpcResult, error: rpcError } = await supabase.rpc('deduct_credits_atomic', {
-      p_wallet: normalizedWallet,
+      p_wallet: normalizedBuyerWallet,
       p_amount: amount_usdc,
     });
     if (rpcError) return NextResponse.json({ error: rpcError.message }, { status: 500 });
@@ -70,7 +69,7 @@ export async function POST(request: NextRequest) {
 
     if (api_id) {
       const { error: insertError } = await supabase.from('purchases').insert({
-        buyer_wallet: normalizedWallet,
+        buyer_wallet: normalizedBuyerWallet,
         api_id,
         amount_usdc,
         tx_hash: tx_hash ?? `credit-${Date.now()}`,
@@ -85,12 +84,12 @@ export async function POST(request: NextRequest) {
   const { data: existing } = await supabase
     .from('credit_balances')
     .select('balance_usdc')
-    .eq('buyer_wallet', normalizedWallet)
+    .eq('buyer_wallet', normalizedBuyerWallet)
     .single<CreditBalance>();
 
   const newBalance = (existing?.balance_usdc ?? 0) + amount_usdc;
   const { error: topupError } = await supabase.from('credit_balances').upsert({
-    buyer_wallet: normalizedWallet,
+    buyer_wallet: normalizedBuyerWallet,
     balance_usdc: newBalance,
     updated_at: new Date().toISOString(),
   });

@@ -1,37 +1,20 @@
+import { withOperationAuthorization, requireListingOwner } from '@/lib/marketplace/server'
+import { matchListingConfiguration } from '@/lib/marketplace/listing-security'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { decryptKey } from '@/lib/crypto'
 import { validateEndpointUrl } from '@/lib/url-validation'
-import type { AuthType } from '@/types'
+import { safeOutboundFetch } from '@/lib/outbound-fetch'
 
 export const runtime = 'nodejs'
 
-interface ListingRow {
-  endpoint_url: string
-  auth_type: AuthType
-  encrypted_key: string | null
-  price_per_call: number
-  example_request: string | null
-  example_response: string | null
-  verified_at: string | null
-}
-
-export async function POST(
-  _request: NextRequest,
+export const POST = withOperationAuthorization(async (
+  request: NextRequest, wallet: string,
   { params }: { params: Promise<{ id: string }> },
-) {
+) => {
   const { id } = await params
   const supabase = createServiceClient()
-
-  const { data: listing, error } = await supabase
-    .from('api_listings')
-    .select('endpoint_url, auth_type, encrypted_key, price_per_call, example_request, example_response, verified_at')
-    .eq('id', id)
-    .single<ListingRow>()
-
-  if (error || !listing) {
-    return NextResponse.json({ error: 'Listing not found' }, { status: 404 })
-  }
+  const listing = await requireListingOwner(supabase, id, wallet)
 
   if (listing.verified_at) {
     return NextResponse.json({ already_verified: true, success: true })
@@ -51,33 +34,38 @@ export async function POST(
     }
   }
 
-  const headers: Record<string, string> = {}
-  if (listing.auth_type === 'apikey' && authKey) {
-    headers['x-api-key'] = authKey
-  } else if (listing.auth_type === 'bearer' && authKey) {
-    headers['Authorization'] = `Bearer ${authKey}`
-  }
-
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), 5000)
   const startTime = Date.now()
 
   try {
-    const response = await fetch(listing.endpoint_url, {
-      method: 'GET',
-      headers,
-      redirect: 'manual',
-      signal: controller.signal,
-    })
+    const target = new URL(listing.endpoint_url)
+    const method = listing.method ?? 'GET'
+    const response = await safeOutboundFetch(target.toString(), () => {
+      const requestUrl = new URL(target)
+      if (listing.auth_type === 'queryparam' && listing.auth_param_name && authKey) requestUrl.searchParams.set(listing.auth_param_name, authKey)
+      const requestHeaders: Record<string, string> = { 'content-type': 'application/json' }
+      if (listing.auth_type === 'apikey' && authKey) requestHeaders['x-api-key'] = authKey
+      else if (listing.auth_type === 'bearer' && authKey) requestHeaders.Authorization = `Bearer ${authKey}`
+      return { url: requestUrl, outboundInit: {
+        method,
+        body: method !== 'GET' && listing.example_request ? listing.example_request : undefined,
+        headers: requestHeaders,
+        redirect: 'manual',
+        signal: controller.signal,
+      } }
+    }, { timeoutMs: 5000 })
 
     clearTimeout(timeoutId)
     const latency_ms = Date.now() - startTime
 
+    await response.body?.cancel().catch(() => undefined)
     if (response.ok) {
-      await supabase
-        .from('api_listings')
-        .update({ verified_at: new Date().toISOString() })
-        .eq('id', id)
+      const { data, error } = await matchListingConfiguration(supabase
+        .from('api_listings').update({ verified_at: new Date().toISOString() })
+        .eq('id', id).ilike('seller_wallet', wallet), listing).select('id')
+      if (error) return NextResponse.json({ error: 'Verification persistence failed' }, { status: 500 })
+      if (!data?.length) return NextResponse.json({ error: 'Listing changed during verification; retry' }, { status: 409 })
 
       return NextResponse.json({ success: true, verified: true, latency_ms })
     }
@@ -95,4 +83,4 @@ export async function POST(
       verified: false,
     })
   }
-}
+})

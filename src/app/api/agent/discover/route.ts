@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { agentExecutionContract } from '@/lib/marketplace/agent-contract'
+import { enforceRateLimit } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs'
 
@@ -11,31 +13,52 @@ interface ListingRow {
   price_per_call: number
   payment_model: string
   auth_type: string
-  endpoint_url: string
+  method: string
   example_request: string | null
   example_response: string | null
   score: number | null
   verified_at: string | null
   created_at: string
+  request_schema: Record<string, unknown> | null
+  response_schema: Record<string, unknown> | null
+  body_required: boolean | null
+  dynamic_path_supported: boolean
+  path_parameters: unknown[] | null
+  query_parameters: unknown[] | null
 }
 
 interface CallStatsRow {
   api_id: string
-  latency_ms: number
-  success: boolean
+  total_calls: number
+  successful_calls: number
+  avg_latency_ms: number | null
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const limited = await enforceRateLimit({ request, scope: 'agent-discover', limit: 120, windowSeconds: 60 })
+    if (limited) return limited
     const supabase = createServiceClient()
 
-    // TODO: add pagination if the marketplace grows beyond 50 listings
+    const url = new URL(request.url)
+    const publicOrigin = url.origin
+    const paymentRecipient = process.env.PLATFORM_WALLET_ADDRESS
+    if (!paymentRecipient || !/^0x[\da-f]{40}$/i.test(paymentRecipient)) {
+      return NextResponse.json({ error: 'payment_configuration_unavailable' }, { status: 503 })
+    }
+    const requestedLimit = Number(url.searchParams.get('limit') ?? 50)
+    const requestedOffset = Number(url.searchParams.get('offset') ?? 0)
+    if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 100 ||
+      !Number.isInteger(requestedOffset) || requestedOffset < 0 || requestedOffset > 10000) {
+      return NextResponse.json({ error: 'invalid_pagination' }, { status: 400 })
+    }
+
     const { data: listings, error: listingsError } = await supabase
       .from('api_listings')
-      .select('id, name, description, category, price_per_call, payment_model, auth_type, endpoint_url, example_request, example_response, score, verified_at, created_at')
+      .select('id, name, description, category, price_per_call, payment_model, auth_type, method, example_request, example_response, score, verified_at, created_at, request_schema, response_schema, body_required, dynamic_path_supported, path_parameters, query_parameters')
       .eq('is_active', true)
       .order('created_at', { ascending: false })
-      .limit(50)
+      .range(requestedOffset, requestedOffset + requestedLimit - 1)
 
     if (listingsError) {
       console.error('[discover] listings error:', listingsError.message)
@@ -48,9 +71,7 @@ export async function GET() {
     if (rows.length > 0) {
       const apiIds = rows.map(r => r.id)
       const { data: calls, error: callsError } = await supabase
-        .from('api_calls')
-        .select('api_id, latency_ms, success')
-        .in('api_id', apiIds)
+        .rpc('mahshar_agent_listing_stats', { p_api_ids: apiIds })
 
       if (callsError) {
         console.error('[discover] calls error:', callsError.message)
@@ -59,20 +80,21 @@ export async function GET() {
       }
     }
 
-    const statsMap = new Map<string, { total: number; successes: number; totalLatency: number }>()
+    const statsMap = new Map<string, { total: number; successes: number; avgLatency: number | null }>()
     for (const c of callStats) {
-      if (!statsMap.has(c.api_id)) statsMap.set(c.api_id, { total: 0, successes: 0, totalLatency: 0 })
-      const s = statsMap.get(c.api_id)!
-      s.total++
-      if (c.success) s.successes++
-      s.totalLatency += c.latency_ms
+      statsMap.set(c.api_id, {
+        total: Number(c.total_calls),
+        successes: Number(c.successful_calls),
+        avgLatency: c.avg_latency_ms === null ? null : Number(c.avg_latency_ms),
+      })
     }
 
     const apis = rows.map(r => {
+      const execution = agentExecutionContract(r, publicOrigin)
       const s = statsMap.get(r.id)
       const total_calls = s?.total ?? 0
       const success_rate = total_calls > 0 ? Math.round((s!.successes / total_calls) * 100) / 100 : null
-      const avg_latency_ms = total_calls > 0 ? Math.round(s!.totalLatency / total_calls) : null
+      const avg_latency_ms = total_calls > 0 && s?.avgLatency !== null ? Math.round(s!.avgLatency!) : null
 
       let example_response: unknown = null
       if (r.example_response) {
@@ -89,37 +111,29 @@ export async function GET() {
         description: r.description,
         category: r.category,
         price_per_call_usdc: r.price_per_call,
-        payment_model: r.payment_model,
+        payment_model: 'x402-pay-per-call',
+        auth: { type: r.auth_type, injected_by: 'mahshar', seller_credentials_exposed: false },
         auth_type: r.auth_type,
+        method: execution.method,
         score: r.score,
         verified: r.verified_at !== null,
-        example_request: r.example_request,
+        example_request: execution.request.body.example,
         example_response,
         total_calls,
         success_rate,
         avg_latency_ms,
-        proxy_url: `https://mahshar.xyz/api/proxy/${r.id}`,
+        proxy_url: execution.proxy_url,
+        proxy_style: execution.proxy_style,
+        request: execution.request,
+        response: execution.response,
       }
     })
 
     return NextResponse.json({
       marketplace: 'Mahshar',
-      description: 'AI-powered API marketplace with USDC nanopayments via x402 on Arc Testnet and Arc Mainnet',
-      network: 'eip155:5042002',
+      description: 'AI-powered API marketplace with USDC nanopayments via x402 on Arc Mainnet',
+      network: 'eip155:5042',
       networks: [
-        {
-          network: 'eip155:5042002',
-          label: 'Arc Testnet',
-          chainId: 5042002,
-          usdc_asset: '0x3600000000000000000000000000000000000000',
-          payment_domain: {
-            name: 'GatewayWalletBatched',
-            version: '1',
-            chainId: 5042002,
-            verifyingContract: '0x0077777d7EBA4688BDeF3E311b846F25870A19B9',
-          },
-          gateway_api: 'https://gateway-api-testnet.circle.com',
-        },
         {
           network: 'eip155:5042',
           label: 'Arc Mainnet',
@@ -134,20 +148,23 @@ export async function GET() {
           gateway_api: 'https://gateway-api.circle.com',
         },
       ],
-      network_note: 'Every 402 response `accepts` array offers BOTH networks above. Pick the entry that matches the chain your Circle Gateway balance is on; sign against that entry\'s payment_domain. The scalar `network`, `payment_domain`, and `usdc_asset` fields on this response describe Arc Testnet only and remain for backward compatibility.',
+      network_note: 'All payment requirements and domains target Arc Mainnet only.',
       payment_protocol: 'x402',
-      prerequisite: 'USDC must be pre-deposited into the Circle Gateway (https://gateway-api-testnet.circle.com) before making payments. A raw EOA USDC balance on Arc testnet is not accepted — the facilitator checks Circle Gateway balance, not the token contract. Use the Circle CLI (`circle gateway deposit`) or the cross-chain bridge flow on the Mahshar buyer dashboard to fund your Gateway balance.',
+      payment_recipient: paymentRecipient,
+      contract_version: '2.1',
+      openapi_url: `${publicOrigin}/api/openapi`,
+      prerequisite: 'USDC must be pre-deposited into the Circle Gateway for the selected network before making payments. A raw EOA USDC balance is not accepted — the facilitator checks Circle Gateway balance, not the token contract. Use the matching entry in `networks` for the Gateway API and payment domain; production agents should select Arc Mainnet (`eip155:5042`).',
       payment_domain: {
         name: 'GatewayWalletBatched',
         version: '1',
-        chainId: 5042002,
-        verifyingContract: '0x0077777d7EBA4688BDeF3E311b846F25870A19B9',
+        chainId: 5042,
+        verifyingContract: '0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE',
       },
       proxy_urls: {
-        envelope: 'https://mahshar.xyz/api/proxy',
+        envelope: `${publicOrigin}/api/proxy`,
         envelope_note: 'POST body carries {api_id, buyer_wallet, method?, path?, body?}. The inner `body` is forwarded upstream. Used by the browser client.',
-        path_template: 'https://mahshar.xyz/api/proxy/{api_id}',
-        path_note: 'POST or GET. The entire request body is forwarded to the seller\'s endpoint as-is (no envelope). Buyer identity is the settled payment signer. This is the format Circle Agent Stack\'s `circle_pay_service` tool speaks natively.',
+        path_template: `${publicOrigin}/api/proxy/{api_id}`,
+        path_note: 'GET and POST listings only, using the same HTTP method configured by the listing. A method mismatch returns 405. POST JSON is parsed and re-serialized before forwarding. Buyer identity is the settled payment signer.',
         circle_agent_stack_compatible: true,
       },
       eip712_types: {
@@ -168,7 +185,7 @@ export async function GET() {
         validAfter: 'Unix timestamp (seconds) before which the authorization is not valid. Recommended: Math.floor(Date.now() / 1000) - 600 to allow 10 minutes of clock-skew grace.',
         validBefore: 'Unix timestamp (seconds) after which the authorization expires. Recommended: Math.floor(Date.now() / 1000) + 604900 (~7 days). Must be passed as BigInt in the EIP-712 message.',
       },
-      how_to_pay: 'Step 1: POST to /api/proxy/{api_id} (path route, recommended) with the upstream API\'s body as-is, no Payment-Signature header. Or use POST /api/proxy with an envelope body {api_id, buyer_wallet, body}. Step 2: You will receive a 402 with a base64-encoded PAYMENT-REQUIRED header. Decode it (base64 → JSON) — `accepts` is an ARRAY offering both Arc Testnet (eip155:5042002) and Arc Mainnet (eip155:5042). Pick the entry that matches the chain your Circle Gateway balance is on. Step 3: Construct a TransferWithAuthorization EIP-712 message using the picked entry\'s `extra.verifyingContract` and its `network`\'s chainId (see `networks` on this response), eip712_types, and the values from the picked entry (amount, payTo, asset). Sign it with signTypedData (EIP-712). Step 4: Build the payment payload per payment_signature_schema and base64-encode it. Step 5: Retry the identical request (URL + body) with a Payment-Signature header set to that base64 string.',
+      how_to_pay: 'Use the selected listing\'s proxy_url, proxy_style, request.outer_method, and request body contract. Probe without Payment-Signature; decode the base64 x402 v2 PAYMENT-REQUIRED header and choose eip155:5042. Sign TransferWithAuthorization using the advertised amount, payTo, asset and EIP-712 domain. Retry the byte-identical URL/body with Payment-Signature. A settled response includes standard PAYMENT-RESPONSE metadata plus payment, delivery_state, attemptId, and purchase_access_token in the JSON wrapper.',
       payment_signature_schema: {
         note: 'Construct this object, JSON.stringify it, base64-encode the result, and send as the Payment-Signature request header.',
         shape: {
@@ -189,13 +206,43 @@ export async function GET() {
         },
       },
       examples: {
-        curl_probe_402: 'curl -s -i -X POST https://mahshar.xyz/api/proxy/34c7a931-81de-4b8b-81ac-0916b4316989 -H \'content-type: application/json\' -d \'{"address":"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045","chain":"arc"}\'',
-        curl_decode_accepts: 'curl -s -X POST https://mahshar.xyz/api/proxy/34c7a931-81de-4b8b-81ac-0916b4316989 -H \'content-type: application/json\' -d \'{"address":"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045","chain":"arc"}\' -D - -o /dev/null | awk \'BEGIN{IGNORECASE=1} /^payment-required:/{sub(/^[^:]+: /, ""); print}\' | tr -d \'\\r\' | base64 -d | jq .',
-        note: 'Both examples target the ioscope listing. First returns HTTP 402 with the PAYMENT-REQUIRED header; second decodes the header to show the multi-chain accepts array.',
+        path_probe_template: 'curl -i -X <listing.method> <listing.proxy_url>',
+        envelope_probe_template: `curl -i -X POST ${publicOrigin}/api/proxy -H 'content-type: application/json' -d '{"api_id":"<listing.id>","buyer_wallet":"0x<buyer>","method":"<listing.method>","body":{}}'`,
+        note: 'Fill templates only from the selected listing metadata. Do not copy a hardcoded listing ID or method.',
+      },
+      settlement_response: {
+        header: 'PAYMENT-RESPONSE',
+        encoding: 'base64 JSON',
+        schema: { success: true, payer: '<verified payer>', transaction: '<Circle settlement identity or empty string>', network: 'eip155:5042', amount: '<atomic USDC>' },
+      },
+      recovery: {
+        delivery_states: ['NOT_STARTED', 'IN_PROGRESS', 'SUCCEEDED', 'FAILED_RETRYABLE', 'FAILED_FINAL', 'UNKNOWN'],
+        safe_retry: 'Replay the exact same Payment-Signature and request only when retryable is true. Mahshar never settles that authorization twice.',
+        succeeded_replay: 'Returns delivery_state=SUCCEEDED and retrieve_response=/api/calls/last-response without executing upstream again.',
+        purchase_access: { response_field: 'purchase_access_token', retrieval_header: 'x-mahshar-purchase-access', retrieval_route: '/api/calls/last-response' },
+        legacy_purchase_access: 'A one-use x-mahshar-authorization wallet proof may exchange a historical owned purchase for a purchase capability.',
+        accounting_reconcile: { route: '/api/payments/reconcile', authorization: 'one-use x-mahshar-authorization', note: 'Finalizes durable accounting only; never resettles or executes upstream.' },
+      },
+      rate_limits: {
+        discovery: { limit: 120, window_seconds: 60 },
+        ai_match: { limit: 20, window_seconds: 60 },
+        unpaid_probe_per_api: { limit: 120, window_seconds: 60 },
+        payment_verification_per_api: { limit: 60, window_seconds: 60 },
+        response: { status: 429, error: 'rate_limited', header: 'Retry-After' },
+      },
+      pagination: {
+        limit: requestedLimit,
+        offset: requestedOffset,
+        returned: apis.length,
+        next_offset: apis.length === requestedLimit ? requestedOffset + requestedLimit : null,
       },
       error_responses: {
         '402_no_payment': 'No Payment-Signature header was sent — the PAYMENT-REQUIRED response header contains base64-encoded payment instructions. This 402 has an empty JSON body {}.',
-        '402_payment_failed': 'A Payment-Signature header was present but verification or settlement failed — check the JSON error field in the body. Common causes: invalid signature, wrong amount, reused nonce, insufficient Circle Gateway balance, or `duplicate_payment` if the tx_hash is a replay of a previously settled payment.',
+        '402_payment_failed': 'Payment verification failed before settlement. Use the machine-readable error field.',
+        '409_delivery': 'Payment may already be accounted. Inspect delivery_state and retryable; never authorize a second payment for the same attempt.',
+        '429': 'Rate limit exceeded. Honor Retry-After and retry_after_seconds.',
+        '502': 'Upstream unreachable, response interrupted/oversized, or redirect rejected. Inspect delivery_state; only FAILED_RETRYABLE is safe to replay.',
+        '503': 'Payment, accounting, delivery-state, or rate-limit persistence is unavailable.',
         '404': 'API not found or inactive',
         '403': 'API is not active',
         '500': 'Internal processing error',

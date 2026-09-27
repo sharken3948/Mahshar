@@ -1,0 +1,6 @@
+.page {
+  min-height: 100vh;
+  overflow-x: clip;
+  background: #f9fbff;
+  color: #07183f;
+}

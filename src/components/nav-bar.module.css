@@ -1,0 +1,213 @@
+.landingNav,
+.dashboardNav,
+.appNav {
+  z-index: 50;
+  width: 100%;
+  border-bottom: 1px solid #e3ebf6;
+  background: rgba(250, 252, 255, .92);
+  box-shadow: 0 3px 15px rgba(54, 91, 140, .025);
+  backdrop-filter: blur(18px);
+}
+
+.landingNav { position: absolute; top: 0; left: 0; height: 87px; }
+.dashboardNav { position: relative; }
+.appNav { position: fixed; top: 0; left: 0; }
+
+.landingNavInner,
+.dashboardNavInner,
+.appNavInner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 0 auto;
+}
+
+.landingNavInner { width: calc(100% - 124px); max-width: 1560px; height: 100%; }
+.dashboardNavInner { width: 100%; }
+.appNavInner { width: calc(100% - 48px); max-width: 1720px; min-height: 76px; padding-block: 12px; }
+
+.landingNavLeft,
+.landingNavRight {
+  display: flex;
+  align-items: center;
+}
+
+.landingNavLeft { gap: 16px; }
+.landingNav .landingNavLeft > :first-child { margin-right: 20px; }
+.landingNavRight { gap: 14px; }
+.appNavRight { display: flex; align-items: center; justify-content: flex-end; gap: 14px; min-width: 0; }
+
+.dashboardLink,
+.exploreButton,
+.walletButton,
+.balancePill,
+.networkPill {
+  min-height: 46px;
+  border-radius: 13px;
+  white-space: nowrap;
+}
+
+.dashboardLink {
+  display: inline-flex;
+  min-width: 151px;
+  align-items: center;
+  justify-content: center;
+  gap: 13px;
+  background: linear-gradient(135deg, #0aae74, #06a66c);
+  box-shadow: 0 10px 24px rgba(4, 168, 108, .16);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 650;
+  text-decoration: none;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+
+.dashboardLink:hover { transform: translateY(-1px); box-shadow: 0 13px 27px rgba(4, 168, 108, .22); }
+.dashboardLink svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.primaryLabel { overflow: hidden; text-overflow: ellipsis; }
+
+.exploreGroup { position: relative; }
+
+.exploreButton {
+  display: inline-flex;
+  min-width: 120px;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 1px solid #d9e4f3;
+  background: linear-gradient(145deg, #f1f6ff, #e6effb);
+  color: #091a42;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 570;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8);
+}
+
+.exploreButton svg,
+.walletButton > svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+
+.exploreMenu {
+  position: absolute;
+  top: 50px;
+  left: 0;
+  display: grid;
+  width: 249px;
+  gap: 3px;
+  border: 1px solid rgba(229, 236, 246, .92);
+  border-radius: 17px;
+  padding: 10px 11px;
+  background: rgba(255, 255, 255, .95);
+  box-shadow: 0 18px 45px rgba(51, 83, 126, .12);
+  backdrop-filter: blur(20px);
+}
+
+.exploreItem {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border-radius: 12px;
+  padding: 8px 10px;
+  color: #091a42;
+  text-decoration: none;
+  transition: background .16s ease;
+}
+
+.exploreItem:hover,
+.exploreItem:focus-visible { background: #f2f7ff; outline: none; }
+.exploreIcon { display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; border-radius: 50%; background: #f6f9ff; color: #0870ef; }
+.exploreIcon svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.exploreItem > span:last-child { display: grid; gap: 1px; }
+.exploreItem strong { font-size: 15px; font-weight: 650; line-height: 1.25; }
+.exploreItem small { color: #536e9d; font-size: 14px; line-height: 1.25; }
+
+.balancePill,
+.networkPill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(232, 238, 247, .86);
+  background: rgba(255, 255, 255, .74);
+  box-shadow: 0 7px 20px rgba(48, 85, 132, .045);
+}
+
+.balancePill { gap: 4px; padding: 0 15px; color: #48618e; font-size: 13px; }
+.balancePill strong { color: #0767e9; font-size: 14px; font-weight: 700; }
+.networkPill { gap: 11px; min-width: 155px; padding: 0 16px; color: #0a1a42; font-size: 14px; font-weight: 610; }
+.networkPill i { position: relative; width: 10px; height: 10px; flex: 0 0 10px; border-radius: 50%; background: #0ab176; box-shadow: 0 0 0 4px rgba(10, 177, 118, .08); }
+.networkPill i::after { position: absolute; inset: -4px; border: 1px solid rgba(10, 177, 118, .3); border-radius: inherit; content: ''; animation: statusBreath 2.8s ease-in-out infinite; }
+
+@keyframes statusBreath {
+  0%, 100% { opacity: .28; transform: scale(.78); }
+  50% { opacity: .7; transform: scale(1.12); }
+}
+
+.walletButton {
+  display: inline-flex;
+  min-width: 178px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px solid rgba(231, 237, 247, .9);
+  padding: 0 13px;
+  background: rgba(255, 255, 255, .82);
+  box-shadow: 0 7px 20px rgba(48, 85, 132, .05);
+  color: #0a1a42;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.walletButton:disabled { cursor: wait; opacity: .5; }
+.wrongNetwork { color: #b43838; }
+.walletAvatar { display: grid; width: 28px; height: 28px; flex: 0 0 28px; overflow: hidden; place-items: center; border-radius: 50%; }
+.walletAvatar img { width: 100%; height: 100%; object-fit: cover; }
+.walletMark { width: 14px; height: 14px; flex: 0 0 14px; border: 4px solid #0870ef; border-radius: 50%; box-shadow: inset 0 0 0 2px #09ad74; }
+.walletAddress { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+.dashboardLink:focus-visible,
+.exploreButton:focus-visible,
+.walletButton:focus-visible { outline: 3px solid rgba(8, 103, 237, .3); outline-offset: 3px; }
+
+@media (max-width: 1280px) {
+  .landingNavInner, .appNavInner { width: calc(100% - 80px); }
+  .landingNavLeft { gap: 10px; }
+  .landingNav .landingNavLeft > :first-child { margin-right: 8px; }
+  .dashboardLink { min-width: 132px; }
+  .balancePill span { display: none; }
+  .networkPill { min-width: 136px; }
+  .walletButton { min-width: 150px; }
+}
+
+@media (max-width: 1050px) {
+  .landingNav { height: 76px; }
+  .landingNavInner, .appNavInner { width: calc(100% - 40px); }
+  .dashboardLink { min-width: 116px; min-height: 42px; gap: 8px; font-size: 14px; }
+  .landingNav .landingNavLeft > :first-child { margin-right: 0; }
+  .exploreMenu { top: 48px; }
+  .balancePill { display: none; }
+}
+
+@media (max-width: 800px) {
+  .landingNav, .dashboardNav, .appNav { min-height: 96px; height: auto; }
+  .landingNavInner, .dashboardNavInner, .appNavInner { width: calc(100% - 32px); min-height: 96px; flex-wrap: wrap; align-content: center; gap: 6px 10px; padding-block: 8px; }
+  .landingNavLeft { flex: 1 1 auto; min-width: 0; }
+  .landingNavRight, .appNavRight { width: 100%; justify-content: flex-end; gap: 10px; }
+  .dashboardLink, .exploreButton { min-width: 40px; width: 40px; min-height: 40px; }
+  .dashboardLink { gap: 0; }
+  .primaryLabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .exploreButton { font-size: 0; gap: 0; }
+  .networkPill { min-width: 119px; min-height: 40px; padding-inline: 12px; }
+  .walletButton { min-width: 0; max-width: 142px; padding-inline: 12px; overflow: hidden; text-overflow: ellipsis; }
+}
+
+@media (max-width: 430px) {
+  .landingNavInner, .dashboardNavInner, .appNavInner { width: calc(100% - 24px); }
+  .walletButton { max-width: 126px; font-size: 13px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .networkPill i::after { animation: none; opacity: .42; transform: none; }
+}
