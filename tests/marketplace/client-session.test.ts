@@ -20,12 +20,15 @@ test('wallet authorization client has no session, cookie, consent, or retry stat
   assert.match(source, /Wallet changed/)
   assert.doesNotMatch(source, /cookie|session|consent|challenge|logout|retry|signMessage/)
 })
-test('read-only dashboard refresh never invokes wallet authorization', () => {
+test('dashboard private accounting refreshes require wallet authorization', () => {
   const source = readFileSync('src/app/dashboard/dashboard-workspace.tsx', 'utf8')
   const reads = source.slice(source.indexOf('const fetchReadOnlySellerStatistics'), source.indexOf('async function beginEditApi'))
   assert.match(reads, /fetchReadOnlySellerStatistics/)
   assert.match(source, /useVisibilityRefresh\(refreshMarketplaceData/)
-  assert.doesNotMatch(reads, /authorizedFetch\(/)
+  assert.match(source, /authorizedFetch\(`\/api\/seller\/statistics\/\$\{encodeURIComponent\(address\)\}`/)
+  assert.match(reads, /authorizedFetch\(`\/api\/calls\?buyer_wallet=/)
+  assert.match(reads, /authorizedFetch\(`\/api\/seller\/calls\?seller_wallet=/)
+  assert.match(source, /authorizedFetch\(`\/api\/gateway\/balance\?wallet=/)
   const ownerEdit = source.slice(source.indexOf('async function beginEditApi'), source.indexOf('async function handleDeposit'))
   assert.match(ownerEdit, /authorizedFetch\(`\/api\/apis\/\$\{encodeURIComponent\(apiId\)\}`\)/)
 })
@@ -40,7 +43,7 @@ test('purchased-response views prefer a purchase capability over wallet authoriz
 })
 test('legacy purchases remain visible in both buyer View API surfaces', () => {
   const buyer = readFileSync('src/app/buyer/page.tsx', 'utf8')
-  assert.match(buyer, /coalescedJsonGet[^\n]+`\/api\/calls\?buyer_wallet=\$\{address\.toLowerCase\(\)\}`/)
+  assert.match(buyer, /protectedFetch\(`\/api\/calls\?buyer_wallet=\$\{address\.toLowerCase\(\)\}`\)/)
   assert.match(buyer, /setPurchasedApiIds\(new Set\(data\.calls\?\.map\(call => call\.api_id\)/)
   assert.match(buyer, /purchased=\{purchasedApiIds\.has\(api\.id\)\}/)
 
@@ -153,9 +156,10 @@ test('identical initial reads coalesce only while in flight', async () => {
   assert.equal(requests, 2)
 })
 
-test('buyer initial datasets use in-flight read coalescing', () => {
+test('buyer public datasets coalesce while private purchase history uses wallet proof', () => {
   const source = readFileSync('src/app/buyer/page.tsx', 'utf8')
   assert.match(source, /coalescedJsonGet[^\n]+\('\/api\/apis'\)/)
   assert.match(source, /coalescedJsonGet[^\n]+\('\/api\/apis\/latency'\)/)
-  assert.match(source, /coalescedJsonGet[^\n]+`\/api\/calls\?buyer_wallet=/)
+  assert.match(source, /protectedFetch\(`\/api\/calls\?buyer_wallet=/)
+  assert.doesNotMatch(source, /coalescedJsonGet[^\n]+`\/api\/calls\?buyer_wallet=/)
 })

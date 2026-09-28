@@ -154,14 +154,15 @@ export default function BuyerPage() {
     setViewApiModal(null)
     if (!address) return
     let cancelled = false
-    coalescedJsonGet<{ calls?: Array<{ api_id: string }> }>(`/api/calls?buyer_wallet=${address.toLowerCase()}`)
-      .then(({ ok, data }) => {
-        if (!ok) throw new Error('Purchase history unavailable')
+    protectedFetch(`/api/calls?buyer_wallet=${address.toLowerCase()}`)
+      .then(async response => {
+        const data = await response.json() as { calls?: Array<{ api_id: string }> }
+        if (!response.ok) throw new Error('Purchase history unavailable')
         if (!cancelled) setPurchasedApiIds(new Set(data.calls?.map(call => call.api_id) ?? []))
       })
       .catch(() => {})
     return () => { cancelled = true }
-  }, [address])
+  }, [address, protectedFetch])
 
   const topCategories = useMemo(() => {
     const counts = new Map<string, number>()

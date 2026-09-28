@@ -24,5 +24,6 @@ Module._load=function(id,parent,main){
  if(id==='../dashboard-visuals')return {DashboardCardHeader:({title})=>React.createElement('h2',null,title),DashboardIcon:()=>null}
  if(id==='../dashboard-workspace')return {MIN_WITHDRAW_USDC:1,useDashboardWorkspace:()=>world}
  if(id==='@/components/ProductPreferencesProvider')return {useProductPreferences:()=>({formatUsdc:value=>Number(value).toFixed(4)})}
+ if(id==='@/hooks/useWalletAuthorization')return {useWalletAuthorization:()=>({request:async()=>Response.json({withdrawals:[]})})}
  return load.call(this,id,parent,main)
 }

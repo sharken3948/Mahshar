@@ -27,6 +27,7 @@ function slot(initial) { const i=state.cursor++; if(!(i in state.slots)) state.s
 function ref(initial) { return slot({current:initial})[0] }
 function memo(fn,deps) {const i=state.cursor++;const old=state.slots[i];if(!old||deps.some((v,j)=>v!==old.deps[j]))state.slots[i]={value:fn(),deps};return state.slots[i].value}
 const forbidden = async()=>{ state.writes++;throw Error('Wallet operation forbidden during dashboard reads') }
+const authorizedRead = async(input,init)=>{ state.signatures++; return globalThis.fetch(input,init) }
 const walletAction = async value => { state.writes++; if(!state.allowWalletActions)throw Error('Wallet operation forbidden during dashboard reads');return value }
 const solanaWalletAction = async()=>{state.solanaWalletActions++;return forbidden()}
 globalThis.fetch=async(input)=>{
@@ -51,7 +52,7 @@ globalThis.document={visibilityState:'visible',addEventListener:(name,fn)=>{if(n
 Module._load=function(id,parent,main){
  if(id==='react/jsx-runtime')return {jsx:(type,props,key)=>({type,props,key}),jsxs:(type,props,key)=>({type,props,key})}
  if(id==='react')return {createContext:()=>({Provider:()=>null}),useContext:()=>null,useState:slot,useRef:ref,useMemo:memo,useCallback:(fn,deps)=>memo(()=>fn,deps),useEffect:(fn,deps)=>{memo(()=>{state.effects.push(fn)},deps)}}
- if(id==='@/hooks/useWalletAuthorization')return {useWalletAuthorization:()=>({request:forbidden})}
+ if(id==='@/hooks/useWalletAuthorization')return {useWalletAuthorization:()=>({request:authorizedRead})}
  if(id==='@/components/ProductPreferencesProvider')return {useProductPreferences:()=>({preferences:{autoRefreshBalances:true,notifications:{sellerSale:false,withdrawalCompleted:false}},formatUsdc:value=>String(value)}),sendLocalNotification:()=>{}}
  if(id==='wagmi')return {useAccount:()=>({address:state.address,isConnected:!!state.address,connector:{id:'fixture',getProvider:async()=>({request:async({method})=>{state.evmProviderRequests.push(method);return method==='eth_accounts'?[state.address]:null}})}}),useWriteContract:()=>({writeContractAsync:()=>walletAction('0x'+'ab'.repeat(32))}),useSwitchChain:()=>({switchChainAsync:({chainId})=>{state.evmSwitches.push(chainId);return walletAction(undefined)}}),useSignMessage:()=>({signMessageAsync:()=>walletAction('0x'+'cd'.repeat(65))}),usePublicClient:()=>({readContract:async()=>BigInt(10000000),waitForTransactionReceipt:async()=>({status:'success'})}),useBlockNumber:()=>({data:100n}),useReadContract:p=>({data:p.functionName==='balanceOf'?2500000n:0n,refetch:async()=>{state.contractRefreshes[p.functionName]=(state.contractRefreshes[p.functionName]??0)+1;return {isSuccess:state.balanceReadsOk}}})}
  if(id==='@solana/wallet-adapter-react')return {useWallet:()=>({publicKey:null,connected:false,disconnect:solanaWalletAction})}

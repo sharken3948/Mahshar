@@ -13,7 +13,7 @@ const features = [
   { icon: 'discover' as const, title: 'Machine-readable discovery', copy: 'The discovery endpoint returns active listings with methods, proxy URLs, request metadata, prices, and response contracts.' },
   { icon: 'api' as const, title: 'Two proxy styles', copy: 'Listings declare either a direct path route for matching GET or POST calls, or the envelope route for GET, POST, PUT, and DELETE.' },
   { icon: 'payment' as const, title: 'Arc Mainnet x402', copy: 'Paid calls use x402 v2 payment requirements for Arc Mainnet and settle against the payment terms returned by the 402 challenge.' },
-  { icon: 'auth' as const, title: 'Purchase access', copy: 'Paid responses include a purchase capability that can retrieve the latest successful private response for that API and buyer wallet.' },
+  { icon: 'auth' as const, title: 'Purchase access', copy: 'Paid responses include a purchase capability that can retrieve only the private response for that exact purchase.' },
 ]
 
 const resources = [

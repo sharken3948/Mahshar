@@ -1,13 +1,13 @@
-import { marketplaceErrors } from '@/lib/marketplace/server'
-import { normalizedWallet } from '@/lib/marketplace/operation-authorization'
+import { withOperationAuthorization } from '@/lib/marketplace/server'
+import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 
 export const runtime = 'nodejs'
 
-export const GET = marketplaceErrors(async (request: NextRequest) => {
+export const GET = withOperationAuthorization(async (request: NextRequest, wallet: string) => {
   const { searchParams } = new URL(request.url)
-  const wallet = normalizedWallet(searchParams.get('buyer_wallet'))
+  assertWalletClaim(searchParams.get('buyer_wallet'), wallet)
 
   const supabase = createServiceClient()
   const { data, error } = await supabase

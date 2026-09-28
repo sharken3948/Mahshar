@@ -6,9 +6,12 @@ import type { Hex } from 'viem'
 export const alice = privateKeyToAccount(`0x${'11'.repeat(32)}`)
 export const bob = privateKeyToAccount(`0x${'22'.repeat(32)}`)
 export const origin = 'https://mahshar.xyz'
-export const state = { tables: {} as Record<string, Record<string, any>[]>, upstream: 0, settled: 0 }
+export const state = { tables: {} as Record<string, Record<string, any>[]>, upstream: 0, settled: 0,
+  rateLimitError: false, rateLimitAllowed: true, failApiCallInsert: false }
 export function reset() {
   state.upstream = 0; state.settled = 0
+  state.rateLimitError = false; state.rateLimitAllowed = true
+  state.failApiCallInsert = false
   state.tables = { api_listings: [], api_calls: [], purchases: [], credit_balances: [], seller_withdrawals: [], withdraw_used_nonces: [] }
 }
 let nonceCounter = 0
@@ -48,6 +51,9 @@ class Query {
   then(resolve: (value: any) => unknown) {
     let table = state.tables[this.table] ?? []
     if (this.mutation?.kind === 'insert') {
+      if (this.table === 'api_calls' && state.failApiCallInsert) {
+        return Promise.resolve({ data: null, error: { code: 'XX000', message: 'injected api_calls failure' } }).then(resolve)
+      }
       if (this.table === 'withdraw_used_nonces' && table.some(row => row.nonce === this.mutation!.value!.nonce)) {
         return Promise.resolve({ data: null, error: { code: '23505', message: 'duplicate nonce' } }).then(resolve)
       }
@@ -65,7 +71,9 @@ class Query {
 export function createServiceClient() {
   return { from: (name: string) => new Query(name), rpc: async (name: string, args: Record<string, any>) => {
     if (name === 'mahshar_take_rate_limit') {
-      return { data: [{ allowed: true, remaining: Number(args.p_limit) - 1, retry_after_seconds: 0 }], error: null }
+      if (state.rateLimitError) return { data: null, error: { message: 'limiter unavailable' } }
+      return { data: [{ allowed: state.rateLimitAllowed, remaining: state.rateLimitAllowed ? Number(args.p_limit) - 1 : 0,
+        retry_after_seconds: state.rateLimitAllowed ? 0 : 12 }], error: null }
     }
     if (name === 'mahshar_agent_listing_stats') {
       const ids = new Set(args.p_api_ids as string[])
@@ -79,6 +87,19 @@ export function createServiceClient() {
         grouped.set(row.api_id, value)
       }
       return { data: [...grouped.values()].map(value => ({ ...value, avg_latency_ms: value.total_latency / value.total_calls })), error: null }
+    }
+    if (name === 'mahshar_reserve_seller_withdrawal') {
+      const wallet = String(args.p_seller_wallet).toLowerCase()
+      const listingIds = new Set((state.tables.api_listings ?? []).filter(row => String(row.seller_wallet).toLowerCase() === wallet).map(row => row.id))
+      const earned = (state.tables.purchases ?? []).filter(row => listingIds.has(row.api_id))
+        .reduce((sum, row) => sum + Number(row.seller_share_usdc ?? 0), 0)
+      const consumed = (state.tables.seller_withdrawals ?? []).filter(row => String(row.seller_wallet).toLowerCase() === wallet &&
+        ['pending_mint', 'minted', 'failed'].includes(row.status)).reduce((sum, row) => sum + Number(row.amount_usdc), 0)
+      if (Number(args.p_amount_usdc) > earned - consumed) return { data: null, error: { message: 'insufficient withdrawal balance' } }
+      const row = { id: randomUUID(), seller_wallet: wallet, network_id: args.p_network_id, amount_usdc: args.p_amount_usdc,
+        net_amount_usdc: args.p_amount_usdc, gas_cost_usdc: 0, burn_intent: {}, status: 'pending_mint', created_at: new Date().toISOString() }
+      state.tables.seller_withdrawals.push(row)
+      return { data: row, error: null }
     }
     throw new Error(`Unexpected test RPC: ${name}`)
   } }

@@ -6,34 +6,54 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { MahsharLogo } from './MahsharLogo'
 import { useVisibilityRefresh } from '@/hooks/useVisibilityRefresh'
 import { useProductPreferences } from './ProductPreferencesProvider'
+import { useWalletAuthorization } from '@/hooks/useWalletAuthorization'
 import styles from './nav-bar.module.css'
 
-export function NavBar({ balanceOverride, pollBalance = true, landing = false, dashboard = false }: { balanceOverride?: string | null; pollBalance?: boolean; landing?: boolean; dashboard?: boolean }) {
+export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalance = true, landing = false, dashboard = false }: { balanceOverride?: string | null; balanceUnavailableOverride?: boolean; pollBalance?: boolean; landing?: boolean; dashboard?: boolean }) {
   const { address, connector, isConnected } = useAccount()
   const [balance, setBalance] = useState<string | null>(null)
+  const [balanceUnavailable, setBalanceUnavailable] = useState(false)
   const { formatUsdc } = useProductPreferences()
-  const inFlight = useRef<Promise<void> | null>(null)
+  const { request: authorizedFetch } = useWalletAuthorization()
+  const currentWallet = useRef<string | null>(address?.toLowerCase() ?? null)
+  currentWallet.current = address?.toLowerCase() ?? null
+  const inFlight = useRef(new Map<string, { promise: Promise<void>; controller: AbortController }>())
 
   const fetchBalance = useCallback(() => {
     if (!address || !pollBalance) return Promise.resolve()
-    if (inFlight.current) return inFlight.current
-    const request = fetch(`/api/gateway/balance?wallet=${address}`)
-        .then(r => r.ok ? r.json() : null)
-        .then((data: { gatewayAvailable?: string } | null) => {
-          if (typeof data?.gatewayAvailable === 'string') setBalance(data.gatewayAvailable)
+    const wallet = address.toLowerCase()
+    const existing = inFlight.current.get(wallet)
+    if (existing) return existing.promise
+    const controller = new AbortController()
+    const request = authorizedFetch(`/api/gateway/balance?wallet=${encodeURIComponent(wallet)}`, { signal: controller.signal })
+        .then(r => {
+          if (!r.ok) throw new Error('Gateway balance unavailable')
+          return r.json()
         })
-        .catch(() => {})
-        .finally(() => { if (inFlight.current === request) inFlight.current = null })
-    inFlight.current = request
+        .then((data: { gatewayAvailable?: string } | null) => {
+          if (typeof data?.gatewayAvailable === 'string' && currentWallet.current === wallet) {
+            setBalance(data.gatewayAvailable)
+            setBalanceUnavailable(false)
+          }
+        })
+        .catch(() => { if (currentWallet.current === wallet) setBalanceUnavailable(true) })
+        .finally(() => { if (inFlight.current.get(wallet)?.promise === request) inFlight.current.delete(wallet) })
+    inFlight.current.set(wallet, { promise: request, controller })
     return request
-  }, [address, pollBalance])
+  }, [address, authorizedFetch, pollBalance])
   useEffect(() => {
     setBalance(null)
+    setBalanceUnavailable(false)
+    const wallet = address?.toLowerCase() ?? null
+    for (const [key, pending] of inFlight.current) {
+      if (key !== wallet) { pending.controller.abort(); inFlight.current.delete(key) }
+    }
     if (!address || !pollBalance) return
     void fetchBalance()
   }, [address, pollBalance, fetchBalance])
   useVisibilityRefresh(fetchBalance, !!address && pollBalance)
   const displayedBalance = balanceOverride === undefined ? balance : balanceOverride
+  const displayedUnavailable = balanceUnavailableOverride ?? balanceUnavailable
 
   if (landing || dashboard) {
     return (
@@ -44,7 +64,7 @@ export function NavBar({ balanceOverride, pollBalance = true, landing = false, d
             <PrimaryNavigationLink dashboard={dashboard} />
             <ExploreMenu />
           </div>
-          <HeaderControls isConnected={isConnected} displayedBalance={displayedBalance} formatUsdc={formatUsdc} connectorIcon={connector?.icon} />
+          <HeaderControls isConnected={isConnected} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} connectorIcon={connector?.icon} />
         </div>
       </nav>
     )
@@ -60,6 +80,7 @@ export function NavBar({ balanceOverride, pollBalance = true, landing = false, d
             <span className={styles.balancePill}>
               <span>Mahshar Balance:</span>
               <strong>${displayedBalance === null ? '—' : formatUsdc(displayedBalance)} USDC</strong>
+              {displayedUnavailable && <small role="status">Balance unavailable</small>}
             </span>
           )}
           <ArcMainnetStatus />
@@ -79,13 +100,14 @@ function PrimaryNavigationLink({ dashboard }: { dashboard: boolean }) {
   )
 }
 
-function HeaderControls({ isConnected, displayedBalance, formatUsdc, connectorIcon }: { isConnected: boolean; displayedBalance: string | null; formatUsdc: (value: string | number) => string; connectorIcon?: string }) {
+function HeaderControls({ isConnected, displayedBalance, balanceUnavailable, formatUsdc, connectorIcon }: { isConnected: boolean; displayedBalance: string | null; balanceUnavailable: boolean; formatUsdc: (value: string | number) => string; connectorIcon?: string }) {
   return (
     <div className={styles.landingNavRight}>
       {isConnected && (
         <span className={styles.balancePill}>
           <span>Mahshar Balance:</span>
           <strong>${displayedBalance === null ? '—' : formatUsdc(displayedBalance)} USDC</strong>
+          {balanceUnavailable && <small role="status">Balance unavailable</small>}
         </span>
       )}
       <ArcMainnetStatus />

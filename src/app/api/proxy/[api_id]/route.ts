@@ -1,6 +1,6 @@
 import { credentialProxyAllowed } from '@/lib/marketplace/listing-security'
 import { NextRequest, NextResponse, after } from 'next/server'
-import { proxyRequest } from '@/lib/proxy'
+import { proxyRequest, proxyResponseEnvelope } from '@/lib/proxy'
 import { verifyAndSettlePayment, build402Response, paymentInfrastructureStatus, paymentResponseHeader } from '@/lib/gateway'
 import { paymentErrorMessage } from '@/lib/payments/errors'
 import { writeMemo } from '@/lib/memo'
@@ -10,6 +10,8 @@ import { resolveListingProxyMethod } from '@/lib/proxy-policy'
 import { settlementStore } from '@/lib/payments/server'
 import { beginDelivery, DeliveryRequestMismatchError, deliveryError, deliveryRequestHash, finishDelivery } from '@/lib/payments/delivery'
 import { enforceRateLimit } from '@/lib/rate-limit'
+import { authorizeProxyTarget } from '@/lib/marketplace/proxy-target'
+import { marketplaceOrigin } from '@/lib/marketplace/server'
 
 export const runtime = 'nodejs'
 
@@ -23,7 +25,7 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
   const supabase = createServiceClient()
   const { data: listing, error } = await supabase
     .from('api_listings')
-    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method')
+    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method, endpoint_url, auth_type, auth_param_name, dynamic_path_supported, path_parameters, query_parameters')
     .eq('id', apiId)
     .single()
 
@@ -43,19 +45,23 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
 
   const sellerAddress = listing.seller_wallet as `0x${string}`
   const priceUsd = Number(listing.price_per_call)
+  const canonicalTarget = authorizeProxyTarget(listing, '').toString()
 
   // Validate the paid request payload before presenting a 402 so an agent is
   // never charged for JSON that Mahshar cannot forward.
   let upstreamBody: unknown = undefined
   if (method === 'POST') {
     const rawBody = await request.clone().text()
+    if (Buffer.byteLength(rawBody, 'utf8') > 256 * 1024) {
+      return NextResponse.json({ error: 'request_too_large' }, { status: 413 })
+    }
     if (rawBody.trim()) {
       try { upstreamBody = JSON.parse(rawBody) }
       catch { return NextResponse.json({ error: 'invalid_request', message: 'POST body must be valid JSON.' }, { status: 400 }) }
     }
   }
 
-  const resourceUrl = request.url
+  const resourceUrl = new URL(`/api/proxy/${encodeURIComponent(apiId)}`, marketplaceOrigin()).toString()
 
   const paymentSignature = request.headers.get('payment-signature')
   if (!paymentSignature) {
@@ -88,7 +94,7 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
   let delivery
   try {
     delivery = await beginDelivery(settlementStore(), paymentResult.attemptId, deliveryRequestHash({
-      apiId, method: resolvedMethod.method, path: '', body: upstreamBody,
+      apiId, method: resolvedMethod.method, target: canonicalTarget, body: upstreamBody,
     }))
   } catch (error) {
     const mismatch = error instanceof DeliveryRequestMismatchError
@@ -112,8 +118,12 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
     apiId,
     buyerWallet: paymentResult.payer,
     paymentType: 'pay-per-call',
+    purchaseId: paymentResult.callId,
+    deliveryAttemptId: paymentResult.attemptId,
+    purchaseAccessToken,
     method: resolvedMethod.method,
-    path: '',
+    dynamicPath: '',
+    canonicalTarget,
     incomingHeaders: {},
     body: upstreamBody,
   })
@@ -128,6 +138,14 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
     persistedDeliveryState = 'UNKNOWN'
   }
 
+  if (result.deliveryOutcome === 'succeeded' && persistedDeliveryState !== 'SUCCEEDED') {
+    return NextResponse.json({
+      error: 'delivery_state_unavailable', payment: 'ACCOUNTING_COMPLETE', delivery_state: 'UNKNOWN', retryable: false,
+      attemptId: paymentResult.attemptId, purchase_access_token: purchaseAccessToken,
+      ...(result.responsePersisted ? { retrieve_response: '/api/calls/last-response' } : {}),
+    }, { status: 503, headers: paidHeaders })
+  }
+
   // Deferred via `after` so the memo tx is guaranteed to complete on Vercel
   // serverless — a bare fire-and-forget promise freezes when the response ships.
   if (persistedDeliveryState === 'SUCCEEDED' || persistedDeliveryState === 'FAILED_FINAL') after(() =>
@@ -139,15 +157,8 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
   )
 
   return NextResponse.json(
-    {
-      response: result.body,
-      latency_ms: result.latencyMs,
-      payment: 'ACCOUNTING_COMPLETE',
-      delivery_state: persistedDeliveryState,
-      retryable: persistedDeliveryState === 'FAILED_RETRYABLE',
-      attemptId: paymentResult.attemptId,
-      purchase_access_token: purchaseAccessToken,
-    },
+    proxyResponseEnvelope({ body: result.body, latencyMs: result.latencyMs, deliveryState: persistedDeliveryState,
+      retryable: persistedDeliveryState === 'FAILED_RETRYABLE', attemptId: paymentResult.attemptId, purchaseAccessToken }),
     { status: result.status, headers: paidHeaders }
   )
 }

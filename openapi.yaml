@@ -99,7 +99,7 @@ paths:
     get:
       tags: [Purchase access]
       operationId: retrievePurchasedResponse
-      summary: Retrieve the latest successful private response for a purchase
+      summary: Retrieve the private response for the exact authorized purchase
       description: |
         Send `x-mahshar-purchase-access` with the purchase-scoped capability.
         A legacy purchase may exchange one one-use `x-mahshar-authorization`
@@ -273,7 +273,7 @@ components:
       description: |
         Settlement succeeded. PAYMENT-RESPONSE is a standard base64 x402 v2
         SettleResponse even when upstream delivery is non-2xx. An upstream body
-        over 5 MiB produces 502 and FAILED_FINAL.
+        whose final serialized JSON wrapper exceeds 4,000,000 bytes produces 502 and FAILED_FINAL.
       headers:
         PAYMENT-RESPONSE:
           required: true

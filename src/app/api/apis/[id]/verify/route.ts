@@ -5,6 +5,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { decryptKey } from '@/lib/crypto'
 import { validateEndpointUrl } from '@/lib/url-validation'
 import { safeOutboundFetch } from '@/lib/outbound-fetch'
+import { enforceRateLimit } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs'
 
@@ -13,6 +14,9 @@ export const POST = withOperationAuthorization(async (
   { params }: { params: Promise<{ id: string }> },
 ) => {
   const { id } = await params
+  const limited = await enforceRateLimit({ request, scope: 'listing-verify', limit: 10, windowSeconds: 60,
+    dimensions: [wallet, id], failClosed: true })
+  if (limited) return limited
   const supabase = createServiceClient()
   const listing = await requireListingOwner(supabase, id, wallet)
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createPublicClient, createWalletClient, http, type Hex } from 'viem'
+import { createPublicClient, createWalletClient, http, verifyMessage, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { createServiceClient } from '@/lib/supabase/server'
 import { isValidWalletAddress } from '@/lib/wallet-validation'
@@ -36,10 +36,6 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
 
   const supabase = createServiceClient()
 
-  const chain = arcMainnet
-  const rpcUrl = process.env.ARC_MAINNET_RPC_URL
-  const publicClient = createPublicClient({ chain, transport: http(rpcUrl) })
-
   // ── Signature auth ───────────────────────────────────────────────────────
   const { timestamp, nonce, signature } = body
   if (!timestamp || !nonce || !signature) {
@@ -57,7 +53,7 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
   })
   let sigValid: boolean
   try {
-    sigValid = await publicClient.verifyMessage({
+    sigValid = await verifyMessage({
       address: seller_wallet as `0x${string}`,
       message: authMessage,
       signature: signature as `0x${string}`,
@@ -99,8 +95,12 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
     return NextResponse.json({ error: 'Withdrawal row is missing attestation payload' }, { status: 500 })
   }
 
+  const chain = arcMainnet
+  const rpcUrl = process.env.ARC_MAINNET_RPC_URL
+  const rpcTransport = http(rpcUrl, { timeout: 10_000, retryCount: 0 })
+  const publicClient = createPublicClient({ chain, transport: rpcTransport })
   const account = privateKeyToAccount(PLATFORM_PRIVATE_KEY)
-  const walletClient = createWalletClient({ account, chain, transport: http(rpcUrl) })
+  const walletClient = createWalletClient({ account, chain, transport: rpcTransport })
 
   let mintTxHash: Hex
   try {

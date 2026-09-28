@@ -15,11 +15,11 @@ function stable(value: unknown): string {
   return `{${Object.keys(object).sort().map(key => `${JSON.stringify(key)}:${stable(object[key])}`).join(',')}}`
 }
 
-export function deliveryRequestHash(input: { apiId: string; method: string; path: string; body: unknown }): string {
+export function deliveryRequestHash(input: { apiId: string; method: string; target: string; body: unknown }): string {
   return createHash('sha256').update(stable({
     api_id: input.apiId,
     method: input.method.toUpperCase(),
-    path: input.path,
+    canonical_target: input.target,
     body: input.body === undefined ? null : input.body,
   })).digest('hex')
 }

@@ -27,6 +27,17 @@ test('real gateway pricing and normal paid proxy retain authoritative amount and
   assert.equal(replay.headers.get('cache-control'), 'no-store')
   assert.equal(typeof (await replay.json()).purchase_access_token, 'string')
 })
+test('payment resource URL uses canonical marketplace origin despite a spoofed Host', async () => {
+  reset()
+  const response = await POST(new NextRequest('https://attacker.example/api/proxy', {
+    method: 'POST', headers: { 'content-type': 'application/json', host: 'attacker.example' },
+    body: JSON.stringify({ api_id: apiId, buyer_wallet: payer, method: 'POST', body: { input: true } }),
+  }))
+  assert.equal(response.status, 402)
+  const requirement = JSON.parse(Buffer.from(response.headers.get('payment-required')!, 'base64').toString())
+  assert.equal(requirement.resource.url, 'https://mahshar.xyz/api/proxy')
+  assert.equal(JSON.stringify(requirement).includes('attacker.example'), false)
+})
 test('actual gateway returns 503, not duplicate/payment-required, for confirmed accounting failure', async () => {
   reset(); state.store.failAccounting = true
   const response = await POST(paid()); assert.equal(response.status, 503)

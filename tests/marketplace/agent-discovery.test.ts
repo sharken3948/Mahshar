@@ -76,3 +76,15 @@ test('agent discovery route emits the safe executable contract and pagination wi
   const serialized = JSON.stringify(payload)
   assert.doesNotMatch(serialized, /secret-upstream|encrypted-secret|secret_name|endpoint_url|encrypted_key|auth_param_name/)
 })
+
+test('machine URLs ignore a spoofed request Host and use MARKETPLACE_ORIGIN', async () => {
+  reset()
+  const response = await discover(new NextRequest('https://attacker.example/api/agent/discover', {
+    headers: { host: 'attacker.example', 'x-forwarded-host': 'attacker.example' },
+  }))
+  assert.equal(response.status, 200)
+  const payload = await response.json()
+  assert.equal(payload.openapi_url, 'https://mahshar.xyz/api/openapi')
+  assert.equal(payload.proxy_urls.envelope, 'https://mahshar.xyz/api/proxy')
+  assert.equal(JSON.stringify(payload).includes('attacker.example'), false)
+})

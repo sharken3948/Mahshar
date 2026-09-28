@@ -17,7 +17,6 @@ import { useSolanaBridgeBalance } from '@/hooks/useSolanaBridgeBalance'
 import { sendLocalNotification, useProductPreferences } from '@/components/ProductPreferencesProvider'
 import { useVisibilityRefresh } from '@/hooks/useVisibilityRefresh'
 import { readPurchasedResponse } from '@/lib/marketplace/purchase-access-client'
-import { coalescedJsonGet } from '@/lib/client-read'
 import { createTargetedWalletRefreshScheduler, type WalletRefreshAction, type WalletRefreshResource } from '@/lib/wallet-refresh'
 
 
@@ -145,6 +144,7 @@ function useDashboardWorkspaceState() {
   const [sellerEarnings, setSellerEarnings] = useState<SellerEarnings | null>(null)
   const [loading, setLoading] = useState(false)
   const [gatewayStats, setGatewayStats] = useState<GatewayStats | null>(null)
+  const [gatewayUnavailable, setGatewayUnavailable] = useState(false)
   const [depositAmount, setDepositAmount] = useState('')
   const [depositStep, setDepositStep] = useState<'idle' | 'approving' | 'depositing'>('idle')
   const [depositError, setDepositError] = useState<string | null>(null)
@@ -249,24 +249,25 @@ function useDashboardWorkspaceState() {
     const request = (async () => {
       try {
         // This public endpoint returns only Circle's balance, never offchain history.
-        const res = await fetch(`/api/gateway/balance?wallet=${address}`, { cache: 'no-store' })
-        if (!res.ok) return false
+        const res = await authorizedFetch(`/api/gateway/balance?wallet=${address}`, { cache: 'no-store' })
+        if (!res.ok) { if (currentAddress.current?.toLowerCase() === address.toLowerCase()) setGatewayUnavailable(true); return false }
         const stats = await res.json() as GatewayStats
         if (typeof stats.gatewayAvailable !== 'string' || currentAddress.current?.toLowerCase() !== address.toLowerCase()) return false
         setGatewayStats(stats)
+        setGatewayUnavailable(false)
         return true
-      } catch { return false }
+      } catch { if (currentAddress.current?.toLowerCase() === address.toLowerCase()) setGatewayUnavailable(true); return false }
     })().finally(() => { if (gatewayRefreshInFlight.current === request) gatewayRefreshInFlight.current = null })
     gatewayRefreshInFlight.current = request
     return request
-  }, [address])
+  }, [address, authorizedFetch])
 
   const fetchSellerStatisticsSnapshot = useCallback(() => {
     if (!address) return Promise.resolve(null)
     if (sellerStatisticsInFlight.current) return sellerStatisticsInFlight.current
     const request = (async () => {
       try {
-        const response = await fetch(`/api/seller/statistics/${encodeURIComponent(address)}`, { cache: 'no-store' })
+        const response = await authorizedFetch(`/api/seller/statistics/${encodeURIComponent(address)}`, { cache: 'no-store' })
         if (!response.ok) return null
         const statistics = await response.json() as ReadOnlySellerStatistics
         if (!Array.isArray(statistics.listings) || currentAddress.current?.toLowerCase() !== address.toLowerCase()) return null
@@ -275,7 +276,7 @@ function useDashboardWorkspaceState() {
     })().finally(() => { if (sellerStatisticsInFlight.current === request) sellerStatisticsInFlight.current = null })
     sellerStatisticsInFlight.current = request
     return request
-  }, [address])
+  }, [address, authorizedFetch])
 
   const fetchReadOnlySellerStatistics = useCallback(async () => {
     const statistics = await fetchSellerStatisticsSnapshot()
@@ -320,19 +321,21 @@ function useDashboardWorkspaceState() {
   const fetchBuyerCalls = useCallback(async () => {
     if (!address) return false
     try {
-      const response = await coalescedJsonGet<{ calls?: ApiCall[] }>(`/api/calls?buyer_wallet=${address.toLowerCase()}`)
+      const response = await authorizedFetch(`/api/calls?buyer_wallet=${address.toLowerCase()}`, { cache: 'no-store' })
       if (!response.ok) return false
-      setCalls(response.data.calls ?? [])
+      const data = await response.json() as { calls?: ApiCall[] }
+      if (currentAddress.current?.toLowerCase() !== address.toLowerCase()) return false
+      setCalls(data.calls ?? [])
       return true
     } catch { return false }
-  }, [address])
+  }, [address, authorizedFetch])
 
   const loadPrivateSnapshot = useCallback(async () => {
     if (!address) return false
     const [callsResponse, buyerCallsLoaded, historyResponse] = await Promise.all([
-      fetch(`/api/seller/calls?seller_wallet=${address}`, { cache: 'no-store' }),
+      authorizedFetch(`/api/seller/calls?seller_wallet=${address}`, { cache: 'no-store' }),
       fetchBuyerCalls(),
-      fetch(`/api/gateway/balance?wallet=${address}&include_history=true`, { cache: 'no-store' }),
+      authorizedFetch(`/api/gateway/balance?wallet=${address}&include_history=true`, { cache: 'no-store' }),
     ])
     if (callsResponse.status === 401 || historyResponse.status === 401) {
       clearPrivateData()
@@ -345,7 +348,7 @@ function useDashboardWorkspaceState() {
     if (historyResponse.ok) setGatewayStats(await historyResponse.json())
     privateSnapshotLoadedRef.current = true
     return callsResponse.ok && buyerCallsLoaded && historyResponse.ok
-  }, [address, clearPrivateData, fetchBuyerCalls])
+  }, [address, authorizedFetch, clearPrivateData, fetchBuyerCalls])
 
   const refreshMarketplaceData = useCallback(() => {
     if (!address) return Promise.resolve()
@@ -795,6 +798,7 @@ function useDashboardWorkspaceState() {
     sellerEarnings,
     loading,
     gatewayStats,
+    gatewayUnavailable,
     depositAmount,
     setDepositAmount,
     depositStep,

@@ -58,8 +58,8 @@ export function DashboardSidebar() {
 }
 
 export function DashboardNavBar() {
-  const { gatewayStats } = useDashboardWorkspace()
-  return <NavBar dashboard balanceOverride={gatewayStats?.gatewayAvailable ?? null} pollBalance={false} />
+  const { gatewayStats, gatewayUnavailable } = useDashboardWorkspace()
+  return <NavBar dashboard balanceOverride={gatewayStats?.gatewayAvailable ?? null} balanceUnavailableOverride={gatewayUnavailable} pollBalance={false} />
 }
 
 export function DashboardCardHeader({ title, subtitle, icon, tone }: { title: string; subtitle: string; icon: IconName; tone: 'blue' | 'green' | 'pink' | 'purple' }) {

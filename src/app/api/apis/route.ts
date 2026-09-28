@@ -1,4 +1,4 @@
-import { withOperationAuthorization, marketplaceErrors } from '@/lib/marketplace/server'
+import { withOperationAuthorization, marketplaceErrors, requireOperationAuthorization } from '@/lib/marketplace/server'
 import { assertWalletClaim, normalizedWallet } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
@@ -18,6 +18,10 @@ export const GET = marketplaceErrors(async (request: NextRequest) => {
 
   const sellerClaim = searchParams.get('seller_wallet')
   const sellerWallet = sellerClaim !== null ? normalizedWallet(sellerClaim) : null
+  if (sellerWallet) {
+    const authorizedWallet = await requireOperationAuthorization(request)
+    assertWalletClaim(sellerWallet, authorizedWallet)
+  }
 
   let query = supabase
     .from('api_listings')

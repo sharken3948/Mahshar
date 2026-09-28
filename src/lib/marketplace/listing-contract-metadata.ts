@@ -1,3 +1,5 @@
+import { validateDeclaredParameterMetadata } from './proxy-target'
+
 const objectOrNull = (value: unknown) => value === null || (typeof value === 'object' && !Array.isArray(value))
 const arrayOrNull = (value: unknown) => value === null || Array.isArray(value)
 
@@ -12,6 +14,7 @@ export function listingContractMetadata(body: Record<string, unknown>, method: s
   for (const key of ['path_parameters', 'query_parameters'] as const) {
     if (body[key] !== undefined) {
       if (!arrayOrNull(body[key])) return { ok: false as const, error: `${key} must be a JSON array or null` }
+      if (!validateDeclaredParameterMetadata(body[key])) return { ok: false as const, error: `${key} contains invalid or duplicate parameter declarations` }
       patch[key] = body[key]
     }
   }

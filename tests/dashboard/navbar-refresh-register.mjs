@@ -1,9 +1,16 @@
 import Module from 'node:module'
 
 const load = Module._load
-export const state = { slots: [], cursor: 0, effects: [], requests: [], balance: '12.5', responseOk: true }
+export const state = { slots: [], cursor: 0, effects: [], requests: [], balance: '12.5', responseOk: true,
+  address: '0x' + '11'.repeat(20), deferred: false, pending: [] }
 export const timers = []
 export const timerDelays = []
+
+export function resetHarness() {
+  state.slots.length = 0; state.cursor = 0; state.effects.length = 0; state.requests.length = 0
+  state.balance = '12.5'; state.responseOk = true; state.address = '0x' + '11'.repeat(20)
+  state.deferred = false; state.pending.length = 0; timers.length = 0; timerDelays.length = 0
+}
 
 export function renderStart() { state.cursor = 0 }
 export function runEffects() { for (const effect of state.effects.splice(0)) effect() }
@@ -46,6 +53,7 @@ function useEffect(effect, dependencies) {
 
 globalThis.fetch = async input => {
   state.requests.push(String(input))
+  if (state.deferred) return new Promise((resolve, reject) => state.pending.push({ input: String(input), resolve, reject }))
   return state.responseOk
     ? Response.json({ gatewayAvailable: state.balance })
     : Response.json({ error: 'temporary gateway failure' }, { status: 503 })
@@ -66,7 +74,8 @@ Module._load = function(id, parent, main) {
   }
   if (id === 'next/link') return function Link() {}
   if (id === '@rainbow-me/rainbowkit') return { ConnectButton: function ConnectButton() {} }
-  if (id === 'wagmi') return { useAccount: () => ({ address: '0x' + '11'.repeat(20), isConnected: true }) }
+  if (id === 'wagmi') return { useAccount: () => ({ address: state.address, isConnected: true }) }
+  if (id === '@/hooks/useWalletAuthorization') return { useWalletAuthorization: () => ({ request: globalThis.fetch }) }
   if (id === './MahsharLogo') return { MahsharLogo: function MahsharLogo() {} }
   if (id === './ProductPreferencesProvider') return { useProductPreferences: () => ({ formatUsdc: value => String(value) }) }
   return load.call(this, id, parent, main)

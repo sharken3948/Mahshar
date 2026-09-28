@@ -50,7 +50,7 @@ Every buyer request goes through the proxy layer. Two routes are exposed:
 - **`POST /api/proxy` (envelope)** — supports configured GET, POST, PUT, and DELETE methods. Body carries `{ api_id, buyer_wallet, method?, path?, body? }`; the inner `body` is forwarded for non-GET methods. The settled payment payer—not `buyer_wallet`—is authoritative for ownership and analytics.
 - **`GET|POST /api/proxy/[api_id]` (path route)** — available only when the listing is configured for that same GET or POST method. POST JSON is parsed and re-serialized. A mismatch returns 405; PUT and DELETE use the envelope route.
 
-Both routes share the same 402 builder and durable payment verifier. Mahshar injects `x-api-key`, `Authorization: Bearer`, or the seller-configured query parameter server-side; buyer headers are not forwarded. Paid results use a JSON wrapper with `response`, `latency_ms`, `payment`, `delivery_state`, `attemptId`, and `purchase_access_token`. Responses are capped at 5 MiB; oversized responses return 502 with `FAILED_FINAL`. Buyers never see seller credentials or the real endpoint URL.
+Both routes share the same 402 builder and durable payment verifier. Mahshar injects `x-api-key`, `Authorization: Bearer`, or the seller-configured query parameter server-side; buyer headers are not forwarded. Paid results use a JSON wrapper with `response`, `latency_ms`, `payment`, `delivery_state`, `attemptId`, and `purchase_access_token`. The final serialized JSON response is capped at 4,000,000 bytes; oversized responses return 502 with `FAILED_FINAL`. Buyers never see seller credentials or the real endpoint URL.
 
 ### Payment flow
 ```
@@ -168,6 +168,8 @@ See `.env.example` for full descriptions. Required:
 | `PLATFORM_WALLET_ADDRESS` | Platform wallet that receives and forwards payments |
 | `PLATFORM_WALLET_PRIVATE_KEY` | Private key for the platform wallet (also used for Arc Memo writes) |
 | `INTERNAL_API_SECRET` | Shared secret for server-to-server credit operations |
+| `ADMIN_WALLETS` | Comma-separated server-only wallet allowlist for one-use admin authorization |
+| `MARKETPLACE_ORIGIN` | Canonical HTTPS production origin used in discovery, OpenAPI, proxy, and x402 execution URLs |
 | `MAHSHAR_TRUSTED_CLIENT_IP_HEADER` | Optional, non-Vercel only: edge-overwritten client-IP header used for rate-limit dimensions |
 
 ---

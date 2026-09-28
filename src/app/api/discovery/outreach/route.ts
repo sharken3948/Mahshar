@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { withAdmin } from '@/lib/admin-auth';
+import { marketplaceOrigin } from '@/lib/marketplace/server';
 
 export const runtime = 'nodejs';
 
@@ -21,6 +22,9 @@ export const POST = withAdmin(async (request: NextRequest) => {
   }
 
   const supabase = createServiceClient();
+  const resendKey = process.env.RESEND_API_KEY;
+  if (!resendKey) return NextResponse.json({ error: 'Email delivery is not configured' }, { status: 503 });
+  const origin = marketplaceOrigin();
 
   const { data: candidates } = await supabase
     .from('discovered_apis')
@@ -32,8 +36,6 @@ export const POST = withAdmin(async (request: NextRequest) => {
   let sent = 0;
   let skipped = 0;
 
-  const resendKey = process.env.RESEND_API_KEY;
-
   for (const row of rows) {
     if (!row.owner_email) {
       skipped++;
@@ -44,19 +46,19 @@ export const POST = withAdmin(async (request: NextRequest) => {
     const html = [
       `<p>Hi ${row.owner_github ?? 'there'},</p>`,
       `<p>I came across <strong>${row.api_name ?? 'your API'}</strong> on GitHub and wanted to reach out.</p>`,
-      `<p>We&rsquo;re building <a href="https://mahshar.xyz">Mahshar</a>, an API marketplace where `,
+      `<p>We&rsquo;re building <a href="${origin}">Mahshar</a>, an API marketplace where `,
       `developers monetize their APIs and get paid in USDC for every call &mdash; `,
       `no subscriptions, no contracts, pure pay-per-call.</p>`,
       `<p>You keep full control of your API. Buyers pay per request and you receive USDC `,
       `directly to your wallet.</p>`,
-      `<p>Listing takes about 5 minutes: <a href="https://mahshar.xyz/seller">mahshar.xyz/seller</a></p>`,
+      `<p>Listing takes about 5 minutes: <a href="${origin}/seller">${origin}/seller</a></p>`,
       `<p>Happy to answer any questions.</p>`,
       `<p>Best,<br/>The Mahshar Team</p>`,
     ].join('');
 
     let emailSent = false;
 
-    if (resendKey) {
+    {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
@@ -72,9 +74,6 @@ export const POST = withAdmin(async (request: NextRequest) => {
         signal: AbortSignal.timeout(15000),
       });
       emailSent = res.ok;
-    } else {
-      console.log(`[outreach] Would send to ${row.owner_email} — subject: "${subject}"`);
-      emailSent = true;
     }
 
     if (emailSent) {

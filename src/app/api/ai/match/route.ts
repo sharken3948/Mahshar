@@ -4,16 +4,26 @@ import { createServiceClient } from '@/lib/supabase/server';
 import type { ApiListing } from '@/types';
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { agentExecutionContract, type AgentListingRow } from '@/lib/marketplace/agent-contract';
+import { marketplaceOrigin } from '@/lib/marketplace/server';
+import { readBoundedJson, RequestBodyError } from '@/lib/request-body';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
-  const limited = await enforceRateLimit({ request, scope: 'ai-match', limit: 20, windowSeconds: 60 })
+  const limited = await enforceRateLimit({ request, scope: 'ai-match', limit: 20, windowSeconds: 60, failClosed: true })
   if (limited) return limited
-  const body = await request.json() as { query: string };
+  let body: { query: string };
+  try { body = await readBoundedJson<{ query: string }>(request, 16 * 1024) }
+  catch (error) {
+    const tooLarge = error instanceof RequestBodyError && error.code === 'body_too_large'
+    return NextResponse.json({ error: tooLarge ? 'request_too_large' : 'invalid_request' }, { status: tooLarge ? 413 : 400 })
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
+  }
   const { query } = body;
 
-  if (!query) {
+  if (typeof query !== 'string' || !query.trim() || query.length > 2000) {
     return NextResponse.json({ error: 'query is required' }, { status: 400 });
   }
 
@@ -37,9 +47,10 @@ export async function POST(request: NextRequest) {
   const { data: matched } = await supabase
     .from('api_listings')
     .select('id, name, description, category, price_per_call, payment_model, score, uptime, auth_type, method, example_request, example_response, request_schema, response_schema, body_required, dynamic_path_supported, path_parameters, query_parameters')
-    .in('id', matchResult.api_ids);
+    .in('id', matchResult.api_ids)
+    .eq('is_active', true);
 
-  const publicOrigin = new URL(request.url).origin
+  const publicOrigin = marketplaceOrigin()
   const safeMatched = ((matched ?? []) as unknown as Array<AgentListingRow & Record<string, unknown>>).map(row => {
     const execution = agentExecutionContract(row, publicOrigin)
     return {

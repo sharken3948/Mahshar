@@ -16,6 +16,30 @@ export interface ScoreResult {
   summary: string;
 }
 
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+}
+
+function boundedStrings(value: unknown, maxItems = 50): string[] | null {
+  if (!Array.isArray(value) || value.length > maxItems || value.some(item => typeof item !== 'string' || item.length > 1000)) return null
+  return value as string[]
+}
+
+export function validateScoreResult(value: unknown): ScoreResult {
+  const input = record(value)
+  if (!input || typeof input.score !== 'number' || !Number.isInteger(input.score) || input.score < 1 || input.score > 10 ||
+    typeof input.suggested_price !== 'number' || !Number.isFinite(input.suggested_price) || input.suggested_price < 0 || input.suggested_price > 1_000_000 ||
+    typeof input.approved !== 'boolean' || typeof input.summary !== 'string' || input.summary.length < 1 || input.summary.length > 2000) {
+    throw new Error('Groq returned invalid score schema')
+  }
+  const critical_issues = boundedStrings(input.critical_issues)
+  const warnings = boundedStrings(input.warnings)
+  const positives = boundedStrings(input.positives)
+  if (!critical_issues || !warnings || !positives) throw new Error('Groq returned invalid score schema')
+  return { score: input.score, suggested_price: input.suggested_price, approved: input.approved,
+    critical_issues, warnings, positives, summary: input.summary }
+}
+
 export interface RealTestResult {
   success: boolean;
   status?: number;
@@ -102,7 +126,7 @@ Analyze this API listing carefully. Return ONLY a valid JSON object with NO mark
 
   const content = completion.choices[0]?.message?.content ?? '{}'
   try {
-    return JSON.parse(content) as ScoreResult
+    return validateScoreResult(JSON.parse(content))
   } catch {
     throw new Error(`Groq returned invalid JSON (scoreApi): ${content.slice(0, 200)}`)
   }
@@ -111,6 +135,17 @@ Analyze this API listing carefully. Return ONLY a valid JSON object with NO mark
 export interface MatchResult {
   api_ids: string[];
   reasoning: string;
+}
+
+export function validateMatchResult(value: unknown, candidateIds: ReadonlySet<string>): MatchResult {
+  const input = record(value)
+  if (!input || !Array.isArray(input.api_ids) || input.api_ids.length > 20 ||
+    input.api_ids.some(id => typeof id !== 'string' || id.length > 128) ||
+    typeof input.reasoning !== 'string' || input.reasoning.length < 1 || input.reasoning.length > 2000) {
+    throw new Error('Groq returned invalid match schema')
+  }
+  const api_ids = [...new Set((input.api_ids as string[]).filter(id => candidateIds.has(id)))].slice(0, 5)
+  return { api_ids, reasoning: input.reasoning }
 }
 
 export async function matchApis(
@@ -147,7 +182,7 @@ Return the best matching API IDs (up to 5) sorted by relevance. Respond with val
 
   const content = completion.choices[0]?.message?.content ?? '{}'
   try {
-    return JSON.parse(content) as MatchResult
+    return validateMatchResult(JSON.parse(content), new Set(apis.map(api => api.id)))
   } catch {
     throw new Error(`Groq returned invalid JSON (matchApis): ${content.slice(0, 200)}`)
   }

@@ -1,8 +1,9 @@
-# Public seller statistics
+# Seller statistics authorization
 
-`GET /api/seller/statistics/[wallet]` is an intentionally public, read-only
-summary keyed by a public EVM wallet address. Mahshar uses it to show seller and
-API totals without creating a login session or requesting a wallet signature.
+`GET /api/seller/statistics/[wallet]` is private seller/accounting data. A
+request must include a fresh one-use wallet-operation authorization whose
+wallet claim matches the normalized wallet in the route. Missing, mismatched,
+expired, or replayed proofs are rejected.
 
 The endpoint exposes only:
 
@@ -15,7 +16,7 @@ The endpoint exposes only:
   method, authentication mode and parameter name, examples, score, uptime,
   creation time, active state, and verification time
 
-It does not expose buyer wallets, purchase rows, payout history, withdrawal
+It still does not expose buyer wallets, purchase rows, payout history, withdrawal
 rows or transaction hashes, encrypted/plaintext credentials, response history,
 or any mutation capability.
 
@@ -25,6 +26,6 @@ Financial values use the existing immutable `purchases` ledger,
 seller share contribute to gross revenue and paid-call counts but do not become
 withdrawable.
 
-Listing writes and sensitive history use one-time, operation-specific wallet
-authorizations. Seller withdrawals continue to require their existing
-per-request wallet signature, timestamp, and nonce.
+Public marketplace catalog reads remain available through the active-listing
+catalog without a seller-wallet filter. Seller withdrawals continue to require
+their existing per-request wallet signature, timestamp, and nonce.

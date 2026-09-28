@@ -22,7 +22,7 @@ create table if not exists api_listings (
   score numeric(3, 1),
   uptime numeric(5, 2),
   created_at timestamptz not null default now(),
-  is_active boolean not null default true
+  is_active boolean not null default false
 );
 
 -- purchases: completed payment records

@@ -13,6 +13,7 @@ import * as purchases from '../../src/app/api/purchases/route'
 import * as sellerCalls from '../../src/app/api/seller/calls/route'
 import * as earnings from '../../src/app/api/seller/earnings/route'
 import * as sellerStatistics from '../../src/app/api/seller/statistics/[wallet]/route'
+import * as gatewayBalance from '../../src/app/api/gateway/balance/route'
 import { issuePurchaseAccess, PURCHASE_ACCESS_HEADER } from '../../src/lib/marketplace/purchase-access'
 
 const originalFetch = globalThis.fetch
@@ -107,26 +108,30 @@ test('edit, verification and delete each require their own exact authorization',
   assert.equal(state.tables.api_listings.length, 0)
 })
 
-test('read-only seller and buyer aggregates are address-indexed and sessionless', async () => {
+test('private buyer, seller, listing and statistics reads require owner proof and reject replay', async () => {
   seed(a)
   state.tables.api_calls.push({ id: 'call-a', api_id: 'victim', buyer_wallet: a, success: true, created_at: '2026-01-01', latency_ms: 10 })
   state.tables.purchases.push({ id: 'purchase-a', api_id: 'victim', buyer_wallet: a, amount_usdc: 1, seller_share_usdc: 0.9 })
-  for (const response of [
-    await calls.GET(request('/api/calls?buyer_wallet=' + a)),
-    await sellerCalls.GET(request('/api/seller/calls?seller_wallet=' + a)),
-    await listings.GET(request('/api/apis?seller_wallet=' + a)),
-  ]) assert.equal(response.status, 200)
+  const cases = [
+    { path: '/api/calls?buyer_wallet=' + a, run: (req: NextRequest) => calls.GET(req) },
+    { path: '/api/seller/calls?seller_wallet=' + a, run: (req: NextRequest) => sellerCalls.GET(req) },
+    { path: '/api/apis?seller_wallet=' + a, run: (req: NextRequest) => listings.GET(req) },
+    { path: `/api/seller/statistics/${a}`, run: (req: NextRequest) => sellerStatistics.GET(req, { params: Promise.resolve({ wallet: a }) }) },
+  ]
+  for (const item of cases) {
+    assert.equal((await item.run(request(item.path))).status, 401)
+    assert.equal((await item.run(await authorized(item.path, 'GET', undefined, bob))).status, 403)
+    const headers = await operationHeaders(item.path)
+    assert.equal((await item.run(request(item.path, 'GET', undefined, headers))).status, 200)
+    assert.equal((await item.run(request(item.path, 'GET', undefined, headers))).status, 409)
+  }
 })
 
-test('public marketplace and seller statistics never expose upstream or credential configuration', async () => {
+test('public marketplace excludes inactive seller inventory and credentials', async () => {
   seed(a)
-  const catalog = await listings.GET(request('/api/apis?seller_wallet=' + a))
+  const catalog = await listings.GET(request('/api/apis'))
   const catalogText = JSON.stringify(await catalog.json())
   assert.doesNotMatch(catalogText, /seller\.example|fixture-key|encrypted_key|endpoint_url|auth_param_name/)
-
-  const statistics = await sellerStatistics.GET(request(`/api/seller/statistics/${a}`), { params: Promise.resolve({ wallet: a }) })
-  const statisticsText = JSON.stringify(await statistics.json())
-  assert.doesNotMatch(statisticsText, /seller\.example|fixture-key|encrypted_key|endpoint_url|auth_param_name/)
 })
 
 test('private listing configuration requires owner proof and never returns encrypted credentials', async () => {
@@ -160,10 +165,31 @@ test('sensitive purchase and detailed earnings history use one-use wallet proof'
   assert.equal((await earnings.GET(await authorized(earningsPath))).status, 200)
 })
 
-test('legacy purchase exchanges one wallet proof for repeat signature-free response access', async () => {
+test('Gateway balance distinguishes zero from timeout, non-2xx, and invalid JSON', async () => {
+  const path = '/api/gateway/balance?wallet=' + a
+  assert.equal((await gatewayBalance.GET(request(path))).status, 401)
+  assert.equal((await gatewayBalance.GET(await authorized(path, 'GET', undefined, bob))).status, 403)
+
+  globalThis.fetch = async () => Response.json({ balances: [{ balance: '0' }] })
+  const headers = await operationHeaders(path)
+  const zero = await gatewayBalance.GET(request(path, 'GET', undefined, headers))
+  assert.equal(zero.status, 200)
+  assert.equal((await zero.json()).gatewayAvailable, '0')
+  assert.equal((await gatewayBalance.GET(request(path, 'GET', undefined, headers))).status, 409)
+
+  globalThis.fetch = async () => Response.json({ error: 'bad gateway' }, { status: 502 })
+  assert.equal((await gatewayBalance.GET(await authorized(path))).status, 502)
+  globalThis.fetch = async () => new Response('{invalid', { status: 200, headers: { 'content-type': 'application/json' } })
+  assert.equal((await gatewayBalance.GET(await authorized(path))).status, 502)
+  globalThis.fetch = async () => { throw new DOMException('timed out', 'TimeoutError') }
+  assert.equal((await gatewayBalance.GET(await authorized(path))).status, 503)
+})
+
+test('wallet proof exchanges one exact purchase response for repeat signature-free access', async () => {
   seed(a)
   state.tables.purchases.push({ id: 'purchase-a', api_id: 'victim', buyer_wallet: a })
-  state.tables.api_calls.push({ id: 'call-a', api_id: 'victim', buyer_wallet: a, success: true, response_body: 'private A' })
+  state.tables.api_calls.push({ id: 'call-a', api_id: 'victim', buyer_wallet: a, purchase_id: 'purchase-a', success: true,
+    response_body: 'private A', response_expires_at: '2099-01-01T00:00:00Z' })
   const path = '/api/calls/last-response?api_id=victim&buyer_wallet=' + a
   assert.equal((await last.GET(request(path))).status, 401)
   const exchange = await last.GET(await authorized(path))
@@ -181,20 +207,31 @@ test('legacy purchase exchanges one wallet proof for repeat signature-free respo
   assert.equal(state.tables.withdraw_used_nonces.length, 1)
 })
 
-test('purchase capability cannot read another buyer private response', async () => {
+test('purchase capabilities return only their exact purchase and never a later purchase or another wallet', async () => {
   seed(a)
-  state.tables.purchases.push({ id: 'purchase-a', api_id: 'victim', buyer_wallet: a })
-  state.tables.api_calls.push({ id: 'call-a', api_id: 'victim', buyer_wallet: a, success: true, response_body: 'private A' })
+  state.tables.purchases.push({ id: 'purchase-a', api_id: 'victim', buyer_wallet: a },
+    { id: 'purchase-b', api_id: 'victim', buyer_wallet: a })
+  state.tables.api_calls.push(
+    { id: 'call-a', api_id: 'victim', buyer_wallet: a, purchase_id: 'purchase-a', success: true,
+      response_body: 'private A', response_expires_at: '2099-01-01T00:00:00Z' },
+    { id: 'call-b', api_id: 'victim', buyer_wallet: a, purchase_id: 'purchase-b', success: true,
+      response_body: 'private B', response_expires_at: '2099-01-01T00:00:00Z' },
+  )
   const alicePath = '/api/calls/last-response?api_id=victim&buyer_wallet=' + a
   assert.equal((await last.GET(await authorized(alicePath, 'GET', undefined, bob))).status, 403)
   const path = '/api/calls/last-response?api_id=victim&buyer_wallet=' + b
-  const bobAccess = issuePurchaseAccess({ purchaseId: 'purchase-b', apiId: 'victim', buyerWallet: b })
+  const bobAccess = issuePurchaseAccess({ purchaseId: 'purchase-a', apiId: 'victim', buyerWallet: b })
   const response = await last.GET(request(path, 'GET', undefined, { [PURCHASE_ACCESS_HEADER]: bobAccess }))
   assert.equal(response.status, 403)
   assert.notEqual((await response.json()).response_body, 'private A')
 
   const aliceAccess = issuePurchaseAccess({ purchaseId: 'purchase-a', apiId: 'victim', buyerWallet: a })
   assert.equal((await last.GET(request(path, 'GET', undefined, { [PURCHASE_ACCESS_HEADER]: aliceAccess }))).status, 403)
+  const first = await last.GET(request(alicePath, 'GET', undefined, { [PURCHASE_ACCESS_HEADER]: aliceAccess }))
+  assert.equal((await first.json()).response_body, 'private A')
+  const secondAccess = issuePurchaseAccess({ purchaseId: 'purchase-b', apiId: 'victim', buyerWallet: a })
+  const second = await last.GET(request(alicePath, 'GET', undefined, { [PURCHASE_ACCESS_HEADER]: secondAccess }))
+  assert.equal((await second.json()).response_body, 'private B')
 })
 
 test('purchase read capability cannot authorize a state-changing action', async () => {

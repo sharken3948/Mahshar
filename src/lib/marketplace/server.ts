@@ -7,7 +7,9 @@ import { MarketplaceError, OPERATION_AUTH_DOMAIN, OPERATION_AUTH_HEADER, OPERATI
   OPERATION_AUTH_TYPES, authorizationMessage, decodeAuthorizationProof, requestPayload } from './operation-authorization'
 
 export function marketplaceOrigin() {
-  const origin = process.env.MARKETPLACE_ORIGIN ?? (process.env.NODE_ENV === 'development' ? 'http://localhost:3000' : 'https://mahshar.xyz')
+  const configured = process.env.MARKETPLACE_ORIGIN?.trim()
+  if (!configured && process.env.NODE_ENV === 'production') throw new Error('MARKETPLACE_ORIGIN is required in production')
+  const origin = configured || 'http://localhost:3000'
   const url = new URL(origin)
   if (url.origin !== origin || (url.protocol !== 'https:' && !(process.env.NODE_ENV !== 'production'
     && url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname)))) throw new Error('Invalid marketplace origin')

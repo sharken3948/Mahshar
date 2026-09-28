@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { isValidWalletAddress } from '@/lib/wallet-validation';
 import type { CreditBalance } from '@/types';
+import { readBoundedJson, RequestBodyError } from '@/lib/request-body';
 
 export const runtime = 'nodejs';
 
@@ -31,18 +32,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const body = await request.json() as {
+  let body: {
     action: 'topup' | 'deduct';
     buyer_wallet: string;
     amount_usdc: number;
     api_id?: string;
     tx_hash?: string;
   };
+  try { body = await readBoundedJson<typeof body>(request, 16 * 1024) }
+  catch (error) {
+    const tooLarge = error instanceof RequestBodyError && error.code === 'body_too_large'
+    return NextResponse.json({ error: tooLarge ? 'request_too_large' : 'invalid_request' }, { status: tooLarge ? 413 : 400 })
+  }
+
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
+  }
 
   const { action, buyer_wallet, amount_usdc, api_id, tx_hash } = body;
 
   if (!action || !buyer_wallet || !amount_usdc) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+  }
+  if (action !== 'topup' && action !== 'deduct') {
+    return NextResponse.json({ error: 'Unknown credits action' }, { status: 400 });
   }
   if (!isValidWalletAddress(buyer_wallet)) {
     return NextResponse.json({ error: 'Invalid buyer_wallet address' }, { status: 400 });
@@ -55,10 +68,12 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceClient();
 
   if (action === 'deduct') {
-    // C1: single atomic UPDATE — prevents race condition / double-spend
-    const { data: rpcResult, error: rpcError } = await supabase.rpc('deduct_credits_atomic', {
+    if (!api_id || !tx_hash) return NextResponse.json({ error: 'api_id and tx_hash are required for deductions' }, { status: 400 })
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('deduct_credits_and_record_purchase', {
       p_wallet: normalizedBuyerWallet,
       p_amount: amount_usdc,
+      p_api_id: api_id,
+      p_tx_hash: tx_hash,
     });
     if (rpcError) return NextResponse.json({ error: rpcError.message }, { status: 500 });
 
@@ -67,33 +82,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient credits', balance_usdc: result.balance_usdc }, { status: 402 });
     }
 
-    if (api_id) {
-      const { error: insertError } = await supabase.from('purchases').insert({
-        buyer_wallet: normalizedBuyerWallet,
-        api_id,
-        amount_usdc,
-        tx_hash: tx_hash ?? `credit-${Date.now()}`,
-      });
-      if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
-    }
-
     return NextResponse.json({ balance_usdc: result.balance_usdc });
   }
 
-  // topup
-  const { data: existing } = await supabase
-    .from('credit_balances')
-    .select('balance_usdc')
-    .eq('buyer_wallet', normalizedBuyerWallet)
-    .single<CreditBalance>();
-
-  const newBalance = (existing?.balance_usdc ?? 0) + amount_usdc;
-  const { error: topupError } = await supabase.from('credit_balances').upsert({
-    buyer_wallet: normalizedBuyerWallet,
-    balance_usdc: newBalance,
-    updated_at: new Date().toISOString(),
+  const { data: topupResult, error: topupError } = await supabase.rpc('topup_credits_atomic', {
+    p_wallet: normalizedBuyerWallet,
+    p_amount: amount_usdc,
   });
   if (topupError) return NextResponse.json({ error: topupError.message }, { status: 500 });
-
-  return NextResponse.json({ balance_usdc: newBalance });
+  const result = topupResult as { ok: boolean; balance_usdc: number }
+  if (!result?.ok) return NextResponse.json({ error: 'Credit topup failed' }, { status: 500 })
+  return NextResponse.json({ balance_usdc: result.balance_usdc });
 }

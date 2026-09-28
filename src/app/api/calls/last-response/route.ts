@@ -34,7 +34,7 @@ export const GET = marketplaceErrors(async (request: NextRequest) => {
   let purchaseQuery = supabase.from('purchases').select('id')
     .eq('api_id', apiId).eq('buyer_wallet', buyerWallet)
   if (purchaseId) purchaseQuery = purchaseQuery.eq('id', purchaseId)
-  const { data: purchase, error: purchaseError } = await purchaseQuery.limit(1).maybeSingle()
+  const { data: purchase, error: purchaseError } = await purchaseQuery.order('created_at', { ascending: false }).limit(1).maybeSingle()
   if (purchaseError) return NextResponse.json({ error: 'Purchase lookup failed' }, { status: 500 })
   if (!purchase) return NextResponse.json({ error: 'Purchase access denied' }, { status: 403 })
   const { data, error } = await supabase
@@ -42,9 +42,10 @@ export const GET = marketplaceErrors(async (request: NextRequest) => {
     .select('response_body')
     .eq('api_id', apiId)
     .eq('buyer_wallet', buyerWallet.toLowerCase())
+    .eq('purchase_id', purchase.id)
     .eq('success', true)
     .not('response_body', 'is', null)
-    .order('created_at', { ascending: false })
+    .gte('response_expires_at', new Date().toISOString())
     .limit(1)
     .single()
 

@@ -9,6 +9,8 @@ import { validateEndpointUrl } from '@/lib/url-validation';
 import { OutboundPolicyError, safeOutboundFetch } from '@/lib/outbound-fetch';
 import { readResponseBytes } from '@/lib/proxy-response';
 import type { AuthType } from '@/types';
+import { enforceRateLimit } from '@/lib/rate-limit';
+import { readBoundedJson, RequestBodyError } from '@/lib/request-body';
 
 export const runtime = 'nodejs';
 
@@ -25,7 +27,7 @@ export interface EndpointTestDiagnostic {
   response_snippet: string | null;
 }
 
-const TRANSIENT_STATUSES = new Set([429, 502, 503, 504]);
+const TRANSIENT_STATUSES = new Set([408, 429, 502, 503, 504]);
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE']);
 
 const STATUS_LABELS: Record<number, string> = {
@@ -49,7 +51,7 @@ function needsRequestBody(exampleRequest: string | undefined): boolean {
 
 function isTransientStatus(status: number | null, timedOut: boolean): boolean {
   if (timedOut) return true;
-  return status != null && TRANSIENT_STATUSES.has(status);
+  return status != null && (TRANSIENT_STATUSES.has(status) || status >= 500);
 }
 
 function statusLabel(status: number | null): string {
@@ -80,7 +82,10 @@ function hardBlock(
 }
 
 export const POST = withOperationAuthorization(async (request: NextRequest, authenticatedWallet: string) => {
-  const body = await request.json() as {
+  const limited = await enforceRateLimit({ request, scope: 'ai-score', limit: 10, windowSeconds: 60,
+    dimensions: [authenticatedWallet], failClosed: true })
+  if (limited) return limited
+  let body: {
     api_id?: string;
     name: string;
     category: string;
@@ -94,6 +99,15 @@ export const POST = withOperationAuthorization(async (request: NextRequest, auth
     auth_param_name?: string;
     expected_status_codes?: number[];
   };
+  try { body = await readBoundedJson<typeof body>(request, 64 * 1024) }
+  catch (error) {
+    const tooLarge = error instanceof RequestBodyError && error.code === 'body_too_large'
+    return NextResponse.json({ error: tooLarge ? 'request_too_large' : 'invalid_request' }, { status: tooLarge ? 413 : 400 })
+  }
+
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
+  }
 
   assertWalletClaim((body as { seller_wallet?: unknown }).seller_wallet, authenticatedWallet);
   const db = createServiceClient();
@@ -360,14 +374,12 @@ export const POST = withOperationAuthorization(async (request: NextRequest, auth
     return NextResponse.json({ error: message }, { status: 500 });
   }
 
-  // Treat a Groq-approved declared expected-failure as verified so activation is allowed
-  // (credentialProxyAllowed requires verified_at when the listing has an auth key).
-  const declaredExpectedApproved = realTestResult?.declared_expected === true && result.approved;
-
   if (api_id) {
     const updates: Record<string, unknown> = { score: result.score };
     if (result.approved) updates.consecutive_transient_count = 0;
-    if (realTestResult?.success || declaredExpectedApproved) updates.verified_at = new Date().toISOString();
+    // Model approval is advisory. Only a successful live endpoint probe can
+    // grant the security-relevant verified state.
+    if (realTestResult?.success === true) updates.verified_at = new Date().toISOString();
     const { data: saved, error: scoreError } = await matchListingConfiguration(supabase
       .from('api_listings').update(updates).eq('id', api_id).ilike('seller_wallet', authenticatedWallet), persistedListing!).select('id');
     if (!scoreError && !saved?.length) return NextResponse.json({ error: 'Listing changed during review; retry' }, { status: 409 });
@@ -378,7 +390,7 @@ export const POST = withOperationAuthorization(async (request: NextRequest, auth
 
   return NextResponse.json({
     ...result,
-    endpoint_verified: realTestResult?.success === true || declaredExpectedApproved,
+    endpoint_verified: realTestResult?.success === true,
     endpoint_test_note: endpointTestNote,
     endpoint_test_diagnostic: diagnostic,
     field_errors: [] satisfies FieldError[],

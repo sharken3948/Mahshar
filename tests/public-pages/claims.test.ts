@@ -28,8 +28,9 @@ test('Agents page claims are backed by the public machine contract and examples'
   assert.match(harness, /DRY RUN:.*no payment was signed or sent/)
   assert.match(retrieval, /\.eq\('api_id', apiId\)/)
   assert.match(retrieval, /\.eq\('buyer_wallet', buyerWallet\.toLowerCase\(\)\)/)
-  assert.match(agents, /latest successful private response for that API and buyer wallet/)
-  assert.doesNotMatch(agents, /latest successful private response for that purchase/)
+  assert.match(retrieval, /\.eq\('purchase_id', purchase\.id\)/)
+  assert.match(agents, /private response for that exact purchase/)
+  assert.doesNotMatch(agents, /latest successful private response for that API and buyer wallet/)
 })
 
 test('Docs provider, auth, payment, and wallet statements match current implementations', () => {

@@ -47,7 +47,7 @@ test('withdrawal consumes a valid nonce before seller accounting and rejects rep
   const body = await withdrawalBody()
   const first = await withdraw(request('/api/seller/withdraw', body))
   assert.equal(first.status, 400)
-  assert.equal((await first.json()).error, 'No listings for this seller')
+  assert.equal((await first.json()).error, 'Insufficient withdrawable balance.')
   assert.equal(state.tables.withdraw_used_nonces.length, 1)
 
   const replay = await withdraw(request('/api/seller/withdraw', body))

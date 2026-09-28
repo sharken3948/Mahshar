@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   pad, parseUnits, maxUint256, formatUnits,
   createPublicClient, createWalletClient, http,
-  type Hex,
+  verifyMessage, type Hex,
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { randomBytes } from 'node:crypto'
@@ -102,10 +102,6 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
 
   const supabase = createServiceClient()
 
-  const chain = arcMainnet
-  const rpcUrl = process.env.ARC_MAINNET_RPC_URL
-  const publicClient = createPublicClient({ chain, transport: http(rpcUrl) })
-
   // ── Signature auth ───────────────────────────────────────────────────────
   const { timestamp, nonce, signature } = body
   if (!timestamp || !nonce || !signature) {
@@ -123,7 +119,7 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
   })
   let sigValid: boolean
   try {
-    sigValid = await publicClient.verifyMessage({
+    sigValid = await verifyMessage({
       address: sellerWallet as `0x${string}`,
       message: authMessage,
       signature: signature as `0x${string}`,
@@ -144,68 +140,39 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
     return NextResponse.json({ error: nonceErr.message }, { status: 500 })
   }
 
-  // ── Per-seller cooldown ──────────────────────────────────────────────────
-  const cooldownCutoff = new Date(Date.now() - WITHDRAW_COOLDOWN_SECONDS * 1000).toISOString()
-  const { data: recentRow, error: cooldownErr } = await supabase
-    .from('seller_withdrawals')
-    .select('id')
-    .ilike('seller_wallet', sellerWallet)
-    .in('status', ['pending_mint', 'minted', 'failed'])
-    .gte('created_at', cooldownCutoff)
-    .limit(1)
-    .maybeSingle()
-  if (cooldownErr) return NextResponse.json({ error: cooldownErr.message }, { status: 500 })
-  if (recentRow) {
-    return NextResponse.json(
+  const networkId = 'eip155:5042'
+
+  // This SECURITY DEFINER RPC is the sole balance/cooldown/insert decision.
+  // Its advisory transaction lock serializes all requests for this seller.
+  const { data: reserved, error: reservationError } = await supabase.rpc('mahshar_reserve_seller_withdrawal', {
+    p_seller_wallet: sellerWallet.toLowerCase(),
+    p_amount_usdc: Number(requestedAmount.toFixed(6)),
+    p_network_id: networkId,
+  })
+  if (reservationError || !reserved) {
+    const message = reservationError?.message ?? 'Withdrawal reservation failed'
+    if (/cooldown/i.test(message)) return NextResponse.json(
       { error: 'Please wait a minute before requesting another withdrawal.' },
       { status: 429, headers: { 'Retry-After': String(WITHDRAW_COOLDOWN_SECONDS) } },
     )
+    if (/insufficient/i.test(message)) return NextResponse.json({ error: 'Insufficient withdrawable balance.' }, { status: 400 })
+    if (reservationError?.code === '23505') return NextResponse.json(
+      { error: 'A withdrawal is already in progress for this seller. Wait for it to complete or expire.' }, { status: 409 })
+    return NextResponse.json({ error: 'Withdrawal reservation unavailable' }, { status: 503 })
+  }
+  const reservedRow = (Array.isArray(reserved) ? reserved[0] : reserved) as { id?: string }
+  if (!reservedRow?.id) return NextResponse.json({ error: 'Withdrawal reservation unavailable' }, { status: 503 })
+  const withdrawalId = reservedRow.id
+
+  const expireReservation = async () => {
+    await supabase.from('seller_withdrawals').update({ status: 'expired' })
+      .eq('id', withdrawalId).eq('status', 'pending_mint')
   }
 
-  // ── Balance check ────────────────────────────────────────────────────────
-  const { data: apis, error: apisErr } = await supabase
-    .from('api_listings')
-    .select('id')
-    .ilike('seller_wallet', sellerWallet)
-  if (apisErr) return NextResponse.json({ error: apisErr.message }, { status: 500 })
-  const apiIds = (apis ?? []).map(a => a.id)
-  if (apiIds.length === 0) {
-    return NextResponse.json({ error: 'No listings for this seller' }, { status: 400 })
-  }
-
-  const { data: earned, error: earnedErr } = await supabase
-    .from('purchases')
-    .select('seller_share_usdc')
-    .in('api_id', apiIds)
-  if (earnedErr) return NextResponse.json({ error: earnedErr.message }, { status: 500 })
-  const totalEarned = (earned ?? []).reduce(
-    (s, r) => s + (r.seller_share_usdc == null ? 0 : (Number(r.seller_share_usdc) || 0)),
-    0,
-  )
-
-  // Consumed = any withdrawal that touched Circle's Gateway API (attestation
-  // issued → balance reserved), regardless of on-chain outcome. Failed rows
-  // consume too until ops manually reconciles.
-  const { data: outstanding, error: outstandingErr } = await supabase
-    .from('seller_withdrawals')
-    .select('amount_usdc')
-    .ilike('seller_wallet', sellerWallet)
-    .in('status', ['pending_mint', 'minted', 'failed'])
-  if (outstandingErr) return NextResponse.json({ error: outstandingErr.message }, { status: 500 })
-  const totalOutstanding = (outstanding ?? []).reduce(
-    (s, r) => s + (Number(r.amount_usdc) || 0),
-    0,
-  )
-
-  const balance = totalEarned - totalOutstanding
-  if (requestedAmount > balance + 1e-9) {
-    return NextResponse.json(
-      { error: `Insufficient balance: have ${balance.toFixed(6)}, requested ${requestedAmount.toFixed(6)}` },
-      { status: 400 },
-    )
-  }
-
-  const networkId = 'eip155:5042'
+  const chain = arcMainnet
+  const rpcUrl = process.env.ARC_MAINNET_RPC_URL
+  const rpcTransport = http(rpcUrl, { timeout: 10_000, retryCount: 0 })
+  const publicClient = createPublicClient({ chain, transport: rpcTransport })
 
   const account = privateKeyToAccount(PLATFORM_PRIVATE_KEY)
   const platform = account.address
@@ -228,12 +195,18 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
   } catch {
     gasUsedEstimate = GAS_FALLBACK
   }
-  const gasPrice = await publicClient.getGasPrice()
+  let gasPrice: bigint
+  try { gasPrice = await publicClient.getGasPrice() }
+  catch {
+    await expireReservation()
+    return NextResponse.json({ error: 'Arc RPC is unavailable for fee estimation.' }, { status: 503 })
+  }
   const rawGasCost = (gasUsedEstimate * gasPrice * GAS_BUFFER_PERCENT) / BigInt(100)
   const gasCostAtomic = rawGasCost / NATIVE_TO_USDC_DIVISOR
 
   const requestedAtomic = parseUnits(requestedAmount.toFixed(6), 6)
   if (gasCostAtomic >= requestedAtomic) {
+    await expireReservation()
     return NextResponse.json(
       { error: `Requested amount ${formatUnits(requestedAtomic, 6)} USDC is below estimated gas cost ${formatUnits(gasCostAtomic, 6)} USDC. Nothing to send.` },
       { status: 400 },
@@ -243,9 +216,8 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
 
   // ── Gateway balance pre-check ─────────────────────────────────────────────
   // Confirm the platform depositor has enough confirmed balance before
-  // inserting a pending_mint row or calling /v1/transfer. Fails open on
-  // transient errors — Circle will reject the burn intent if balance is
-  // still insufficient.
+  // calling /v1/transfer. Unknown balance is not treated as zero and does not
+  // proceed into a money-moving operation.
   try {
     const balanceRes = await fetch(`${ARC.gatewayApi}/balances`, {
       method: 'POST',
@@ -257,26 +229,33 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
         token: 'USDC',
         sources: [{ depositor: platform, domain: ARC.gatewayDomain }],
       }),
+      signal: AbortSignal.timeout(10_000),
     })
-    if (balanceRes.ok) {
-      const balanceData = await balanceRes.json().catch(() => null) as {
-        token?: string
-        balances?: Array<{ domain?: number; depositor?: string; balance?: string; pendingBatch?: string }>
-      } | null
-      const availableStr = balanceData?.balances?.[0]?.balance
-      if (availableStr != null) {
-        const availableAtomic = parseUnits(availableStr, 6)
-        if (availableAtomic < netAtomic) {
-          return NextResponse.json(
-            { error: 'Settlement is still pending, please try again in a few minutes.' },
-            { status: 409 },
-          )
-        }
-      }
+    if (!balanceRes.ok) {
+      await balanceRes.body?.cancel().catch(() => undefined)
+      await expireReservation()
+      return NextResponse.json({ error: 'Gateway balance service unavailable.' }, { status: 502 })
+    }
+    const balanceData = await balanceRes.json().catch(() => null) as {
+      token?: string
+      balances?: Array<{ domain?: number; depositor?: string; balance?: string; pendingBatch?: string }>
+    } | null
+    const availableStr = balanceData?.balances?.[0]?.balance
+    if (typeof availableStr !== 'string' || !/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(availableStr)) {
+      await expireReservation()
+      return NextResponse.json({ error: 'Gateway balance response was invalid.' }, { status: 502 })
+    }
+    const availableAtomic = parseUnits(availableStr, 6)
+    if (availableAtomic < netAtomic) {
+      await expireReservation()
+      return NextResponse.json(
+        { error: 'Settlement is still pending, please try again in a few minutes.' },
+        { status: 409 },
+      )
     }
   } catch {
-    // Fail open: transient error querying Gateway balance — proceed and let
-    // /v1/transfer reject if funds are genuinely unavailable.
+    await expireReservation()
+    return NextResponse.json({ error: 'Gateway balance service unavailable.' }, { status: 503 })
   }
 
   // ── Build burn intent ────────────────────────────────────────────────────
@@ -304,40 +283,26 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
     spec,
   }
 
-  // ── Insert pending_mint row BEFORE signing or calling Circle ─────────────
-  // The unique index on (lower(seller_wallet)) WHERE status = 'pending_mint'
-  // makes this the serialization point: concurrent requests all pass the
-  // balance check above but only one can insert — the rest get 409.
+  // ── Finalize the already-durable reservation before calling Circle ───────
   const burnIntentSerialized: unknown = JSON.parse(JSON.stringify(burnIntent, bigintReplacer))
   const requestedNum = Number(formatUnits(requestedAtomic, 6))
   const netNum = Number(formatUnits(netAtomic, 6))
   const gasNum = Number(formatUnits(gasCostAtomic, 6))
-  const { data: inserted, error: insertErr } = await supabase
+  const { data: prepared, error: prepareError } = await supabase
     .from('seller_withdrawals')
-    .insert({
-      seller_wallet: sellerWallet.toLowerCase(),
-      network_id: networkId,
-      amount_usdc: requestedNum,
+    .update({
       net_amount_usdc: netNum,
       gas_cost_usdc: gasNum,
       burn_intent: burnIntentSerialized,
-      // attestation and attestation_signature intentionally null until Circle responds
     })
+    .eq('id', withdrawalId)
+    .eq('status', 'pending_mint')
     .select('id')
     .single()
-  if (insertErr) {
-    if (insertErr.code === '23505') {
-      return NextResponse.json(
-        { error: 'A withdrawal is already in progress for this seller. Wait for it to complete or expire.' },
-        { status: 409 },
-      )
-    }
-    return NextResponse.json({ error: insertErr.message }, { status: 500 })
+  if (prepareError || !prepared) {
+    await expireReservation()
+    return NextResponse.json({ error: 'Failed to finalize withdrawal reservation' }, { status: 500 })
   }
-  if (!inserted) {
-    return NextResponse.json({ error: 'Failed to record withdrawal' }, { status: 500 })
-  }
-  const withdrawalId = inserted.id as string
 
   // ── Sign burn intent ─────────────────────────────────────────────────────
   let burnSignature: Hex
@@ -350,11 +315,7 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    await supabase
-      .from('seller_withdrawals')
-      .update({ status: 'expired' })
-      .eq('id', withdrawalId)
-      .eq('status', 'pending_mint')
+    await expireReservation()
     return NextResponse.json({ error: `Failed to sign burn intent: ${message}` }, { status: 500 })
   }
 
@@ -374,6 +335,7 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
         ...arcPrivateMainnetHeaders(true),
       },
       body: JSON.stringify([{ burnIntent, signature: burnSignature }], bigintReplacer),
+      signal: AbortSignal.timeout(10_000),
     })
     gatewayResult = await gatewayRes.json().catch(() => ({})) as typeof gatewayResult
     if (
@@ -384,11 +346,7 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
       !gatewayResult.signature
     ) {
       // Clean rejection: Circle definitively refused — safe to expire the row.
-      await supabase
-        .from('seller_withdrawals')
-        .update({ status: 'expired' })
-        .eq('id', withdrawalId)
-        .eq('status', 'pending_mint')
+      await expireReservation()
       const detail = gatewayResult.message ?? gatewayResult.error ?? JSON.stringify(gatewayResult)
       return NextResponse.json({ error: `Gateway API error: ${detail}` }, { status: 502 })
     }
@@ -417,7 +375,7 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
     .eq('status', 'pending_mint')
   if (attErr) {
     console.error(
-      `[withdraw-orphan] withdrawal=${withdrawalId} seller=${sellerWallet} attestation=${gatewayResult.attestation} signature=${gatewayResult.signature} db_error=${attErr.message}`,
+      `[withdraw-orphan] withdrawal=${withdrawalId} seller=${sellerWallet.toLowerCase()} db_error=${attErr.message}`,
     )
     return NextResponse.json(
       { error: `Failed to store attestation: ${attErr.message}` },
@@ -426,7 +384,7 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
   }
 
   // ── Submit gatewayMint from platform wallet ──────────────────────────────
-  const walletClient = createWalletClient({ account, chain, transport: http(rpcUrl) })
+  const walletClient = createWalletClient({ account, chain, transport: rpcTransport })
   let mintTxHash: Hex
   try {
     mintTxHash = await walletClient.writeContract({

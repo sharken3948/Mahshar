@@ -13,3 +13,4 @@ Module._load = function(specifier, parent, isMain) {
 process.env.PLATFORM_WALLET_ADDRESS = '0x' + '44'.repeat(20)
 process.env.PLATFORM_WALLET_PRIVATE_KEY = '0x' + 'ab'.repeat(32)
 process.env.ENCRYPTION_KEY = 'ab'.repeat(32)
+process.env.MARKETPLACE_ORIGIN = 'https://mahshar.xyz'

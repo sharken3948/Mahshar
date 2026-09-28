@@ -37,7 +37,8 @@ export async function enforceRateLimit(input: {
 }): Promise<NextResponse | null> {
   try {
     const hasTrustedIp = trustedClientDimension(input.request) !== 'ip:unavailable'
-    const effectiveLimit = hasTrustedIp ? input.limit : Math.min(10000, input.limit * 10)
+    const effectiveLimit = hasTrustedIp || (input.dimensions?.length ?? 0) > 0
+      ? input.limit : Math.min(10000, input.limit * 10)
     const { data, error } = await (input.database ?? createServiceClient()).rpc('mahshar_take_rate_limit', {
       p_key_hash: rateLimitIdentity(input.request, input.scope, input.dimensions),
       p_limit: effectiveLimit,

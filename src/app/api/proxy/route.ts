@@ -1,6 +1,6 @@
 import { credentialProxyAllowed } from '@/lib/marketplace/listing-security'
 import { NextRequest, NextResponse, after } from 'next/server'
-import { proxyRequest } from '@/lib/proxy'
+import { proxyRequest, proxyResponseEnvelope } from '@/lib/proxy'
 import { verifyAndSettlePayment, build402Response, paymentInfrastructureStatus, paymentResponseHeader } from '@/lib/gateway'
 import { paymentErrorMessage } from '@/lib/payments/errors'
 import { writeMemo } from '@/lib/memo'
@@ -10,13 +10,16 @@ import { issuePurchaseAccess } from '@/lib/marketplace/purchase-access'
 import { settlementStore } from '@/lib/payments/server'
 import { beginDelivery, DeliveryRequestMismatchError, deliveryError, deliveryRequestHash, finishDelivery } from '@/lib/payments/delivery'
 import { enforceRateLimit } from '@/lib/rate-limit'
+import { authorizeProxyTarget, ProxyTargetError } from '@/lib/marketplace/proxy-target'
+import { marketplaceOrigin } from '@/lib/marketplace/server'
+import { readBoundedJson, RequestBodyError } from '@/lib/request-body'
 
 export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
   const ingressLimit = await enforceRateLimit({ request, scope: 'proxy-ingress', limit: 180, windowSeconds: 60, failClosed: true })
   if (ingressLimit) return ingressLimit
-  const body = await request.json().catch(() => null) as {
+  let body: {
     api_id: string
     buyer_wallet: string
     method?: unknown
@@ -24,6 +27,11 @@ export async function POST(request: NextRequest) {
     incomingHeaders?: Record<string, string>
     body?: unknown
   } | null
+  try { body = await readBoundedJson<typeof body>(request, 256 * 1024) }
+  catch (error) {
+    const tooLarge = error instanceof RequestBodyError && error.code === 'body_too_large'
+    return NextResponse.json({ error: tooLarge ? 'request_too_large' : 'invalid_request' }, { status: tooLarge ? 413 : 400 })
+  }
 
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return NextResponse.json({ error: 'invalid_request', message: 'A JSON proxy envelope is required.' }, { status: 400 })
@@ -39,7 +47,7 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceClient()
   const { data: listing, error } = await supabase
     .from('api_listings')
-    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method')
+    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method, endpoint_url, auth_type, auth_param_name, dynamic_path_supported, path_parameters, query_parameters')
     .eq('id', api_id)
     .single()
 
@@ -60,6 +68,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: resolvedMethod.error }, { status: 400 })
   }
 
+  let canonicalTarget: string
+  try { canonicalTarget = authorizeProxyTarget(listing, path ?? '').toString() }
+  catch (targetError) {
+    const code = targetError instanceof ProxyTargetError ? targetError.code : 'invalid_dynamic_path'
+    return NextResponse.json({ error: code }, { status: 400 })
+  }
+
   // Check for payment
   const paymentSignature = request.headers.get('payment-signature')
   if (!paymentSignature) {
@@ -69,7 +84,7 @@ export async function POST(request: NextRequest) {
     if (!infrastructure.ready) {
       return NextResponse.json({ error: infrastructure.error, message: paymentErrorMessage(infrastructure.error) }, { status: infrastructure.status })
     }
-    return build402Response(priceUsd, new URL('/api/proxy', request.url).toString())
+    return build402Response(priceUsd, new URL('/api/proxy', marketplaceOrigin()).toString())
   }
 
   const verificationLimit = await enforceRateLimit({ request, scope: 'proxy-payment', limit: 60, windowSeconds: 60, dimensions: [api_id], failClosed: true })
@@ -100,7 +115,7 @@ export async function POST(request: NextRequest) {
   let delivery
   try {
     delivery = await beginDelivery(settlementStore(), paymentResult.attemptId, deliveryRequestHash({
-      apiId: api_id, method: resolvedMethod.method, path: path ?? '', body: reqBody,
+      apiId: api_id, method: resolvedMethod.method, target: canonicalTarget, body: reqBody,
     }))
   } catch (error) {
     const mismatch = error instanceof DeliveryRequestMismatchError
@@ -125,8 +140,12 @@ export async function POST(request: NextRequest) {
     apiId: api_id,
     buyerWallet: paymentResult.payer,
     paymentType: 'pay-per-call',
+    purchaseId: paymentResult.callId,
+    deliveryAttemptId: paymentResult.attemptId,
+    purchaseAccessToken,
     method: resolvedMethod.method,
-    path: path ?? '',
+    dynamicPath: path ?? '',
+    canonicalTarget,
     incomingHeaders: incomingHeaders ?? {},
     body: reqBody,
   })
@@ -141,6 +160,14 @@ export async function POST(request: NextRequest) {
     persistedDeliveryState = 'UNKNOWN'
   }
 
+  if (result.deliveryOutcome === 'succeeded' && persistedDeliveryState !== 'SUCCEEDED') {
+    return NextResponse.json({
+      error: 'delivery_state_unavailable', payment: 'ACCOUNTING_COMPLETE', delivery_state: 'UNKNOWN', retryable: false,
+      attemptId: paymentResult.attemptId, purchase_access_token: purchaseAccessToken,
+      ...(result.responsePersisted ? { retrieve_response: '/api/calls/last-response' } : {}),
+    }, { status: 503, headers: paidHeaders })
+  }
+
   // Deferred via `after` so the memo tx is guaranteed to complete on Vercel
   // serverless — a bare fire-and-forget promise freezes when the response ships.
   if (persistedDeliveryState === 'SUCCEEDED' || persistedDeliveryState === 'FAILED_FINAL') after(() =>
@@ -152,15 +179,8 @@ export async function POST(request: NextRequest) {
   )
 
   return NextResponse.json(
-    {
-      response: result.body,
-      latency_ms: result.latencyMs,
-      payment: 'ACCOUNTING_COMPLETE',
-      delivery_state: persistedDeliveryState,
-      retryable: persistedDeliveryState === 'FAILED_RETRYABLE',
-      attemptId: paymentResult.attemptId,
-      purchase_access_token: purchaseAccessToken,
-    },
+    proxyResponseEnvelope({ body: result.body, latencyMs: result.latencyMs, deliveryState: persistedDeliveryState,
+      retryable: persistedDeliveryState === 'FAILED_RETRYABLE', attemptId: paymentResult.attemptId, purchaseAccessToken }),
     { status: result.status, headers: paidHeaders }
   )
 }

@@ -133,9 +133,9 @@ for (const v of activatable) {
   console.log(`  ${v.name ?? '—'}  →  ${v.tested_url}`)
 }
 
-const DRY_RUN = process.argv.includes('--dry-run')
-if (DRY_RUN) {
-  console.log('\n--dry-run flag set — no updates written.')
+const LIVE = process.argv.includes('--live')
+if (!LIVE) {
+  console.log('\nDry run (default) — no updates written. Pass --live to activate the reviewed rows.')
   process.exit(0)
 }
 

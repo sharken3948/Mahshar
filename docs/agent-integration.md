@@ -62,7 +62,7 @@ Never create a new authorization merely because delivery did not succeed.
 ## Purchased-response access and recovery
 
 Persist `purchase_access_token` scoped by normalized wallet and API ID. Retrieve
-the latest successful private response from
+the private response for that exact purchase from
 `GET /api/calls/last-response?api_id=...&buyer_wallet=...` with
 `x-mahshar-purchase-access`. A legacy purchase without a capability may send one
 operation-specific `x-mahshar-authorization` wallet proof once; ownership is
@@ -85,7 +85,7 @@ edge proxy overwrites (`x-forwarded-for`, `x-real-ip`, or `cf-connecting-ip`).
 Without a trusted edge identity Mahshar uses a higher, shared global fallback
 bucket instead of trusting caller-supplied forwarding headers.
 
-Upstream redirects are rejected. Upstream bodies over 5 MiB return HTTP 502.
+Upstream redirects are rejected. Final serialized response wrappers over 4,000,000 bytes return HTTP 502.
 Upstream JSON is returned as JSON; text and malformed JSON are returned as a
 string inside the wrapper. Upstream 4xx/5xx status is preserved. Inspect
 `delivery_state` before deciding whether any replay is allowed.

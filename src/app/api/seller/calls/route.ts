@@ -1,5 +1,5 @@
-import { marketplaceErrors } from '@/lib/marketplace/server'
-import { normalizedWallet } from '@/lib/marketplace/operation-authorization'
+import { withOperationAuthorization } from '@/lib/marketplace/server'
+import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 
@@ -18,9 +18,9 @@ interface ApiListingRow {
   name: string
 }
 
-export const GET = marketplaceErrors(async (request: NextRequest) => {
+export const GET = withOperationAuthorization(async (request: NextRequest, sellerWallet: string) => {
   const { searchParams } = new URL(request.url)
-  const sellerWallet = normalizedWallet(searchParams.get('seller_wallet'))
+  assertWalletClaim(searchParams.get('seller_wallet'), sellerWallet)
 
   const supabase = createServiceClient()
 

@@ -5,7 +5,7 @@ import { state, renderStart, timers, timerDelays, visibilityHandlers } from './r
 import { DashboardWorkspaceProvider } from '../../src/app/dashboard/dashboard-workspace'
 import { REFRESH_INTERVAL_MS } from '../../src/hooks/useVisibilityRefresh'
 
-test('wallet connect loads read-only dashboard data without signatures or transactions', async () => {
+test('wallet connect authorizes private dashboard reads without wallet transactions', async () => {
   function render() {
     renderStart()
     const shell=DashboardWorkspaceProvider({children:null})
@@ -42,6 +42,6 @@ test('wallet connect loads read-only dashboard data without signatures or transa
   for(const timer of timers)timer()
   for(let i=0;i<12;i++)await setImmediate()
   assert.equal(state.requests.filter(url=>url.startsWith('/api/seller/statistics/')).length,4)
-  assert.equal(state.signatures,0);assert.equal(state.writes,0)
+  assert.ok(state.signatures > 0);assert.equal(state.writes,0)
   assert.ok(!state.requests.some(url=>url.includes('/challenge')||url.includes('/session')))
 })

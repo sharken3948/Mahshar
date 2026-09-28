@@ -2,6 +2,10 @@ import { safeOutboundFetch, type OutboundOptions, type PreparedOutboundRequest }
 
 export const MAX_UPSTREAM_DIAGNOSTIC_BODY_CHARS = 4096;
 
+export function serializedJsonByteLength(value: unknown) {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
 export function buildUpstreamFailureDiagnostic(status: number, contentType: string, rawBody: string) {
   return {
     upstream_status: status,

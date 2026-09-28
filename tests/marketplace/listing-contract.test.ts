@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
+import { normalizeExpectedStatusCodes } from '../../src/lib/marketplace/listing-security'
 
 test('OpenAPI and checked-in schema match the runtime listing contract', () => {
   const openapi = readFileSync('openapi.yaml', 'utf8')
@@ -19,6 +20,14 @@ test('seller listing editor preserves query-parameter authentication fields', ()
   assert.match(page, /editForm\.auth_type === 'queryparam'[\s\S]*editForm\.auth_param_name/)
   assert.match(workspace, /auth_param_name: api\.auth_param_name \?\? ''/)
   assert.match(workspace, /auth_param_name: nextAuthParamName/)
+})
+
+test('transient infrastructure statuses can never be declared expected', () => {
+  for (const status of [408, 429, 502, 503, 504]) {
+    const result = normalizeExpectedStatusCodes([status])
+    assert.equal(result.ok, false, String(status))
+  }
+  assert.deepEqual(normalizeExpectedStatusCodes([400, 404, 422]), { ok: true, codes: [400, 404, 422] })
 })
 
 test('buyer request-body modal displays the configured method instead of hard-coded POST', () => {

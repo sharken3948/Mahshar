@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { agentExecutionContract } from '@/lib/marketplace/agent-contract'
 import { enforceRateLimit } from '@/lib/rate-limit'
+import { marketplaceOrigin } from '@/lib/marketplace/server'
 
 export const runtime = 'nodejs'
 
@@ -36,12 +37,12 @@ interface CallStatsRow {
 
 export async function GET(request: NextRequest) {
   try {
-    const limited = await enforceRateLimit({ request, scope: 'agent-discover', limit: 120, windowSeconds: 60 })
+    const limited = await enforceRateLimit({ request, scope: 'agent-discover', limit: 120, windowSeconds: 60, failClosed: true })
     if (limited) return limited
     const supabase = createServiceClient()
 
     const url = new URL(request.url)
-    const publicOrigin = url.origin
+    const publicOrigin = marketplaceOrigin()
     const paymentRecipient = process.env.PLATFORM_WALLET_ADDRESS
     if (!paymentRecipient || !/^0x[\da-f]{40}$/i.test(paymentRecipient)) {
       return NextResponse.json({ error: 'payment_configuration_unavailable' }, { status: 503 })

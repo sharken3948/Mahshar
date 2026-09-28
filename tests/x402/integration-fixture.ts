@@ -19,7 +19,9 @@ export function createServiceClient() {
     const filters: Record<string, string> = {}
     const q = {
       select() { return q }, eq(k: string, v: string) { filters[k] = v; return q },
-      async single() { return { data: { id: apiId, name: 'fixture', price_per_call: 0.001, seller_wallet: seller, is_active: true, encrypted_key: null, method: state.listingMethod }, error: null } },
+      async single() { return { data: { id: apiId, name: 'fixture', price_per_call: 0.001, seller_wallet: seller,
+        is_active: true, encrypted_key: null, method: state.listingMethod, endpoint_url: 'https://seller.example/execute',
+        auth_type: 'public', auth_param_name: null, dynamic_path_supported: false, path_parameters: null, query_parameters: null }, error: null } },
       async maybeSingle() {
         if (table !== 'x402_settlement_attempts') throw new Error('unexpected table')
         const a = state.store.rows.get(filters.id)
@@ -35,8 +37,13 @@ export async function proxyRequest() {
     body: { fixture: true },
     latencyMs: 1,
     deliveryOutcome: state.deliveryOutcome ?? (state.upstreamStatus >= 200 && state.upstreamStatus < 300 ? 'succeeded' : 'failed_final'),
+    responsePersisted: state.upstreamStatus >= 200 && state.upstreamStatus < 300,
     ...(state.upstreamStatus >= 300 ? { errorCode: 'upstream_http_error' } : {}),
   }
+}
+export function proxyResponseEnvelope(input: { body: unknown; latencyMs: number; deliveryState: string; retryable: boolean; attemptId: string; purchaseAccessToken: string }) {
+  return { response: input.body, latency_ms: input.latencyMs, payment: 'ACCOUNTING_COMPLETE', delivery_state: input.deliveryState,
+    retryable: input.retryable, attemptId: input.attemptId, purchase_access_token: input.purchaseAccessToken }
 }
 export async function writeMemo() {}
 export function withWallet(handler: (r: Request, wallet: string) => Promise<Response>) {
@@ -46,3 +53,4 @@ export function withWallet(handler: (r: Request, wallet: string) => Promise<Resp
   }
 }
 export const withOperationAuthorization = withWallet
+export const marketplaceOrigin = () => 'https://mahshar.xyz'

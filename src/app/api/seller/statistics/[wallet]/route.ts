@@ -1,22 +1,24 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { aggregateSellerStatistics, paidCallCount, type SellerPurchaseRow, type SellerWithdrawalRow } from '@/lib/marketplace/seller-statistics'
-import { isValidWalletAddress } from '@/lib/wallet-validation'
 import { PUBLIC_LISTING_COLUMNS, publicListing } from '@/lib/marketplace/public-listing'
+import { withOperationAuthorization } from '@/lib/marketplace/server'
+import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
 
 export const runtime = 'nodejs'
 
 type Context = { params: Promise<{ wallet: string }> }
 
 /**
- * Public, read-only seller summary keyed by a public wallet address.
+ * Owner-authorized seller summary keyed by a public wallet address.
  *
  * The response is deliberately limited to aggregate purchase/accounting totals
- * and non-secret listing metadata needed to render the seller dashboard.
+ * and non-secret listing metadata needed to render the seller dashboard. A
+ * public address alone is not authorization to obtain these private totals.
  * Private edit configuration is fetched separately with an owner proof. It never returns credentials, buyer wallets, payout rows,
  * withdrawal rows or hashes, or response history.
  */
-export async function GET(_request: Request, { params }: Context) {
+export const GET = withOperationAuthorization(async (_request: NextRequest, authorizedWallet: string, { params }: Context) => {
   const { wallet: walletParam } = await params
   let sellerWallet: string
   try {
@@ -24,9 +26,7 @@ export async function GET(_request: Request, { params }: Context) {
   } catch {
     return NextResponse.json({ error: 'Invalid seller wallet' }, { status: 400 })
   }
-  if (!isValidWalletAddress(sellerWallet)) {
-    return NextResponse.json({ error: 'Invalid seller wallet' }, { status: 400 })
-  }
+  assertWalletClaim(sellerWallet, authorizedWallet)
 
   const supabase = createServiceClient()
   const { data: listings, error: listingsError } = await supabase
@@ -76,4 +76,4 @@ export async function GET(_request: Request, { params }: Context) {
     total_calls: paidCallCount(statistics),
     listings: safeListings,
   }, { headers: { 'Cache-Control': 'no-store' } })
-}
+})

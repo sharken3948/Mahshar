@@ -51,5 +51,6 @@ Module._load = function(id, parent, main) {
     return { useProductPreferences: () => ({ formatUsdc: value => String(value) }) }
   }
   if (id === '@/hooks/useVisibilityRefresh') return { useVisibilityRefresh: () => {} }
+  if (id === '@/hooks/useWalletAuthorization') return { useWalletAuthorization: () => ({ request: async () => Response.json({ gatewayAvailable: '0' }) }) }
   return load.call(this, id, parent, main)
 }

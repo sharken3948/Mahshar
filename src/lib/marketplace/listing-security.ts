@@ -1,4 +1,5 @@
-export const SENSITIVE_CONFIGURATION = ['endpoint_url', 'auth_type', 'encrypted_key', 'auth_param_name', 'method'] as const
+export const SENSITIVE_CONFIGURATION = ['endpoint_url', 'auth_type', 'encrypted_key', 'auth_param_name', 'method',
+  'dynamic_path_supported', 'path_parameters', 'query_parameters'] as const
 
 export function credentialProxyAllowed(listing: { encrypted_key: unknown; verified_at: unknown }) {
   return !listing.encrypted_key || Boolean(listing.verified_at)
@@ -24,6 +25,9 @@ export function normalizeExpectedStatusCodes(
   for (const item of raw) {
     if (typeof item !== 'number' || !Number.isInteger(item) || item < 300 || item > 599) {
       return { ok: false, error: 'Each expected status code must be an integer between 300 and 599' }
+    }
+    if (item === 408 || item === 429 || item >= 500) {
+      return { ok: false, error: '408, 429, and 5xx statuses cannot be configured as expected responses' }
     }
     if (!codes.includes(item)) codes.push(item)
   }

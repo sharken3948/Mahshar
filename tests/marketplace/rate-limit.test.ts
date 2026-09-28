@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { beforeEach, test } from 'node:test'
+import { readFileSync } from 'node:fs'
 import { NextRequest } from 'next/server'
 import { enforceRateLimit, rateLimitIdentity } from '../../src/lib/rate-limit'
+import { POST as match } from '../../src/app/api/ai/match/route'
+import { GET as discover } from '../../src/app/api/agent/discover/route'
+import { reset, state } from './fixtures'
+
+beforeEach(reset)
 
 const request = new NextRequest('https://mahshar.xyz/api/agent/discover')
 
@@ -27,4 +33,39 @@ test('rate-limit keys are hashed and stable without trusting arbitrary forwarded
   assert.equal(first, second)
   assert.match(first, /^[a-f0-9]{64}$/)
   assert.equal(first.includes('1.2.3.4'), false)
+})
+
+test('cost-incurring and machine discovery routes fail closed when limiter storage fails', async () => {
+  state.rateLimitError = true
+  const matchResponse = await match(new NextRequest('https://mahshar.xyz/api/ai/match', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: 'weather' }),
+  }))
+  assert.equal(matchResponse.status, 503)
+  assert.equal((await matchResponse.json()).error, 'rate_limit_unavailable')
+  const discoveryResponse = await discover(new NextRequest('https://mahshar.xyz/api/agent/discover'))
+  assert.equal(discoveryResponse.status, 503)
+})
+
+test('route limit exhaustion returns 429 before external or database work', async () => {
+  state.rateLimitAllowed = false
+  const response = await match(new NextRequest('https://mahshar.xyz/api/ai/match', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query: 'weather' }),
+  }))
+  assert.equal(response.status, 429)
+  assert.equal(response.headers.get('retry-after'), '12')
+})
+
+test('every audited expensive or security-sensitive route fails closed', () => {
+  const audited: Array<[string, string]> = [
+    ['src/app/api/ai/score/route.ts', 'ai-score'],
+    ['src/app/api/apis/[id]/verify/route.ts', 'listing-verify'],
+    ['src/app/api/gateway/balance/route.ts', 'gateway-balance'],
+    ['src/app/api/ai/match/route.ts', 'ai-match'],
+    ['src/app/api/agent/discover/route.ts', 'agent-discover'],
+  ]
+  for (const [path, scope] of audited) {
+    const source = readFileSync(path, 'utf8')
+    assert.match(source, new RegExp(`scope: ['"]${scope}['"]`), path)
+    assert.match(source, /failClosed: true/, path)
+  }
 })
