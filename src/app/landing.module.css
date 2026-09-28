@@ -71,7 +71,7 @@
   font-size: clamp(64px, 5.22vw, 80px);
   font-weight: 760;
   letter-spacing: -.064em;
-  line-height: .865;
+  line-height: .98;
 }
 
 .heroTitle span { display: block; }
@@ -369,7 +369,7 @@
 
 @media (max-width: 760px) {
   .hero { padding: 108px 20px 42px; }
-  .heroTitle { margin-top: 16px; font-size: clamp(48px, 15vw, 68px); line-height: .91; }
+  .heroTitle { margin-top: 16px; font-size: clamp(48px, 15vw, 68px); line-height: .98; }
   .heroDescription { font-size: 17px; line-height: 1.5; }
   .heroActions { flex-direction: column; }
   .heroButton { width: 100%; }
