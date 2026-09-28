@@ -9,6 +9,8 @@ import { OPERATION_AUTH_DOMAIN, OPERATION_AUTH_HEADER, OPERATION_AUTH_SECONDS, O
 import { LOGIN_AUTH_DOMAIN, LOGIN_AUTH_TYPES, loginMessage } from '@/lib/marketplace/session-auth'
 
 type SessionStatus = 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error'
+type SessionCheckResult = 'authenticated' | 'unauthenticated' | 'unavailable'
+type LoginResult = { authenticated: boolean; rejected: boolean; error: string | null }
 type SessionContextValue = {
   status: SessionStatus
   wallet: string | null
@@ -19,8 +21,8 @@ type SessionContextValue = {
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null)
-const loginInFlight = new Map<string, Promise<boolean>>()
-const checkInFlight = new Map<string, Promise<boolean>>()
+const loginInFlight = new Map<string, Promise<LoginResult>>()
+const checkInFlight = new Map<string, Promise<SessionCheckResult>>()
 let signatureQueue: Promise<void> = Promise.resolve()
 
 function serializeSignature<T>(sign: () => Promise<T>) {
@@ -50,7 +52,7 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
   const previousWallet = useRef<string | null>(null)
   const authenticatedWallet = useRef<string | null>(null)
   const rejectedWallet = useRef<string | null>(null)
-  const controller = useRef<AbortController | null>(null)
+  const initializedSession = useRef<{ wallet: string; result: SessionCheckResult } | null>(null)
   const [status, setStatus] = useState<SessionStatus>(wallet ? 'checking' : 'disconnected')
   const [error, setError] = useState<string | null>(null)
 
@@ -58,113 +60,139 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     const existing = checkInFlight.get(requestedWallet)
     if (existing) return existing
     const request = fetch(`/api/auth/session?wallet=${encodeURIComponent(requestedWallet)}`, {
-      credentials: 'same-origin', cache: 'no-store', signal: controller.current?.signal,
+      credentials: 'same-origin', cache: 'no-store',
     }).then(async response => {
-      if (!response.ok) return false
+      if (response.status === 401) return 'unauthenticated' as const
+      if (!response.ok) return 'unavailable' as const
       const body = await response.json().catch(() => null) as { authenticated?: boolean; wallet?: string } | null
-      return body?.authenticated === true && body.wallet?.toLowerCase() === requestedWallet
-    }).catch(() => false).finally(() => {
+      if (!body) return 'unavailable' as const
+      return body.authenticated === true && body.wallet?.toLowerCase() === requestedWallet
+        ? 'authenticated' as const : 'unauthenticated' as const
+    }).catch(() => 'unavailable' as const).finally(() => {
       if (checkInFlight.get(requestedWallet) === request) checkInFlight.delete(requestedWallet)
     })
     checkInFlight.set(requestedWallet, request)
     return request
   }, [])
 
-  const establishSession = useCallback((requestedWallet: string, explicit: boolean) => {
-    if (authenticatedWallet.current === requestedWallet) return Promise.resolve(true)
-    const existing = loginInFlight.get(requestedWallet)
-    if (existing) return existing
-    const request = (async () => {
+  const initializeSession = useCallback(async (requestedWallet: string): Promise<SessionCheckResult> => {
+    if (authenticatedWallet.current === requestedWallet) return 'authenticated'
+    if (initializedSession.current?.wallet === requestedWallet) return initializedSession.current.result
+    if (currentWallet.current === requestedWallet) {
       setStatus('checking')
       setError(null)
-      if (await checkSession(requestedWallet)) {
-        if (currentWallet.current !== requestedWallet) return false
-        authenticatedWallet.current = requestedWallet
-        rejectedWallet.current = null
-        setStatus('authenticated')
-        return true
-      }
-      if (!explicit && rejectedWallet.current === requestedWallet) {
-        setStatus('unauthenticated')
-        return false
-      }
-      let signed: { challenge: { challenge_id: string; wallet: string; nonce: Hex; issued_at: number;
-        deadline: number; origin: string }; signature: Hex }
+    }
+    const result = await checkSession(requestedWallet)
+    if (currentWallet.current !== requestedWallet || getAccount(config).address?.toLowerCase() !== requestedWallet) {
+      return 'unavailable'
+    }
+    initializedSession.current = { wallet: requestedWallet, result }
+    if (result === 'authenticated') {
+      authenticatedWallet.current = requestedWallet
+      rejectedWallet.current = null
+      setStatus('authenticated')
+      setError(null)
+    } else if (result === 'unavailable') {
+      setStatus('error')
+      setError('Wallet session could not be checked. Try again when the service is available.')
+    }
+    return result
+  }, [checkSession, config])
+
+  const performLogin = useCallback((requestedWallet: string): Promise<LoginResult> => {
+    const existing = loginInFlight.get(requestedWallet)
+    if (existing) return existing
+    const request = (async (): Promise<LoginResult> => {
       try {
-        signed = await serializeSignature(async () => {
-          if (currentWallet.current !== requestedWallet) throw new Error('Wallet changed')
-          const challengeResponse = await fetch('/api/auth/challenge', {
-            method: 'POST', credentials: 'same-origin', signal: controller.current?.signal,
-            headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ wallet: requestedWallet }),
-          })
-          const candidate = await challengeResponse.json().catch(() => null) as {
-            challenge_id?: string; wallet?: string; nonce?: Hex; issued_at?: number; deadline?: number;
-            origin?: string; error?: string
-          } | null
-          if (!challengeResponse.ok || !candidate?.challenge_id || candidate.wallet !== requestedWallet
-            || !candidate.nonce || !Number.isSafeInteger(candidate.issued_at) || !Number.isSafeInteger(candidate.deadline)
-            || candidate.origin !== window.location.origin) {
-            throw new Error(candidate?.error ?? 'Wallet login challenge unavailable')
-          }
-          const challenge = candidate as typeof signed.challenge
-          if (currentWallet.current !== requestedWallet) throw new Error('Wallet changed')
-          setStatus('signing')
-          const signature = await signTypedDataAsync({ account: requestedWallet as Address, domain: LOGIN_AUTH_DOMAIN,
+        if (getAccount(config).address?.toLowerCase() !== requestedWallet) throw new Error('Wallet changed')
+        const challengeResponse = await fetch('/api/auth/challenge', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ wallet: requestedWallet }),
+        })
+        const candidate = await challengeResponse.json().catch(() => null) as {
+          challenge_id?: string; wallet?: string; nonce?: Hex; issued_at?: number; deadline?: number;
+          origin?: string; error?: string
+        } | null
+        if (!challengeResponse.ok || !candidate?.challenge_id || candidate.wallet !== requestedWallet
+          || !candidate.nonce || !Number.isSafeInteger(candidate.issued_at) || !Number.isSafeInteger(candidate.deadline)
+          || candidate.origin !== window.location.origin) {
+          throw new Error(candidate?.error ?? 'Wallet login challenge unavailable')
+        }
+        const challenge = candidate as { challenge_id: string; wallet: string; nonce: Hex; issued_at: number;
+          deadline: number; origin: string }
+        const signature = await serializeSignature(async () => {
+          if (getAccount(config).address?.toLowerCase() !== requestedWallet) throw new Error('Wallet changed')
+          return signTypedDataAsync({ account: requestedWallet as Address, domain: LOGIN_AUTH_DOMAIN,
             types: LOGIN_AUTH_TYPES, primaryType: 'MahsharLogin', message: loginMessage({
               wallet: requestedWallet as Address, origin: challenge.origin, nonce: challenge.nonce,
               issuedAt: challenge.issued_at, deadline: challenge.deadline,
             }) })
-          return { challenge, signature }
         })
-      } catch (signError) {
-        if (userRejected(signError)) {
-          if (currentWallet.current !== requestedWallet) return false
-          rejectedWallet.current = requestedWallet
-          setStatus('unauthenticated')
-          setError('Wallet sign-in was cancelled. Sign in when you are ready to use private features.')
-          return false
+        if (getAccount(config).address?.toLowerCase() !== requestedWallet) throw new Error('Wallet changed')
+        const response = await fetch('/api/auth/session', {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+            challenge_id: challenge.challenge_id, wallet: requestedWallet, nonce: challenge.nonce,
+            issued_at: challenge.issued_at, deadline: challenge.deadline, signature,
+          }),
+        })
+        const result = await response.json().catch(() => null) as { authenticated?: boolean; wallet?: string; error?: string } | null
+        if (!response.ok || result?.authenticated !== true || result.wallet?.toLowerCase() !== requestedWallet) {
+          throw new Error(result?.error ?? 'Wallet session could not be created')
         }
-        throw signError instanceof Error ? signError : new Error('Wallet sign-in failed; try again')
+        return { authenticated: true, rejected: false, error: null }
+      } catch (loginError) {
+        if (userRejected(loginError)) return { authenticated: false, rejected: true,
+          error: 'Wallet sign-in was cancelled. Sign in when you are ready to use private features.' }
+        return { authenticated: false, rejected: false,
+          error: loginError instanceof Error ? loginError.message : 'Wallet sign-in failed; try again' }
       }
-      const { challenge, signature } = signed
-      if (getAccount(config).address?.toLowerCase() !== requestedWallet || currentWallet.current !== requestedWallet) {
-        throw new Error('Wallet changed')
-      }
-      const response = await fetch('/api/auth/session', {
-        method: 'POST', credentials: 'same-origin', signal: controller.current?.signal,
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-          challenge_id: challenge.challenge_id, wallet: requestedWallet, nonce: challenge.nonce,
-          issued_at: challenge.issued_at, deadline: challenge.deadline, signature,
-        }),
-      })
-      const result = await response.json().catch(() => null) as { authenticated?: boolean; wallet?: string; error?: string } | null
-      if (!response.ok || result?.authenticated !== true || result.wallet?.toLowerCase() !== requestedWallet) {
-        throw new Error(result?.error ?? 'Wallet session could not be created')
-      }
-      if (currentWallet.current !== requestedWallet) return false
+    })().finally(() => {
+      if (loginInFlight.get(requestedWallet) === request) loginInFlight.delete(requestedWallet)
+    })
+    loginInFlight.set(requestedWallet, request)
+    return request
+  }, [config, signTypedDataAsync])
+
+  const establishSession = useCallback(async (requestedWallet: string, explicit: boolean) => {
+    if (authenticatedWallet.current === requestedWallet) return true
+    const checked = await initializeSession(requestedWallet)
+    if (currentWallet.current !== requestedWallet || getAccount(config).address?.toLowerCase() !== requestedWallet) return false
+    if (checked === 'authenticated') return true
+    if (checked === 'unavailable') return false
+    if (!explicit && rejectedWallet.current === requestedWallet) {
+      setStatus('unauthenticated')
+      return false
+    }
+    setStatus('signing')
+    setError(null)
+    const result = await performLogin(requestedWallet)
+    if (currentWallet.current !== requestedWallet || getAccount(config).address?.toLowerCase() !== requestedWallet) return false
+    if (result.authenticated) {
+      initializedSession.current = { wallet: requestedWallet, result: 'authenticated' }
       authenticatedWallet.current = requestedWallet
       rejectedWallet.current = null
       setStatus('authenticated')
       setError(null)
       return true
-    })().catch(loginError => {
-      if (currentWallet.current === requestedWallet) {
-        authenticatedWallet.current = null
-        setStatus(rejectedWallet.current === requestedWallet ? 'unauthenticated' : 'error')
-        setError(loginError instanceof Error ? loginError.message : 'Wallet sign-in failed')
-      }
-      return false
-    }).finally(() => {
-      if (loginInFlight.get(requestedWallet) === request) loginInFlight.delete(requestedWallet)
-    })
-    loginInFlight.set(requestedWallet, request)
-    return request
-  }, [checkSession, config, signTypedDataAsync])
+    }
+    authenticatedWallet.current = null
+    initializedSession.current = { wallet: requestedWallet, result: 'unauthenticated' }
+    if (result.rejected) rejectedWallet.current = requestedWallet
+    setStatus(result.rejected ? 'unauthenticated' : 'error')
+    setError(result.error)
+    return false
+  }, [config, initializeSession, performLogin])
+  const establishSessionRef = useRef(establishSession)
+  establishSessionRef.current = establishSession
 
   const authenticate = useCallback(async () => {
     const active = currentWallet.current
     if (!active) return false
     rejectedWallet.current = null
+    if (initializedSession.current?.wallet === active && initializedSession.current.result === 'unavailable') {
+      initializedSession.current = null
+    }
     return establishSession(active, true)
   }, [establishSession])
 
@@ -182,6 +210,7 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     const rejection = await response.clone().json().catch(() => null) as { error?: unknown } | null
     if (!['Wallet session required', 'Wallet session expired'].includes(String(rejection?.error ?? ''))) return response
     authenticatedWallet.current = null
+    initializedSession.current = null
     if (!await establishSession(requestedWallet, false)) return response
     if (getAccount(config).address?.toLowerCase() !== requestedWallet) throw new Error('Wallet changed')
     return fetch(input, { ...init, credentials: 'same-origin' })
@@ -225,20 +254,18 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
   useEffect(() => {
     const priorWallet = previousWallet.current
     previousWallet.current = wallet
-    controller.current?.abort()
-    controller.current = new AbortController()
     authenticatedWallet.current = null
+    initializedSession.current = null
     setError(null)
     if (!wallet) {
       rejectedWallet.current = null
       setStatus('disconnected')
       if (priorWallet) void fetch('/api/auth/session', { method: 'DELETE', credentials: 'same-origin' }).catch(() => undefined)
-      return () => controller.current?.abort()
+      return
     }
     setStatus('checking')
-    void establishSession(wallet, false)
-    return () => controller.current?.abort()
-  }, [establishSession, wallet])
+    void establishSessionRef.current(wallet, false)
+  }, [wallet])
 
   const value = useMemo(() => ({ status, wallet, error, request, sensitiveRequest, authenticate }),
     [authenticate, error, request, sensitiveRequest, status, wallet])

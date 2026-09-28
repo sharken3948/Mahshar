@@ -7,15 +7,18 @@ export const signature = `0x${'33'.repeat(65)}`
 export const state = globalThis.__mahsharWalletSwitchState ??= {
   address: alice, serverWallet: null, slots: [], cursor: 0, pendingEffects: [], context: null,
   signatures: 0, fetches: [], protectedFetches: [], rejectNextSignature: false, protectedError: null,
-  deferSignatures: false, pendingSignatures: [],
+  deferSignatures: false, pendingSignatures: [], sessionExpired: false,
+  deferSessionBodies: false, pendingSessionBodies: [],
 }
 
 export function reset() {
+  for (const pending of state.pendingSessionBodies) pending.resolve(pending.body)
   for (const slot of state.slots) slot?.cleanup?.()
   state.address = alice; state.serverWallet = null; state.slots = []; state.cursor = 0
   state.pendingEffects = []; state.context = null; state.signatures = 0; state.fetches = []
   state.protectedFetches = []; state.rejectNextSignature = false; state.protectedError = null
-  state.deferSignatures = false; state.pendingSignatures = []
+  state.deferSignatures = false; state.pendingSignatures = []; state.sessionExpired = false
+  state.deferSessionBodies = false; state.pendingSessionBodies = []
 }
 
 function useState(initial) {
@@ -40,7 +43,7 @@ function useEffect(effect, deps) {
   const index = state.cursor++
   const old = state.slots[index]
   if (!old || deps.some((value, position) => value !== old.deps[position])) {
-    state.slots[index] = { deps, cleanup: old?.cleanup }
+    state.slots[index] = { deps, cleanup: old?.cleanup, effect }
     state.pendingEffects.push(() => {
       state.slots[index].cleanup?.()
       state.slots[index].cleanup = effect()
@@ -59,6 +62,21 @@ export function runEffects() {
   const effects = state.pendingEffects.splice(0)
   for (const effect of effects) effect()
 }
+export function replayEffects() {
+  for (const slot of state.slots) {
+    if (!slot?.effect) continue
+    slot.cleanup?.()
+    slot.cleanup = slot.effect()
+  }
+}
+export function remount() {
+  for (const slot of state.slots) slot?.cleanup?.()
+  state.slots = []; state.cursor = 0; state.pendingEffects = []; state.context = null
+}
+export function releaseSessionBodies() {
+  const pending = state.pendingSessionBodies.splice(0)
+  for (const item of pending) item.resolve(item.body)
+}
 export async function flush() {
   for (let i = 0; i < 8; i++) await new Promise(resolve => setImmediate(resolve))
 }
@@ -69,9 +87,23 @@ globalThis.fetch = async (input, init = {}) => {
   state.fetches.push({ input: url, init })
   if (url.startsWith('/api/auth/session?')) {
     const requested = new URL(url, globalThis.window.location.origin).searchParams.get('wallet')
-    return state.serverWallet === requested
-      ? Response.json({ authenticated: true, wallet: requested })
-      : Response.json({ error: 'Wallet session required' }, { status: 401 })
+    const valid = state.serverWallet === requested && !state.sessionExpired
+    if (!valid) return Response.json({ error: state.sessionExpired ? 'Wallet session expired' : 'Wallet session required' }, { status: 401 })
+    const body = { authenticated: true, wallet: requested }
+    if (!state.deferSessionBodies) return Response.json(body)
+    return {
+      ok: true,
+      status: 200,
+      json: () => new Promise((resolve, reject) => {
+        const pending = { resolve, reject, body }
+        state.pendingSessionBodies.push(pending)
+        init.signal?.addEventListener('abort', () => {
+          const index = state.pendingSessionBodies.indexOf(pending)
+          if (index >= 0) state.pendingSessionBodies.splice(index, 1)
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+        }, { once: true })
+      }),
+    }
   }
   if (url === '/api/auth/challenge') {
     const wallet = JSON.parse(init.body).wallet
@@ -81,6 +113,7 @@ globalThis.fetch = async (input, init = {}) => {
   if (url === '/api/auth/session' && init.method === 'POST') {
     const wallet = JSON.parse(init.body).wallet
     state.serverWallet = wallet
+    state.sessionExpired = false
     return Response.json({ authenticated: true, wallet })
   }
   if (url === '/api/auth/session' && init.method === 'DELETE') {

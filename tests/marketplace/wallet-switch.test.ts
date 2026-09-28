@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test } from 'node:test'
 import { MarketplaceSessionProvider } from '../../src/components/MarketplaceSessionProvider'
-import { alice, bob, flush, render, reset, runEffects, state } from './wallet-switch-register.mjs'
+import { alice, bob, flush, releaseSessionBodies, remount, render, replayEffects, reset, runEffects,
+  state } from './wallet-switch-register.mjs'
 
 beforeEach(reset)
 
@@ -20,6 +21,83 @@ test('initial connection and simultaneous private requests share one login signa
   await Promise.all(reads)
   assert.equal(state.signatures, 1)
   assert.deepEqual(state.protectedFetches, ['/api/calls', '/api/seller/calls', '/api/gateway/balance'])
+})
+
+test('a provider remount reuses a valid matching server session without requesting a signature', async () => {
+  state.serverWallet = alice
+  state.deferSessionBodies = true
+  render(MarketplaceSessionProvider)
+  runEffects()
+  await flush()
+  assert.equal(state.pendingSessionBodies.length, 1)
+  assert.equal(state.signatures, 0)
+
+  remount()
+  render(MarketplaceSessionProvider)
+  runEffects()
+  await flush()
+  assert.equal(state.signatures, 0, 'the remounted provider signed before the valid session check completed')
+
+  releaseSessionBodies()
+  await flush()
+  const context = render(MarketplaceSessionProvider)
+  assert.equal(context.status, 'authenticated')
+  assert.equal(context.wallet, alice)
+  assert.equal(state.signatures, 0)
+  assert.equal(state.fetches.filter((item: { input: string }) => item.input.startsWith('/api/auth/challenge')).length, 0)
+})
+
+test('a valid session serves simultaneous private consumers with zero login signatures', async () => {
+  state.serverWallet = alice
+  const context = render(MarketplaceSessionProvider)
+  runEffects()
+  const responses = await Promise.all([
+    context.request('/api/calls'),
+    context.request('/api/seller/calls'),
+    context.request('/api/gateway/balance'),
+  ])
+  assert.ok(responses.every(response => response.ok))
+  assert.equal(state.signatures, 0)
+  assert.equal(state.fetches.filter((item: { input: string }) => item.input.startsWith('/api/auth/session?')).length, 1)
+})
+
+test('an expired session completes validation before requesting exactly one login signature', async () => {
+  state.serverWallet = alice
+  state.sessionExpired = true
+  const context = render(MarketplaceSessionProvider)
+  runEffects()
+  await Promise.all([context.request('/api/calls'), context.request('/api/seller/calls')])
+  assert.equal(state.signatures, 1)
+  const sessionCheck = state.fetches.findIndex((item: { input: string }) => item.input.startsWith('/api/auth/session?'))
+  const challenge = state.fetches.findIndex((item: { input: string }) => item.input === '/api/auth/challenge')
+  assert.ok(sessionCheck >= 0 && challenge > sessionCheck)
+})
+
+test('a wrong-wallet server session requests exactly one login for the connected wallet', async () => {
+  state.serverWallet = bob
+  const context = render(MarketplaceSessionProvider)
+  runEffects()
+  await Promise.all([context.request('/api/calls'), context.request('/api/seller/calls')])
+  assert.equal(state.signatures, 1)
+  assert.equal(state.serverWallet, alice)
+})
+
+test('Strict Mode effect replay cannot turn a valid pending session check into a signature prompt', async () => {
+  state.serverWallet = alice
+  state.deferSessionBodies = true
+  render(MarketplaceSessionProvider)
+  runEffects()
+  await flush()
+  assert.equal(state.pendingSessionBodies.length, 1)
+
+  replayEffects()
+  await flush()
+  assert.equal(state.signatures, 0)
+  releaseSessionBodies()
+  await flush()
+  const context = render(MarketplaceSessionProvider)
+  assert.equal(context.status, 'authenticated')
+  assert.equal(state.signatures, 0)
 })
 
 test('navigation, data refresh, and provider rerenders reuse the valid server session', async () => {
