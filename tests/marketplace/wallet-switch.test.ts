@@ -144,6 +144,19 @@ test('navigation, data refresh, and provider rerenders reuse the valid server se
   assert.equal(state.signatures, 1)
 })
 
+test('wallet in-app browser remount reuses the successful login in the same browser context', async () => {
+  await connect()
+  assert.equal(state.signatures, 1)
+  remount()
+  render(MarketplaceSessionProvider)
+  runEffects()
+  await flush()
+  const context = render(MarketplaceSessionProvider)
+  assert.equal(context.status, 'authenticated')
+  assert.equal(context.wallet, alice)
+  assert.equal(state.signatures, 1)
+})
+
 test('wallet A to B requires one B login and never reuses the A session', async () => {
   let context = await connect()
   assert.equal(state.serverWallet, alice)

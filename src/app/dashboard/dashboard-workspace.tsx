@@ -1,6 +1,6 @@
 'use client'
 import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
-import { useAccount, useReadContract, useWriteContract, usePublicClient, useBlockNumber, useSwitchChain, useSignMessage } from 'wagmi'
+import { useAccount, useReadContract, useWriteContract, usePublicClient, useBlockNumber, useSignMessage } from 'wagmi'
 import { buildConfirmMessage, buildWithdrawMessage } from '@/lib/withdraw-auth-message'
 import { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { parseUnits, type EIP1193Provider } from 'viem'
@@ -19,6 +19,8 @@ import { sendLocalNotification, useProductPreferences } from '@/components/Produ
 import { useVisibilityRefresh } from '@/hooks/useVisibilityRefresh'
 import { readPurchasedResponse } from '@/lib/marketplace/purchase-access-client'
 import { createTargetedWalletRefreshScheduler, type WalletRefreshAction, type WalletRefreshResource } from '@/lib/wallet-refresh'
+import { walletChainErrorMessage } from '@/lib/wallet-chain-transition'
+import { useArcWalletUsdcBalance } from '@/hooks/useArcWalletUsdcBalance'
 
 
 interface ApiCall {
@@ -114,11 +116,6 @@ interface SellCallGroup {
 
 const { chainId: ARC_CHAIN_ID, usdcAddress: ARC_USDC, gatewayWallet: ARC_GATEWAY_WALLET } = ARC
 
-const ERC20_ABI = [
-  { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
-  { name: 'approve', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'spender', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] },
-] as const
-
 const GATEWAY_PENDING_WITHDRAWAL_ABI = [
   { name: 'withdrawingBalance', type: 'function', stateMutability: 'view', inputs: [{ name: 'token', type: 'address' }, { name: 'depositor', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
   { name: 'withdrawalBlock', type: 'function', stateMutability: 'view', inputs: [{ name: 'token', type: 'address' }, { name: 'depositor', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
@@ -138,10 +135,10 @@ const appKit = new AppKit()
 function useDashboardWorkspaceState() {
   const { address, isConnected, connector } = useAccount()
   const { writeContractAsync } = useWriteContract()
-  const { switchChainAsync } = useSwitchChain()
   const { signMessageAsync } = useSignMessage()
   const { request: authorizedFetch, sensitiveRequest } = useMarketplaceSession()
   const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID })
+  const arcWalletBalance = useArcWalletUsdcBalance()
   const { preferences } = useProductPreferences()
   const preferencesRef = useRef(preferences)
   preferencesRef.current = preferences
@@ -218,14 +215,7 @@ function useDashboardWorkspaceState() {
     }
   }, [authorizedFetch])
 
-  const { data: walletUsdcRaw, refetch: refetchUsdcBalance } = useReadContract({
-    address: ARC_USDC,
-    abi: ERC20_ABI,
-    functionName: 'balanceOf',
-    args: [address ?? '0x0000000000000000000000000000000000000000'],
-    chainId: ARC_CHAIN_ID,
-    query: { enabled: !!address, staleTime: 60_000, refetchOnWindowFocus: false, refetchOnReconnect: false, refetchInterval: false },
-  })
+  const { walletUsdcRaw } = arcWalletBalance
 
   const { data: withdrawingRaw, refetch: refetchWithdrawing } = useReadContract({
     address: ARC_GATEWAY_WALLET,
@@ -418,14 +408,14 @@ function useDashboardWorkspaceState() {
     if (existing) return existing
     const request = Promise.all([
       fetchGatewayStats(),
-      refetchUsdcBalance(),
+      arcWalletBalance.refresh(true),
       refetchWithdrawing(),
       refetchWithdrawalBlock(),
       refreshBridgeBalances(),
       solanaBalance.refresh(),
     ]).then(([gatewaySucceeded, walletResult, withdrawingResult, withdrawalBlockResult, bridgeSucceeded, solanaSucceeded]) => {
       if (!isCurrentWallet(wallet)) return false
-      const succeeded = gatewaySucceeded && walletResult.isSuccess && withdrawingResult.isSuccess
+      const succeeded = gatewaySucceeded && walletResult.status === 'fresh' && withdrawingResult.isSuccess
         && withdrawalBlockResult.isSuccess && bridgeSucceeded && solanaSucceeded
       balanceIsStale.current = !succeeded
       if (succeeded) setBalanceUpdatedAt(Date.now())
@@ -435,7 +425,7 @@ function useDashboardWorkspaceState() {
     })
     balanceRefreshInFlight.current.set(wallet, request)
     return request
-  }, [address, fetchGatewayStats, isCurrentWallet, refetchUsdcBalance, refetchWithdrawing, refetchWithdrawalBlock, refreshBridgeBalances, solanaBalance.refresh])
+  }, [address, arcWalletBalance.refresh, fetchGatewayStats, isCurrentWallet, refetchWithdrawing, refetchWithdrawalBlock, refreshBridgeBalances, solanaBalance.refresh])
 
   const fetchLiveData = useCallback(async () => {
     await Promise.all([refreshMarketplaceData(), refreshBalanceData()])
@@ -445,14 +435,14 @@ function useDashboardWorkspaceState() {
   const runTargetedWalletRefresh = useCallback(async (resources: ReadonlySet<WalletRefreshResource>, scope: string) => {
     if (currentAddress.current?.toLowerCase() !== scope) return
     const requests: Promise<unknown>[] = []
-    if (resources.has('arcWallet')) requests.push(refetchUsdcBalance())
+    if (resources.has('arcWallet')) requests.push(arcWalletBalance.refresh(true))
     if (resources.has('gateway')) requests.push(fetchGatewayStats())
     if (resources.has('pendingWithdrawal')) requests.push(Promise.all([refetchWithdrawing(), refetchWithdrawalBlock()]))
     if (resources.has('evmBridge')) requests.push(refreshBridgeBalances())
     if (resources.has('solana')) requests.push(solanaBalance.refresh())
     if (resources.has('sellerEarnings')) requests.push(fetchSellerEarnings())
     await Promise.allSettled(requests)
-  }, [fetchGatewayStats, fetchSellerEarnings, refetchUsdcBalance, refetchWithdrawalBlock, refetchWithdrawing, refreshBridgeBalances, solanaBalance.refresh])
+  }, [arcWalletBalance.refresh, fetchGatewayStats, fetchSellerEarnings, refetchWithdrawalBlock, refetchWithdrawing, refreshBridgeBalances, solanaBalance.refresh])
   const targetedRefreshRunner = useRef(runTargetedWalletRefresh)
   targetedRefreshRunner.current = runTargetedWalletRefresh
   const targetedRefreshSnapshots = useRef<Record<WalletRefreshResource, unknown>>({
@@ -608,14 +598,15 @@ function useDashboardWorkspaceState() {
     setDepositError(null)
     try {
       if (!connector) throw new Error('Connect your Arc wallet.')
-      const evmConnector = connector
       const amount = usdcAmount(depositAmount)
       // Re-read the actual Arc balance; never treat a bridge's input as net received.
-      const available = await publicClient.readContract({ address: ARC_USDC, abi: ERC20_ABI, functionName: 'balanceOf', args: [address] })
-      if (parseUnits(amount, 6) > available) throw new Error('Amount exceeds your current Arc USDC balance. Leave USDC for gas.')
-      await switchChainAsync({ chainId: ARC_CHAIN_ID })
+      const confirmedBalance = await arcWalletBalance.refresh(true)
+      if (confirmedBalance.status !== 'fresh' || confirmedBalance.value === undefined) {
+        throw new Error('Arc wallet balance is temporarily unavailable. Mahshar will keep refreshing it in the background.')
+      }
+      if (parseUnits(amount, 6) > confirmedBalance.value) throw new Error('Amount exceeds your current Arc USDC balance. Leave USDC for gas.')
+      const provider = await circleBridge.confirmWalletChain(ARC_CHAIN_ID, 'Arc')
       // Wallet deposits are Arc EVM operations. Never consult the Solana wallet context here.
-      const provider = await evmConnector.getProvider() as EIP1193Provider
       const accounts = await provider.request({ method: 'eth_accounts' })
       if (accounts[0]?.toLowerCase() !== address.toLowerCase()) throw new Error('Wallet changed. Review the deposit again.')
       const adapter = await createViemAdapterFromProvider({ provider })
@@ -630,7 +621,7 @@ function useDashboardWorkspaceState() {
       scheduleWalletRefresh({ kind: 'gatewayDeposit' })
     } catch (err: unknown) {
       if (!isCurrentWallet(wallet)) return
-      setDepositError(err instanceof Error ? err.message : String(err))
+      setDepositError(walletChainErrorMessage(err, 'Arc'))
     } finally {
       if (isCurrentWallet(wallet)) setDepositStep('idle')
     }
@@ -658,9 +649,7 @@ function useDashboardWorkspaceState() {
         )
       }
 
-      await switchChainAsync({ chainId: ARC_CHAIN_ID })
-
-      const provider = (await connector.getProvider()) as EIP1193Provider
+      const provider = await circleBridge.confirmWalletChain(ARC_CHAIN_ID, 'Arc')
       const adapter = await createViemAdapterFromProvider({ provider })
       const destChain = UnifiedBalanceChain.Arc
 
@@ -679,7 +668,7 @@ function useDashboardWorkspaceState() {
       scheduleWalletRefresh({ kind: 'gatewayWithdrawal' })
     } catch (err: unknown) {
       if (!isCurrentWallet(wallet)) return
-      const msg = err instanceof Error ? err.message : String(err)
+      const msg = walletChainErrorMessage(err, 'Arc')
       setWithdrawError(
         /signature|signer|isvalidsignature|1271/i.test(msg)
           ? 'Signature validation failed — try the trustless withdrawal (7 days) instead.'
@@ -700,6 +689,8 @@ function useDashboardWorkspaceState() {
       if (!Number.isFinite(amount) || amount <= 0) throw new Error('Invalid amount')
       const amountBigInt = BigInt(amount)
 
+      await circleBridge.confirmWalletChain(ARC_CHAIN_ID, 'Arc')
+
       const hash = await writeContractAsync({
         address: ARC_GATEWAY_WALLET,
         abi: GATEWAY_PENDING_WITHDRAWAL_ABI,
@@ -714,7 +705,7 @@ function useDashboardWorkspaceState() {
       scheduleWalletRefresh({ kind: 'trustlessWithdrawalInitiated' })
     } catch (err: unknown) {
       if (!isCurrentWallet(wallet)) return
-      setInitiateError(err instanceof Error ? err.message : String(err))
+      setInitiateError(walletChainErrorMessage(err, 'Arc'))
     } finally {
       if (isCurrentWallet(wallet)) setInitiateStep('idle')
     }
@@ -726,6 +717,7 @@ function useDashboardWorkspaceState() {
     setReleaseStep('releasing')
     setReleaseError(null)
     try {
+      await circleBridge.confirmWalletChain(ARC_CHAIN_ID, 'Arc')
       const hash = await writeContractAsync({
         address: ARC_GATEWAY_WALLET,
         abi: GATEWAY_PENDING_WITHDRAWAL_ABI,
@@ -738,7 +730,7 @@ function useDashboardWorkspaceState() {
       scheduleWalletRefresh({ kind: 'trustlessWithdrawalReleased' })
     } catch (err: unknown) {
       if (!isCurrentWallet(wallet)) return
-      setReleaseError(err instanceof Error ? err.message : String(err))
+      setReleaseError(walletChainErrorMessage(err, 'Arc'))
     } finally {
       if (isCurrentWallet(wallet)) setReleaseStep('idle')
     }
@@ -1026,6 +1018,8 @@ function useDashboardWorkspaceState() {
     withdrawalRecoveryMessage,
     sellCallGroups,
     walletUsdcRaw,
+    walletUsdcStatus: arcWalletBalance.status,
+    walletUsdcLoading: arcWalletBalance.isLoading,
     balanceUpdatedAt,
     withdrawingRaw,
     withdrawalBlockRaw,

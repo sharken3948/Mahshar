@@ -1,15 +1,17 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { useAccount, usePublicClient, useSwitchChain } from 'wagmi'
+import { useAccount, usePublicClient } from 'wagmi'
 import { AppKit, UnifiedBalanceChain } from '@circle-fin/app-kit'
 import { Arc, type BridgeResult } from '@circle-fin/bridge-kit'
 import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2'
-import { erc20Abi, formatUnits, parseUnits, type EIP1193Provider } from 'viem'
+import { formatUnits, parseUnits, type EIP1193Provider } from 'viem'
 import type { useBridge } from '@/hooks/useBridge'
 import { validateBridgeResult } from '@/lib/circle-bridge'
 import { bridgeErrorMessage, resumableResult } from '@/lib/bridge-journey-state'
 import { BRIDGE_ACTIVITY_PREFIX } from '@/lib/product-preferences'
 import type { WalletRefreshAction } from '@/lib/wallet-refresh'
+import { walletChainErrorMessage } from '@/lib/wallet-chain-transition'
+import { readArcWalletUsdc } from '@/lib/arc-balance-client'
 
 export interface Activity {
   id: string; date: string; source: string; amount: string
@@ -21,8 +23,7 @@ const appKit = new AppKit()
 
 // Local activity is display-only. It never authorizes a deposit or a replay.
 export function useBridgeJourney(bridge: ReturnType<typeof useBridge>, scheduleRefresh: (action: WalletRefreshAction) => void) {
-  const { address, connector: evmConnector } = useAccount()
-  const { switchChainAsync: switchEvmChainAsync } = useSwitchChain()
+  const { address, chainId, connector: evmConnector } = useAccount()
   const client = usePublicClient({ chainId: Arc.chainId })
   const owner = useRef(address); owner.current = address
   const busy = useRef(false)
@@ -32,6 +33,12 @@ export function useBridgeJourney(bridge: ReturnType<typeof useBridge>, scheduleR
   const [depositing, setDepositing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [storageError, setStorageError] = useState<string | null>(null)
+  const readArcBalance = (wallet: `0x${string}`, confirmedArc = false) => readArcWalletUsdc({
+    wallet,
+    activeChainId: confirmedArc ? Arc.chainId : chainId,
+    getWalletProvider: evmConnector ? async () => await evmConnector.getProvider() as EIP1193Provider | undefined : undefined,
+    force: true,
+  })
   useEffect(() => {
     owner.current = address; busy.current = false; setBridging(false); setDepositing(false)
     return () => { owner.current = undefined }
@@ -85,6 +92,35 @@ export function useBridgeJourney(bridge: ReturnType<typeof useBridge>, scheduleR
     if (owner.current === wallet) { setActive(record); setActivity(next) }
   }
 
+  useEffect(() => {
+    if (!address || !client || typeof document === 'undefined' || typeof window === 'undefined') return
+    let disposed = false
+    const reconcile = async () => {
+      try {
+        const rows: Activity[] = JSON.parse(localStorage.getItem(BRIDGE_ACTIVITY_PREFIX + address.toLowerCase()) ?? '[]')
+        if (!Array.isArray(rows)) return
+        if (rows.some(row => row.result?.steps.some(step => step.name === 'burn' && step.txHash))) {
+          const source = rows.find(row => row.result?.steps.some(step => step.name === 'burn' && step.txHash))?.result?.source.chain.type
+          scheduleRefresh({ kind: 'bridge', source: source === 'solana' ? 'solana' : 'evm' })
+        }
+        for (const row of rows.filter(row => row.deposit === 'current' && row.depositHash)) {
+          try {
+            const receipt = await client.getTransactionReceipt({ hash: row.depositHash as `0x${string}` })
+            if (disposed || owner.current?.toLowerCase() !== address.toLowerCase()) return
+            const next = { ...row, deposit: receipt.status === 'success' ? 'completed' as const : 'failed' as const,
+              ...(receipt.status === 'success' ? {} : { error: 'Gateway deposit transaction reverted. Review the transaction in Wallet.' }) }
+            save(next, address)
+            scheduleRefresh({ kind: 'gatewayDeposit' })
+          } catch { /* A pending or temporarily unavailable receipt stays recoverable. */ }
+        }
+      } catch { /* Invalid local display history is handled by the existing loader. */ }
+    }
+    const onVisibility = () => { if (document.visibilityState === 'visible') void reconcile() }
+    window.addEventListener('focus', reconcile)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => { disposed = true; window.removeEventListener('focus', reconcile); document.removeEventListener('visibilitychange', onVisibility) }
+  }, [address, client, scheduleRefresh])
+
   async function start(source: string, amount: string) {
     if (busy.current || bridge.pending || bridge.isLoading || !address || !client) return
     const wallet = address
@@ -95,7 +131,10 @@ export function useBridgeJourney(bridge: ReturnType<typeof useBridge>, scheduleR
       // A fresh baseline lets the optional deposit use only this bridge's net receipt.
       // The bridge may still complete if this read later cannot be reconciled.
       let before: bigint | undefined
-      try { before = await client.readContract({ address: Arc.usdcAddress, abi: erc20Abi, functionName: 'balanceOf', args: [wallet] }) } catch { before = undefined }
+      try {
+        const baseline = await readArcBalance(wallet)
+        before = baseline.status === 'fresh' ? baseline.value : undefined
+      } catch { before = undefined }
       assertOwner()
       save(record,wallet)
       const result = await bridge.bridge(source, amount)
@@ -110,7 +149,9 @@ export function useBridgeJourney(bridge: ReturnType<typeof useBridge>, scheduleR
       assertOwner()
       scheduleRefresh({ kind: 'bridge', source: result.source.chain.type === 'solana' ? 'solana' : 'evm' })
       if (before === undefined) throw Error('The Arc balance baseline was unavailable. The bridge is complete; review the Arc wallet before depositing.')
-      const after = await client.readContract({ address: Arc.usdcAddress, abi: erc20Abi, functionName: 'balanceOf', args: [wallet] })
+      const afterResult = await readArcBalance(wallet)
+      if (afterResult.status !== 'fresh' || afterResult.value === undefined) throw Error('The Arc balance is temporarily unavailable. The bridge is complete; Mahshar will keep refreshing it.')
+      const after = afterResult.value
       const received = after - before
       if (received <= BigInt(0) || received > parseUnits(result.amount,6)) throw Error('Received Arc balance could not be isolated. The bridge is complete; review the Arc wallet before depositing.')
       const actualAmount = formatUnits(received,6)
@@ -133,15 +174,15 @@ export function useBridgeJourney(bridge: ReturnType<typeof useBridge>, scheduleR
       validateBridgeResult(record.result!,wallet)
       const amount = parseUnits(receivedAmount,6)
       if (amount <= BigInt(0) || amount > parseUnits(record.result!.amount,6)) throw Error('The measured Arc receipt is invalid. Review and deposit from Wallet.')
-      await switchEvmChainAsync({ chainId: Arc.chainId })
+      const provider = await bridge.confirmWalletChain(Arc.chainId, 'Arc')
       assertOwner()
       // The bridge source may be Solana, but the receipt and optional deposit are on Arc.
       // Only the connected Wagmi EVM connector may authorize this Gateway deposit.
-      const provider = await evmConnector.getProvider() as EIP1193Provider
       const accounts = await provider.request({ method: 'eth_accounts' })
       if (accounts[0]?.toLowerCase() !== wallet.toLowerCase()) throw Error('Reconnect the original Arc recipient before depositing.')
-      const remaining = await client.readContract({ address: Arc.usdcAddress, abi: erc20Abi, functionName: 'balanceOf', args: [wallet] })
-      if (remaining < amount) throw Error('Arc balance changed. Review and deposit from Wallet.')
+      const remainingResult = await readArcBalance(wallet, true)
+      if (remainingResult.status !== 'fresh' || remainingResult.value === undefined) throw Error('Arc wallet balance is temporarily unavailable. Mahshar will keep refreshing it.')
+      if (remainingResult.value < amount) throw Error('Arc balance changed. Review and deposit from Wallet.')
       const adapter = await createViemAdapterFromProvider({ provider })
       assertOwner()
       record = { ...record, deposit: 'current', depositedAmount: receivedAmount, error: undefined }; save(record,wallet)
@@ -153,7 +194,7 @@ export function useBridgeJourney(bridge: ReturnType<typeof useBridge>, scheduleR
       record = { ...record, deposit: 'completed' }; save(record,wallet)
       if (owner.current === wallet) scheduleRefresh({ kind: 'gatewayDeposit' })
     } catch (err) {
-      const message = bridgeErrorMessage(err)
+      const message = walletChainErrorMessage(err, 'Arc')
       record = { ...record, deposit: 'failed', error: message }; save(record,wallet)
       if (owner.current === wallet) setError(message)
     } finally { busy.current = false; if (owner.current === wallet) setDepositing(false) }

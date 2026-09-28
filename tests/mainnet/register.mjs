@@ -2,19 +2,31 @@ import Module from 'node:module'
 const original = Module._load
 export const state = {
   slots: [], cursor: 0, calls: /** @type {any[]} */ ([]), switched: [], sdkState: 'success', hardError: false, errorMessage: 'submission unknown', estimatedFee: '0.01', sdkSteps: /** @type {any[] | null} */ (null),
+  switchError: false,
   owner: '0x' + '11'.repeat(20), account: '0x' + '11'.repeat(20),
+  providerChainId: 5042, connectorChainId: 5042,
   solanaOwner: '11111111111111111111111111111111', genesis: '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d',
   forwarding: true, disabledSource: '', memoChain: 5042, memoStatus: 'success', memoCalls: /** @type {any[]} */ ([]), effects: /** @type {Array<() => void>} */ ([]),
 }
 const storage = new Map()
 globalThis.localStorage = { getItem: k => storage.get(k) ?? null, setItem: (k,v) => storage.set(k,v), removeItem: k => storage.delete(k) }
 globalThis.fetch = async () => { throw Error('NETWORK FORBIDDEN IN OFFLINE TESTS') }
-export function reset() { state.slots=[];state.cursor=0;state.calls=[];state.switched=[];state.sdkState='success';state.hardError=false;state.errorMessage='submission unknown';state.estimatedFee='0.01';state.sdkSteps=null;state.forwarding=true;state.disabledSource='';state.account=state.owner;state.genesis='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';state.memoChain=5042;state.memoStatus='success';state.memoCalls=[];state.effects=[];storage.clear() }
+export function reset() { state.slots=[];state.cursor=0;state.calls=[];state.switched=[];state.sdkState='success';state.hardError=false;state.errorMessage='submission unknown';state.estimatedFee='0.01';state.sdkSteps=null;state.switchError=false;state.forwarding=true;state.disabledSource='';state.account=state.owner;state.providerChainId=5042;state.connectorChainId=5042;state.genesis='5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d';state.memoChain=5042;state.memoStatus='success';state.memoCalls=[];state.effects=[];storage.clear() }
 export function flushEffects() { for (const effect of state.effects.splice(0)) effect() }
 function slot(initial) { const i=state.cursor++;if(!(i in state.slots))state.slots[i]=typeof initial==='function'?initial():initial;return [state.slots[i],v=>{state.slots[i]=typeof v==='function'?v(state.slots[i]):v}] }
 Module._load = function(id, parent, main) {
   if(id==='react')return {useState:slot,useRef:v=>slot({current:v})[0],useEffect:effect=>{state.effects.push(effect)}}
-  if(id==='wagmi')return {useAccount:()=>({address:state.owner,connector:{getProvider:async()=>({request:async()=>[state.account]})}}),useSwitchChain:()=>({switchChainAsync:async p=>state.switched.push(p.chainId)})}
+  if(id==='wagmi')return {useAccount:()=>({address:state.owner,connector:{
+    getChainId:async()=>state.connectorChainId,
+    getProvider:async()=>({request:async({method,params})=>{
+      if(method==='eth_accounts')return [state.account]
+      if(method==='eth_chainId')return `0x${state.providerChainId.toString(16)}`
+      if(method==='wallet_switchEthereumChain'){
+        const chainId=Number.parseInt(params[0].chainId,16);state.providerChainId=chainId;state.connectorChainId=chainId;return null
+      }
+      return null
+    }})
+  }}),useSwitchChain:()=>({switchChainAsync:async p=>{state.switched.push(p.chainId);if(state.switchError)throw Object.assign(Error('User rejected the request'),{code:4001});state.providerChainId=p.chainId;state.connectorChainId=p.chainId}})}
   if(id==='@solana/wallet-adapter-react')return {useConnection:()=>({connection:{getGenesisHash:async()=>state.genesis}}),useWallet:()=>({publicKey:{toBase58:()=>state.solanaOwner,toString:()=>state.solanaOwner},signTransaction:async()=>{throw Error('SIGNING FORBIDDEN')},disconnect:async()=>{}})}
   if(id==='@circle-fin/adapter-viem-v2')return {createViemAdapterFromProvider:async()=>({kind:'evm'})}
   if(id==='@circle-fin/adapter-solana')return {createSolanaAdapterFromProvider:async p=>{state.calls.push({solanaAdapter:p});return {kind:'solana'}}}

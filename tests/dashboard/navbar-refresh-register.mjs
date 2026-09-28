@@ -2,13 +2,14 @@ import Module from 'node:module'
 
 const load = Module._load
 export const state = { slots: [], cursor: 0, effects: [], requests: [], balance: '12.5', responseOk: true,
-  address: '0x' + '11'.repeat(20), deferred: false, pending: [] }
+  address: '0x' + '11'.repeat(20), sessionStatus: 'authenticated', deferred: false, pending: [] }
 export const timers = []
 export const timerDelays = []
 
 export function resetHarness() {
   state.slots.length = 0; state.cursor = 0; state.effects.length = 0; state.requests.length = 0
   state.balance = '12.5'; state.responseOk = true; state.address = '0x' + '11'.repeat(20)
+  state.sessionStatus = 'authenticated'
   state.deferred = false; state.pending.length = 0; timers.length = 0; timerDelays.length = 0
 }
 
@@ -75,7 +76,7 @@ Module._load = function(id, parent, main) {
   if (id === 'next/link') return function Link() {}
   if (id === '@rainbow-me/rainbowkit') return { ConnectButton: function ConnectButton() {} }
   if (id === 'wagmi') return { useAccount: () => ({ address: state.address, isConnected: true }) }
-  if (id === '@/components/MarketplaceSessionProvider' || id === './MarketplaceSessionProvider') return { useMarketplaceSession: () => ({ request: globalThis.fetch, status: 'authenticated', authenticate: async () => true, error: null, wallet: null }) }
+  if (id === '@/components/MarketplaceSessionProvider' || id === './MarketplaceSessionProvider') return { useMarketplaceSession: () => ({ request: globalThis.fetch, status: state.sessionStatus, authenticate: async () => true, error: null, wallet: null }) }
   if (id === './MahsharLogo') return { MahsharLogo: function MahsharLogo() {} }
   if (id === './ProductPreferencesProvider') return { useProductPreferences: () => ({ formatUsdc: value => String(value) }) }
   return load.call(this, id, parent, main)

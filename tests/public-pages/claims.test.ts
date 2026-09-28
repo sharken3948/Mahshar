@@ -45,7 +45,7 @@ test('Docs provider, auth, payment, and wallet statements match current implemen
   assert.match(buyer, /probeRes = await fetch\('\/api\/proxy'/)
   assert.match(buyer, /Payment-Signature/)
   assert.match(contract, /Buyer-supplied headers are not forwarded upstream/)
-  assert.match(journey, /switchEvmChainAsync\(\{ chainId: Arc\.chainId \}\)/)
+  assert.match(journey, /bridge\.confirmWalletChain\(Arc\.chainId, 'Arc'\)/)
   assert.match(journey, /evmConnector\.getProvider\(\)/)
   assert.match(journey, /UnifiedBalanceChain\.Arc/)
   assert.match(solana, /The recipient is fixed to your connected EVM wallet/)
@@ -74,4 +74,23 @@ test('Support exposes only the support channel already used by Mahshar', () => {
   assert.match(settings, /mailto:support@mahshar\.xyz/)
   assert.match(support, /mailto:support@mahshar\.xyz/)
   assert.doesNotMatch(support, /live chat|ticket portal|response time|SLA|status page|community/i)
+})
+
+test('Arc wallet balance UI uses resilient reads and never renders transport diagnostics', () => {
+  const hook = read('src/hooks/useArcWalletUsdcBalance.ts')
+  const client = read('src/lib/arc-balance-client.ts')
+  const wallet = read('src/app/dashboard/wallet/page.tsx')
+  const buyer = read('src/app/buyer/page.tsx')
+  const bridge = read('src/app/dashboard/wallet/bridge/useBridgeJourney.ts')
+
+  assert.match(hook, /bindArcBalanceBrowserRecovery/)
+  assert.match(hook, /bindArcBalanceProviderRecovery/)
+  assert.match(client, /server-fallback/)
+  assert.match(client, /parsedChain !== ARC\.chainId/)
+  assert.match(wallet, /Balance temporarily unavailable/)
+  assert.match(wallet, /Last known balance/)
+  assert.match(bridge, /readArcWalletUsdc/)
+  for (const page of [wallet, buyer]) {
+    assert.doesNotMatch(page, /HTTP request failed|rpc\.mainnet\.arc\.io|ContractFunctionExecutionError|calldata|viem@/i)
+  }
 })

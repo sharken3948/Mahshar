@@ -20,7 +20,7 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
   const inFlight = useRef(new Map<string, { promise: Promise<void>; controller: AbortController }>())
 
   const fetchBalance = useCallback(() => {
-    if (!address || !pollBalance) return Promise.resolve()
+    if (!address || !pollBalance || sessionStatus !== 'authenticated') return Promise.resolve()
     const wallet = address.toLowerCase()
     const existing = inFlight.current.get(wallet)
     if (existing) return existing.promise
@@ -40,7 +40,7 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
         .finally(() => { if (inFlight.current.get(wallet)?.promise === request) inFlight.current.delete(wallet) })
     inFlight.current.set(wallet, { promise: request, controller })
     return request
-  }, [address, authorizedFetch, pollBalance])
+  }, [address, authorizedFetch, pollBalance, sessionStatus])
   useEffect(() => {
     setBalance(null)
     setBalanceUnavailable(false)
@@ -48,10 +48,10 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
     for (const [key, pending] of inFlight.current) {
       if (key !== wallet) { pending.controller.abort(); inFlight.current.delete(key) }
     }
-    if (!address || !pollBalance) return
+    if (!address || !pollBalance || sessionStatus !== 'authenticated') return
     void fetchBalance()
-  }, [address, pollBalance, fetchBalance])
-  useVisibilityRefresh(fetchBalance, !!address && pollBalance)
+  }, [address, pollBalance, fetchBalance, sessionStatus])
+  useVisibilityRefresh(fetchBalance, !!address && pollBalance && sessionStatus === 'authenticated')
   const displayedBalance = balanceOverride === undefined ? balance : balanceOverride
   const displayedUnavailable = balanceUnavailableOverride ?? balanceUnavailable
 
@@ -61,7 +61,7 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
         <div className={landing ? styles.landingNavInner : styles.dashboardNavInner}>
           <div className={styles.landingNavLeft}>
             {landing && <MahsharLogo variant="landing" />}
-            <PrimaryNavigationLink dashboard={dashboard} />
+            <PrimaryNavigationLink dashboard={dashboard} sessionStatus={sessionStatus} />
             <ExploreMenu />
           </div>
           <HeaderControls isConnected={isConnected} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} connectorIcon={connector?.icon} sessionStatus={sessionStatus} authenticate={authenticate} sessionError={sessionError} />
@@ -75,7 +75,7 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
       <div className={styles.appNavInner}>
         <MahsharLogo />
         <div className={styles.appNavRight}>
-          <PrimaryNavigationLink dashboard={false} />
+          <PrimaryNavigationLink dashboard={false} sessionStatus={sessionStatus} />
           {isConnected && (
             <span className={styles.balancePill}>
               <span>Mahshar Balance:</span>
@@ -92,7 +92,8 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
   )
 }
 
-function PrimaryNavigationLink({ dashboard }: { dashboard: boolean }) {
+function PrimaryNavigationLink({ dashboard, sessionStatus }: { dashboard: boolean; sessionStatus: 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error' }) {
+  if (!dashboard && sessionStatus !== 'authenticated') return null
   return (
     <Link href={dashboard ? '/' : '/dashboard'} className={styles.dashboardLink} aria-label={dashboard ? 'Home' : 'Dashboard'}>
       <span className={styles.primaryLabel}>{dashboard ? 'Home' : 'Dashboard'}</span>
@@ -119,7 +120,10 @@ function HeaderControls({ isConnected, displayedBalance, balanceUnavailable, for
 }
 
 function SessionControl({ isConnected, status, authenticate, error }: { isConnected: boolean; status: 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error'; authenticate: () => Promise<boolean>; error: string | null }) {
-  if (!isConnected || !['unauthenticated', 'error'].includes(status)) return null
+  if (!isConnected || status === 'authenticated' || status === 'disconnected') return null
+  if (status === 'checking' || status === 'signing') {
+    return <button type="button" className={styles.walletButton} disabled aria-live="polite">{status === 'checking' ? 'Checking…' : 'Signing in…'}</button>
+  }
   return <button type="button" className={styles.walletButton} onClick={() => { void authenticate() }} title={error ?? undefined}>Sign in</button>
 }
 

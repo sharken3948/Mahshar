@@ -13,7 +13,7 @@ function formatWhen(value: string): string {
 
 export default function DashboardPage() {
   const { formatUsdc } = useProductPreferences()
-  const { isConnected, myApis, sellerEarnings, gatewayStats, walletUsdcRaw, withdrawingRaw, callGroups, sellCallGroups, solanaConnected, solanaBalance } = useDashboardWorkspace()
+  const { isConnected, myApis, sellerEarnings, gatewayStats, walletUsdcRaw, walletUsdcStatus, walletUsdcLoading, withdrawingRaw, callGroups, sellCallGroups, solanaConnected, solanaBalance } = useDashboardWorkspace()
   const activeApis = myApis.filter(api => api.is_active)
   const recentBuys = [...callGroups].sort((a, b) => b.lastCalled.localeCompare(a.lastCalled)).slice(0, 3)
   const recentSells = [...sellCallGroups].sort((a, b) => b.lastCalled.localeCompare(a.lastCalled)).slice(0, 3)
@@ -39,7 +39,7 @@ export default function DashboardPage() {
       ) : (
         <>
           <div className="mb-8 grid min-w-0 gap-5 lg:grid-cols-4">
-            <SummaryCard href="/dashboard/wallet" title="Wallet USDC" subtitle="Your USDC held on Arc." icon="wallet" tone="blue" value={walletUsdcRaw != null ? formatUsdc(walletUsdcRaw, true) : '—'} detail="Open Wallet" />
+            <SummaryCard href="/dashboard/wallet" title="Wallet USDC" subtitle={walletUsdcStatus === 'stale' ? 'Last known Arc balance · refreshing.' : walletUsdcStatus === 'unknown' ? walletUsdcLoading ? 'Checking Arc balance…' : 'Balance temporarily unavailable.' : 'Your USDC held on Arc.'} icon="wallet" tone="blue" value={walletUsdcRaw != null ? formatUsdc(walletUsdcRaw, true) : '—'} detail="Open Wallet" />
             <SummaryCard href="/dashboard/wallet" title="Mahshar Balance" subtitle="Available for paid APIs." icon="balance" tone="pink" value={gatewayStats ? formatUsdc(gatewayStats.gatewayAvailable) : '—'} detail="Open Wallet" />
             <SummaryCard href="/dashboard/earnings" title="Seller Earnings" subtitle="Available seller share." icon="earnings" tone="green" value={sellerEarnings ? formatUsdc(sellerEarnings.withdrawable_balance) : '—'} detail="Open Earnings" />
             <SummaryCard href="/dashboard/apis" title="Active APIs" subtitle="Services currently available." icon="apis" tone="purple" value={String(activeApis.length)} detail="Open APIs" suffix={'of ' + myApis.length} unit={null} />

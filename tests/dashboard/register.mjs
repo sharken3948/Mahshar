@@ -74,7 +74,11 @@ Module._load=function(id,parent,main){
  if(id==='@solana/wallet-adapter-react-ui')return {useWalletModal:()=>({setVisible:solanaWalletAction})}
  if(id==='@/hooks/useSolanaBridgeBalance')return {useSolanaBridgeBalance:()=>({usdcBalance:'0',isLoading:false,error:null,refresh:async()=>{state.solanaRefreshes++;return state.solanaRefreshOk}})}
  if(id==='@/hooks/useBridgeBalances')return {useBridgeBalances:()=>({balances:[{chainName:'Base',usdcBalance:'3',isLoading:false}],refresh:async()=>{state.bridgeRefreshes++;return state.bridgeRefreshOk}})}
- if(id==='@/hooks/useBridge')return {useBridge:()=>({catalog:{routes:[{source:{chain:'Base'}}]},bridge:forbidden})}
+ if(id==='@/hooks/useArcWalletUsdcBalance')return {useArcWalletUsdcBalance:()=>({walletUsdcRaw:2500000n,status:state.balanceReadsOk?'fresh':'stale',isLoading:false,refresh:async()=>{state.contractRefreshes.balanceOf++;return {wallet:state.address,value:state.balanceReadsOk?2500000n:undefined,status:state.balanceReadsOk?'fresh':'unknown'}}})}
+ if(id==='@/hooks/useBridge')return {useBridge:()=>({catalog:{routes:[{source:{chain:'Base'}}]},bridge:forbidden,confirmWalletChain:async chainId=>{
+  state.evmSwitches.push(chainId);await walletAction(undefined)
+  return {request:async({method})=>{state.evmProviderRequests.push(method);if(method==='eth_accounts')return [state.address];if(method==='eth_chainId')return `0x${chainId.toString(16)}`;return null}}
+ }})}
  if(id==='@/lib/circle-bridge')return {usdcAmount:s=>s}
  if(id==='@circle-fin/adapter-viem-v2')return {createViemAdapterFromProvider:async()=>({})}
  if(id==='@circle-fin/app-kit')return {UnifiedBalanceChain:{Arc:'Arc'},AppKit:class {unifiedBalance={estimateSpend:async()=>({fees:[]}),deposit:async params=>{state.gatewayDeposits.push(params);return walletAction({txHash:'0x'+'ef'.repeat(32)})},spend:async()=>walletAction({})}}}

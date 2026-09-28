@@ -49,6 +49,19 @@ test('technical bridge details use support-friendly labels without changing reco
  assert.deepEqual(['noop','success','error','failed','pending'].map(bridgeStepStatus),['Not required','Completed','Failed','Failed','Pending'])
  assert.equal(shortTransactionHash('0xa05c1234567890af13'),'0xa05c...af13')
 })
+test('bridge transition UI uses calm recovery copy and never presents raw chain IDs',()=>{
+ const page=readFileSync('src/app/dashboard/wallet/bridge/page.tsx','utf8')
+ const errors=readFileSync('src/lib/bridge-journey-state.ts','utf8')
+ const bridge=readFileSync('src/hooks/useBridge.ts','utf8')
+ const journey=readFileSync('src/app/dashboard/wallet/bridge/useBridgeJourney.ts','utf8')
+ assert.match(page,/Switching to \{circleBridge\.chainTransition\.targetName\}…/)
+ assert.match(page,/Switch to \{circleBridge\.chainTransition\.targetName\} to continue/)
+ assert.match(errors,/wallet network is still updating\. Switch to Arc to continue/)
+ assert.match(bridge,/window\.addEventListener\('focus', reconcile\)/)
+ assert.match(bridge,/document\.addEventListener\('visibilitychange', onVisibility\)/)
+ assert.match(journey,/client\.getTransactionReceipt/)
+ assert.doesNotMatch(page,/0x2105|0x13b2|ChainMismatchError/)
+})
 test('estimate details preserve SDK decimal gas values and expose only reported fee rows',()=>{
  const quote={fees:[{type:'provider',token:'USDC',amount:'0.01'},{type:'forwarder',token:'USDC',amount:'0.02'}],gasFees:[
   {name:'approve',token:'ETH',blockchain:Base.chain,fees:{gas:BigInt(21000),gasPrice:BigInt(1),fee:'0.001'}},

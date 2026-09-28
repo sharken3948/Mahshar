@@ -9,6 +9,31 @@ import { circleFeeIssue, SMALL_BRIDGE_AMOUNT } from '../../src/lib/bridge-journe
 const key = 'mahshar:circle-bridge:v1:' + state.owner.toLowerCase()
 function render() { state.cursor = 0; return useBridge() }
 
+test('Base approval and burn stage switches to Base without globally forcing Arc', async () => {
+  reset()
+  await render().bridge('Base', '1')
+  const call = state.calls.find(item => 'bridge' in item)?.bridge
+  assert.equal(call.from.chain.chain, 'Base')
+  assert.deepEqual(state.switched, [Base.chainId])
+  const bridge = render()
+  assert.equal(bridge.result?.state, 'success')
+  assert.equal(bridge.chainTransition, null)
+})
+
+test('failed wallet network switch becomes a recoverable action without submitting a bridge', async () => {
+  reset(); state.switchError = true
+  await render().bridge('Base', '1')
+  let bridge = render()
+  assert.equal(state.calls.filter(item => 'bridge' in item).length, 0)
+  assert.deepEqual(bridge.chainTransition, { status: 'required', targetChainId: Base.chainId, targetName: 'Base' })
+  assert.match(bridge.error ?? '', /wallet declined|Switch to Base/i)
+  state.switchError = false
+  assert.equal(await bridge.continueChainSwitch(), true)
+  bridge = render()
+  assert.equal(bridge.chainTransition, null)
+  assert.equal(state.calls.filter(item => 'bridge' in item).length, 0, 'network recovery must not replay the bridge')
+})
+
 test('completed saved transfer does not block the next validated bridge', async () => {
   reset()
   const complete = {

@@ -1,6 +1,6 @@
 'use client'
 import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
-import { useAccount, useReadContract, useSignTypedData } from 'wagmi'
+import { useAccount, useSignTypedData } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import Link from 'next/link'
 import { useState, useEffect, useMemo, useCallback } from 'react'
@@ -15,9 +15,9 @@ import { coalescedJsonGet } from '@/lib/client-read'
 import { buildBuyerProxyEnvelope, buildBuyerRequestSuffix, type BuyerProxyEnvelope } from '@/lib/marketplace/buyer-proxy-request'
 import type { DeclaredParameter } from '@/lib/marketplace/proxy-target'
 import { MahsharFlowMotif } from '@/components/MahsharFlowMotif'
-import { ARC } from '@/lib/arc'
 import { buyerPaymentQuote, gatewayCanPay, insufficientGatewayMessage, type BuyerPaymentQuote } from '@/lib/payments/buyer-balance'
 import styles from './buyer.module.css'
+import { useArcWalletUsdcBalance } from '@/hooks/useArcWalletUsdcBalance'
 
 interface PaymentRequirements {
   scheme: string
@@ -69,10 +69,6 @@ const TRANSFER_TYPES = {
     { name: 'nonce', type: 'bytes32' },
   ],
 } as const
-
-const ERC20_BALANCE_ABI = [
-  { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
-] as const
 
 function generateNonce(): `0x${string}` {
   const bytes = new Uint8Array(32)
@@ -158,14 +154,7 @@ export default function BuyerPage() {
   const [authFilters, setAuthFilters] = useState<Set<AuthType>>(new Set())
   const [sortBy, setSortBy] = useState<'newest' | 'price-low' | 'price-high' | 'score' | 'latency'>('newest')
 
-  const { data: walletUsdcRaw } = useReadContract({
-    address: ARC.usdcAddress,
-    abi: ERC20_BALANCE_ABI,
-    functionName: 'balanceOf',
-    args: [address ?? '0x0000000000000000000000000000000000000000'],
-    chainId: ARC.chainId,
-    query: { enabled: !!address, staleTime: 60_000, refetchOnWindowFocus: false, refetchOnReconnect: false },
-  })
+  const { walletUsdcRaw, status: walletUsdcStatus, isLoading: walletUsdcLoading } = useArcWalletUsdcBalance()
 
   const refreshGatewayBalance = useCallback(async (wallet: string) => {
     try {
@@ -631,7 +620,7 @@ export default function BuyerPage() {
       </header>
 
       <section className={styles.paymentBalances} aria-label="Purchase balances">
-        <div><span>Arc Wallet USDC</span><strong>{walletUsdcDisplay} USDC</strong><small>Available in your connected wallet</small></div>
+        <div><span>Arc Wallet USDC</span><strong>{walletUsdcDisplay} USDC</strong><small>{walletUsdcStatus === 'stale' ? 'Last known balance · refreshing' : walletUsdcStatus === 'unknown' ? walletUsdcLoading ? 'Checking balance…' : 'Balance temporarily unavailable' : 'Available in your connected wallet'}</small></div>
         <div><span>Mahshar Balance</span><strong>{gatewayAvailable ?? '—'} USDC</strong><small>{gatewayBalanceUnavailable ? 'Balance unavailable' : 'Used for paid API calls'}</small></div>
         <p>Mahshar x402 purchases use your Circle Gateway balance, not wallet USDC. <Link href="/dashboard/wallet#deposit">Fund Mahshar Balance</Link></p>
       </section>

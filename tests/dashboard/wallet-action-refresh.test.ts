@@ -50,7 +50,7 @@ test('successful deposit, withdrawal, and seller withdrawal schedule only their 
   assert.equal(renderWorkspace().gatewayStats.gatewayAvailable, '12.5')
   await runAttempt(TARGETED_REFRESH_DELAY_MS)
   assert.equal(requestCount('/api/gateway/balance?'), beforeDeposit.gateway + 1)
-  assert.equal(state.contractRefreshes.balanceOf, beforeDeposit.arc + 1)
+  assert.equal(state.contractRefreshes.balanceOf, beforeDeposit.arc + 2, 'deposit uses one confirmed preflight read and one post-action refresh')
   assert.equal(state.contractRefreshes.withdrawingBalance, beforeDeposit.pending)
   assert.equal(state.bridgeRefreshes, beforeDeposit.bridge)
   assert.equal(state.solanaRefreshes, beforeDeposit.solana)

@@ -10,6 +10,8 @@ import { createSolanaAdapterFromProvider } from '@circle-fin/adapter-solana'
 import type { EIP1193Provider } from 'viem'
 import { bridgeSource, discoverCircleRoutes, type CircleRoutes, validateBridgeResult, usdcAmount } from '@/lib/circle-bridge'
 import { bridgeErrorMessage, circleFeeIssue, preBroadcastFailure, resumableResult } from '@/lib/bridge-journey-state'
+import { chainSynchronizedProvider, isRawChainMismatch, switchWalletChainAndWait, walletChainErrorMessage,
+  walletChainSnapshot } from '@/lib/wallet-chain-transition'
 
 // UI state and SDK recovery data only. Circle owns all CCTP execution.
 const STORAGE = 'mahshar:circle-bridge:v1:'
@@ -33,11 +35,40 @@ export function useBridge() {
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null)
   const [stepLabel, setStepLabel] = useState('Ready to bridge')
   const [liveSteps, setLiveSteps] = useState<BridgeStep[]>([])
+  const [chainTransition, setChainTransition] = useState<{ status: 'switching' | 'required'; targetChainId: number; targetName: string } | null>(null)
+  const chainTransitionRef = useRef(chainTransition)
+  chainTransitionRef.current = chainTransition
   const burnEvidence = useRef(false)
   const key = address ? STORAGE + address.toLowerCase() : null
 
+  const chainName = (chainId: number) => chainId === Arc.chainId ? 'Arc' :
+    catalog?.routes.find(route => route.source.type === 'evm' && route.source.chainId === chainId)?.source.name ?? `network ${chainId}`
+  const connectorChainId = () => connector?.getChainId()
+  const publishChainTransition = (next: typeof chainTransition) => {
+    chainTransitionRef.current = next
+    setChainTransition(next)
+    if (next?.status === 'switching') setStepLabel(`Switching to ${next.targetName}…`)
+  }
+
+  async function providerForChain(chainId: number, targetName: string) {
+    if (!connector) throw new Error('Connect your EVM wallet.')
+    const provider = await connector.getProvider() as EIP1193Provider
+    try {
+      await switchWalletChainAndWait({
+        provider, getConnectorChainId: connectorChainId, targetChainId: chainId, targetName,
+        switchChain: () => switchChainAsync({ chainId }),
+        onSwitching: () => publishChainTransition({ status: 'switching', targetChainId: chainId, targetName }),
+      })
+      publishChainTransition(null)
+      return chainSynchronizedProvider(provider, connectorChainId, chainName, publishChainTransition)
+    } catch (switchError) {
+      publishChainTransition({ status: 'required', targetChainId: chainId, targetName })
+      throw switchError
+    }
+  }
+
   useEffect(() => {
-    setResult(null); setPending(false); setResumable(false); setError(null); setTechnicalError(null); setRecoveryNotice(null); setLiveSteps([]); setStepLabel('Ready to bridge')
+    setResult(null); setPending(false); setResumable(false); setError(null); setTechnicalError(null); setRecoveryNotice(null); setLiveSteps([]); setStepLabel('Ready to bridge'); publishChainTransition(null)
     if (!key || !address) return
     try {
       const saved = localStorage.getItem(key)
@@ -52,12 +83,12 @@ export function useBridge() {
         setStepLabel(parsed.result.state === 'success' ? 'USDC confirmed in Arc wallet' : canResume ? 'Resume existing transfer' : 'Bridge failed before submission')
         if (parsed.result.state === 'error') {
           const detail = parsed.result.steps.find((step: BridgeStep) => step.state === 'error')?.errorMessage ?? 'Circle reported a failed transfer.'
-          setError(bridgeErrorMessage(detail)); setTechnicalError(detail)
+          setError(bridgeErrorMessage(detail)); setTechnicalError(isRawChainMismatch(detail) ? null : detail)
         }
       } else if (parsed.failure?.terminal === true) {
         setStepLabel('Bridge failed before submission')
         setError(bridgeErrorMessage(parsed.failure.message))
-        setTechnicalError(parsed.failure.message)
+        setTechnicalError(isRawChainMismatch(parsed.failure.message) ? null : parsed.failure.message)
       } else {
         setPending(true)
         setStepLabel('Saved submission needs review')
@@ -65,6 +96,32 @@ export function useBridge() {
       }
     } catch { setPending(true); setStepLabel('Saved transfer needs review'); setRecoveryNotice('Saved transfer needs review. Do not submit another burn.') }
   }, [key, address])
+
+  useEffect(() => {
+    if (!address || !connector || typeof document === 'undefined' || typeof window === 'undefined') return
+    let disposed = false
+    const reconcile = async () => {
+      try {
+        const provider = await connector.getProvider() as EIP1193Provider
+        const accounts = await provider.request({ method: 'eth_accounts' })
+        if (disposed || accounts[0]?.toLowerCase() !== address.toLowerCase()) return
+        const transition = chainTransitionRef.current
+        if (!transition) return
+        const snapshot = await walletChainSnapshot(provider, connectorChainId)
+        if (disposed) return
+        if (snapshot.providerChainId === transition.targetChainId && snapshot.connectorChainId === transition.targetChainId) {
+          publishChainTransition(null)
+          setRecoveryNotice(`${transition.targetName} wallet connection restored. Continue from the saved bridge state.`)
+        } else if (transition.status === 'switching') {
+          publishChainTransition({ ...transition, status: 'required' })
+        }
+      } catch { /* The connector may still be rehydrating; the recoverable control remains visible. */ }
+    }
+    const onVisibility = () => { if (document.visibilityState === 'visible') void reconcile() }
+    window.addEventListener('focus', reconcile)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => { disposed = true; window.removeEventListener('focus', reconcile); document.removeEventListener('visibilitychange', onVisibility) }
+  }, [address, connector])
 
   async function sourceAdapter(source: string, expectedAccount?: string, readOnly = false) {
     const chain = source === BridgeChain.Arc && readOnly ? Arc : bridgeSource(source)
@@ -86,8 +143,9 @@ export function useBridge() {
     if (expectedAccount && expectedAccount.toLowerCase() !== address.toLowerCase()) throw new Error('Reconnect the original source wallet.')
     if (chain.type !== 'evm') throw new Error('Unsupported wallet ecosystem')
     const chainId = chain.chainId
-    if (!readOnly) await switchChainAsync({ chainId })
-    const provider = await connector.getProvider() as EIP1193Provider
+    const provider = readOnly
+      ? await connector.getProvider() as EIP1193Provider
+      : await providerForChain(chainId, chain.name)
     const accounts = await provider.request({ method: 'eth_accounts' })
     if (accounts[0]?.toLowerCase() !== address.toLowerCase()) throw new Error('Wallet account changed. Review the recipient again.')
     // Estimation never requests accounts, switches chains, signs or submits.
@@ -157,7 +215,9 @@ export function useBridge() {
       const forwarded = resume ? result!.destination.useForwarder === true : route.useForwarder
       if (forwarded && !route.useForwarder) throw new Error('Circle no longer confirms forwarding for this saved route.')
       if (!forwarded && !connector) throw new Error('Connect your EVM wallet for the Arc mint.')
-      const evmProvider = !forwarded ? await connector!.getProvider() as EIP1193Provider : undefined
+      const evmProvider = !forwarded
+        ? chainSynchronizedProvider(await connector!.getProvider() as EIP1193Provider, connectorChainId, chainName, publishChainTransition)
+        : undefined
       if (evmProvider) {
         const accounts = await evmProvider.request({ method: 'eth_accounts' })
         if (accounts[0]?.toLowerCase() !== address.toLowerCase()) throw new Error('Reconnect the Arc recipient wallet.')
@@ -193,18 +253,18 @@ export function useBridge() {
       setStepLabel(next.state === 'success' ? 'USDC confirmed in Arc wallet' : next.state === 'pending' ? 'Circle transfer in progress' : canResume ? 'Transfer needs attention' : 'Bridge failed before submission')
       if (next.state === 'error' || next.steps.some(step => step.state === 'error')) {
         const detail = next.steps.find(step => step.state === 'error')?.errorMessage ?? 'Circle reported a failed transfer.'
-        setError(bridgeErrorMessage(detail)); setTechnicalError(detail)
+        setError(bridgeErrorMessage(detail)); setTechnicalError(isRawChainMismatch(detail) ? null : detail)
         lastFailure.current = { terminal: !canResume, message: bridgeErrorMessage(detail) }
       }
       return next
     } catch (err) {
       if (currentAddress.current !== address) return
       const detail = err instanceof Error ? err.message : String(err)
-      const message = bridgeErrorMessage(detail)
+      const message = isRawChainMismatch(err) ? walletChainErrorMessage(err, 'Arc') : bridgeErrorMessage(err)
       if (existingTransfer) { setError(message); return }
       const terminal = !submissionStarted || (preBroadcastFailure(err) && !burnEvidence.current)
       lastFailure.current = { terminal, message }
-      setError(message); setTechnicalError(detail)
+      setError(message); setTechnicalError(isRawChainMismatch(err) ? null : detail)
       setPending(!terminal); setResumable(false)
       setStepLabel(terminal ? 'Bridge failed before submission' : 'Transfer needs attention')
       if (terminal && !resume) localStorage.setItem(key, JSON.stringify({ source, amount, failure: { terminal: true, message: detail } }))
@@ -213,13 +273,29 @@ export function useBridge() {
 
   function reset() {
     if (busy.current || !key || pending) return
-    localStorage.removeItem(key); setPending(false); setResumable(false); setResult(null); setError(null); setTechnicalError(null); setRecoveryNotice(null); setLiveSteps([]); setStepLabel('Ready to bridge')
+    localStorage.removeItem(key); setPending(false); setResumable(false); setResult(null); setError(null); setTechnicalError(null); setRecoveryNotice(null); setLiveSteps([]); setStepLabel('Ready to bridge'); publishChainTransition(null)
+  }
+  async function continueChainSwitch() {
+    const transition = chainTransitionRef.current
+    if (!transition || !connector || !address) return false
+    setError(null)
+    try {
+      await providerForChain(transition.targetChainId, transition.targetName)
+      if (currentAddress.current !== address) throw new Error('Wallet changed. Review the bridge again.')
+      setRecoveryNotice(`${transition.targetName} is ready. Continue from the saved bridge state.`)
+      return true
+    } catch (switchError) {
+      const message = walletChainErrorMessage(switchError, transition.targetName)
+      setError(message)
+      setTechnicalError(null)
+      return false
+    }
   }
   return {
     bridge: (source: string, amount: string) => run(source, amount, false),
     retry: () => result ? run(result.source.chain.chain, result.amount, true) : Promise.resolve(),
     reset, result, pending, resumable, isLoading, error, technicalError, recoveryNotice, stepLabel, catalog, estimate, liveSteps,
-    lastFailure: () => lastFailure.current,
+    lastFailure: () => lastFailure.current, chainTransition, continueChainSwitch, confirmWalletChain: providerForChain,
     adapterReady: (source: string) => Boolean(address && connector && (source !== BridgeChain.Solana || (solana.publicKey && solana.signTransaction))),
   }
 }

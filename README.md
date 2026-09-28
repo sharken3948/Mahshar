@@ -189,6 +189,15 @@ Copy [.env.example](.env.example) to `.env.local` and provide the required local
 
 Never commit production secrets. Server-only private keys, service-role credentials, encryption material, API keys, internal API secrets, and cron authorization secrets must never use a `NEXT_PUBLIC_` prefix.
 
+### Arc Mainnet RPC roles
+
+- Passive browser Arc Wallet USDC reads use the optional, browser-safe `NEXT_PUBLIC_ARC_MAINNET_RPC_URL`, then Arc's official public RPC, an Arc-confirmed connected wallet provider, and finally Mahshar's fixed-purpose same-origin balance endpoint.
+- The balance endpoint and other server-side Arc reads use the server-only `ARC_MAINNET_RPC_URL`. This value may contain provider credentials and is never exposed to the browser.
+- Transaction simulations and receipt checks retain their operation-specific public clients; read failover does not select or submit a write transport.
+- Transactions are still submitted only through the connected wallet after the existing chain-convergence and user-confirmation checks.
+
+`NEXT_PUBLIC_ARC_MAINNET_RPC_URL` is optional. If configured, it must be a non-secret Arc Mainnet endpoint that permits browser CORS. The shared wallet-balance cache is intentionally short-lived (four seconds); successful balance-changing actions force a refresh.
+
 ## License
 
 MIT.

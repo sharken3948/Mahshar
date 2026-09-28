@@ -31,6 +31,7 @@ export function preBroadcastFailure(error: unknown): boolean {
 
 export function bridgeErrorMessage(error: unknown): string {
   const value = error instanceof Error ? error.message : String(error)
+  if (/ChainMismatchError|chainId mismatch|Active chainId is .*received/i.test(value)) return 'Your wallet network is still updating. Switch to Arc to continue.'
   if (/MaxFeeMustBeLessThanAmount/i.test(value)) return SMALL_BRIDGE_AMOUNT
   if (/user rejected|user denied|rejected the request|wallet rejected/i.test(value)) return 'The wallet declined the bridge transaction. No USDC was bridged.'
   if (/simulation failed|transaction simulation/i.test(value)) return 'The source transaction could not be simulated. No USDC was bridged.'

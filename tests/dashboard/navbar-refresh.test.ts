@@ -19,6 +19,15 @@ function render() {
 
 beforeEach(resetHarness)
 
+test('NavBar waits for session hydration before starting its private balance read', async () => {
+  state.sessionStatus = 'checking'
+  render(); runEffects(); await setImmediate()
+  assert.equal(state.requests.length, 0)
+  state.sessionStatus = 'authenticated'
+  render(); runEffects(); await setImmediate()
+  assert.equal(state.requests.length, 1)
+})
+
 test('NavBar retains its last successful Gateway balance when the 60-second poll fails', async () => {
   render()
   runEffects()

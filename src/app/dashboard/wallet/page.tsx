@@ -10,7 +10,7 @@ import styles from '../dashboard.module.css'
 export default function WalletDashboardPage() {
   const { formatUsdc } = useProductPreferences()
   const {
-    address, isConnected, connector, publicClient, gatewayStats, walletUsdcRaw,
+    address, isConnected, connector, publicClient, gatewayStats, walletUsdcRaw, walletUsdcStatus, walletUsdcLoading,
     depositAmount, setDepositAmount, depositStep, depositError, setDepositError,
     withdrawAmount, setWithdrawAmount, withdrawStep, withdrawError, withdrawFlatFee,
     initiateStep, initiateError, releaseStep, releaseError,
@@ -41,7 +41,7 @@ export default function WalletDashboardPage() {
             <section className={`${styles.card} ${styles.walletSummaryCard}`}>
               <p className="text-sm font-semibold text-[#2775CA]">Wallet USDC</p>
               <div className={styles.balanceValue}>{walletUsdcRaw != null ? formatUsdc(walletUsdcRaw, true) : '—'} <UsdcUnit /></div>
-              <p className="text-xs text-slate-500">Held in your own wallet on Arc.</p>
+              <p className="text-xs text-slate-500">{walletUsdcStatus === 'stale' ? 'Last known balance · refreshing in the background.' : walletUsdcStatus === 'unknown' ? walletUsdcLoading ? 'Checking balance…' : 'Balance temporarily unavailable.' : 'Held in your own wallet on Arc.'}</p>
             </section>
             <section className={`${styles.card} ${styles.walletSummaryCard}`}>
               <p className="text-sm font-semibold text-[#B6536C]">Mahshar Balance</p>
@@ -62,7 +62,9 @@ export default function WalletDashboardPage() {
               <>
                 <div className={styles.directDepositRoute} aria-label="Direct Arc deposit route"><span>Arc Mainnet Wallet</span><i aria-hidden="true">→</i><span>Mahshar Balance</span></div>
                 <p className={styles.directDepositCopy}>Deposit USDC already held in your Arc wallet into your Mahshar Balance.</p>
-                <div className={styles.availableArcBalance}><span>Available in Arc wallet</span><strong>{walletUsdcRaw != null ? formatUsdc(walletUsdcRaw, true) : '—'} <UsdcUnit /></strong></div>
+                <div className={styles.availableArcBalance}><span>{walletUsdcStatus === 'stale' ? 'Last known Arc balance' : 'Available in Arc wallet'}</span><strong>{walletUsdcRaw != null ? formatUsdc(walletUsdcRaw, true) : '—'} <UsdcUnit /></strong></div>
+                {walletUsdcStatus === 'unknown' && <p className="text-xs text-slate-500 mb-2">{walletUsdcLoading ? 'Checking Arc wallet balance…' : 'Balance temporarily unavailable. Mahshar is retrying automatically.'}</p>}
+                {walletUsdcStatus === 'stale' && <p className="text-xs text-slate-500 mb-2">Refreshing before deposits are enabled.</p>}
                 <div className="flex gap-2 items-center">
                   <input
                     type="number"
@@ -76,7 +78,7 @@ export default function WalletDashboardPage() {
                   <UsdcUnit />
                   <button
                     onClick={handleDeposit}
-                    disabled={depositing || !depositAmount || !publicClient}
+                    disabled={depositing || !depositAmount || !publicClient || walletUsdcStatus !== 'fresh' || walletUsdcLoading}
                     className="bg-[#2775CA] hover:bg-[#1E63B5] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
                   >
                     {depositStep === 'approving' ? 'Approving...' : depositStep === 'depositing' ? 'Depositing...' : 'Deposit'}

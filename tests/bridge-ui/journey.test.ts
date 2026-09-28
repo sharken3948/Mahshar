@@ -1,13 +1,17 @@
 import { state, reset, effects, unmount } from './register.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { setImmediate } from 'node:timers/promises'
 import { Arc, Base, Solana, type BridgeResult } from '@circle-fin/bridge-kit'
 import type { useBridge } from '../../src/hooks/useBridge'
 import { useBridgeJourney } from '../../src/app/dashboard/wallet/bridge/useBridgeJourney'
 import type { WalletRefreshAction } from '../../src/lib/wallet-refresh'
 const owner='0x'+'11'.repeat(20)
 const result={amount:'1',token:'USDC',provider:'CCTPV2BridgingProvider',state:'success',source:{address:owner,chain:Base},destination:{address:owner,chain:Arc},steps:[{name:'burn',state:'success',txHash:'0x'+'ab'.repeat(32)}]} as BridgeResult
-function render(run:()=>Promise<BridgeResult|undefined>=async()=>result,schedule:(action:WalletRefreshAction)=>void=()=>{}){state.cursor=0;return useBridgeJourney({bridge:run,pending:false,isLoading:false} as unknown as ReturnType<typeof useBridge>,schedule)}
+function render(run:()=>Promise<BridgeResult|undefined>=async()=>result,schedule:(action:WalletRefreshAction)=>void=()=>{}){state.cursor=0;return useBridgeJourney({bridge:run,pending:false,isLoading:false,confirmWalletChain:async(chainId:number)=>{
+ state.switches++;state.evmProviderCalls++;state.switchedChainIds.push(chainId);state.providerChainId=chainId;state.connectorChainId=chainId
+ return {request:async({method}:{method:string})=>{state.evmRequests.push(method);if(method==='eth_accounts')return [state.address];if(method==='eth_chainId')return `0x${chainId.toString(16)}`;return null}}
+}} as unknown as ReturnType<typeof useBridge>,schedule)}
 test('mount and restored display history never trigger a wallet operation',()=>{
  reset();localStorage.setItem('mahshar:bridge-activity:v1:'+owner,JSON.stringify([{id:'saved',date:new Date().toISOString(),source:'Base',amount:'1',deposit:'current',result}]))
  render();effects();assert.equal(state.reads,0);assert.equal(state.writes,0);assert.equal(state.switches,0)
@@ -74,4 +78,17 @@ test('double clicks do not duplicate bridge or explicit deposit execution',async
  await Promise.all([journey.start('Base','1'),journey.start('Base','1')]);assert.equal(runs,1);assert.equal(state.writes,0)
  journey=render();await Promise.all([journey.deposit(),journey.deposit()]);assert.equal(state.writes,1)
  assert.equal(render().activity[0].result?.state,'success');assert.equal(render().activity[0].deposit,'failed');render();effects();assert.equal(state.writes,1)
+})
+test('wallet-app return reconciles a known deposit receipt without replaying it',async()=>{
+ reset();const scheduled:WalletRefreshAction[]=[]
+ localStorage.setItem('mahshar:bridge-activity:v1:'+owner,JSON.stringify([{id:'returning',date:new Date().toISOString(),source:'Base',amount:'1',deposit:'current',depositHash:'0x'+'cd'.repeat(32),result}]))
+ render(undefined,action=>scheduled.push(action));effects()
+ for(const handler of state.focusHandlers)handler()
+ for(let index=0;index<4;index++)await setImmediate()
+ const restored=render(undefined,action=>scheduled.push(action))
+ assert.equal(state.receiptReads,1)
+ assert.equal(restored.activity[0].deposit,'completed')
+ assert.equal(state.writes,0,'receipt reconciliation must not submit the deposit again')
+ assert.ok(scheduled.some(action=>action.kind==='bridge'))
+ assert.ok(scheduled.some(action=>action.kind==='gatewayDeposit'))
 })
