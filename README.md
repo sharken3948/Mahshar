@@ -132,7 +132,7 @@ Runtime discovery and OpenAPI URLs are generated from the configured canonical m
 
 ## Cross-Chain Funding
 
-The dashboard provides explicit Circle Bridge Kit flows for SDK-supported Mainnet USDC routes into the user's connected Arc Mainnet wallet. The dedicated **Solana → Arc** workspace moves supported SPL USDC from a connected Solana source wallet to that Arc wallet. Route availability is derived from the installed SDK rather than a fixed list in this README.
+The dashboard provides explicit Circle Bridge Kit flows for SDK-supported Mainnet USDC routes into the user's connected Arc Mainnet wallet. The dedicated **Solana to Arc** workspace moves supported SPL USDC from a connected Solana source wallet to that Arc wallet. Route availability is derived from the installed SDK rather than a fixed list in this README.
 
 After USDC arrives on Arc, depositing it into the user's Gateway balance is a separate, explicit wallet action through Circle App Kit. Bridge and wallet funding flows remain separate from paid API execution; completing a bridge does not automatically purchase or call an API.
 

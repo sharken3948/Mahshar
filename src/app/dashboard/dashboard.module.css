@@ -28,11 +28,13 @@
 .wordmark { margin: 0 auto 24px; }
 .navLabel { padding: 0 18px; margin: 24px 0 16px; font-size: 14px; font-weight: 700; letter-spacing: .17em; color: #8a97a8; }
 .sectionNav { display: flex; flex-direction: column; gap: 8px; }
-.sectionNav a, .sectionNav button { display: flex; align-items: center; gap: 14px; min-height: 50px; padding: 14px 18px; border-radius: 14px; font-size: 18px; font-weight: 550; color: #63728a; text-align: left; transition: background-color .2s ease, color .2s ease; }
+.sectionNav a, .sectionNav button { position: relative; display: flex; flex-wrap: nowrap; align-items: center; gap: 14px; min-height: 50px; padding: 14px 18px; border-radius: 14px; color: #63728a; font-size: 18px; font-weight: 550; text-align: left; white-space: nowrap; transition: background-color .2s ease, color .2s ease; }
+.sectionNav svg { flex: 0 0 auto; }
+.navText { flex: 0 0 auto; white-space: nowrap; }
 .sectionNav a:hover { background: #f3f7fc; color: #2775ca; }
 .sectionNav a[aria-current] { background: #edf4ff; color: #2775ca; }
 .sectionNav button:disabled { color: #919cac; cursor: not-allowed; }
-.activeDot { width: 7px; height: 7px; border-radius: 100%; background: #2775ca; margin-left: auto; }
+.activeDot { position: absolute; top: 50%; right: 14px; width: 7px; height: 7px; border-radius: 100%; background: #2775ca; transform: translateY(-50%); }
 .soon { margin-left: auto; font-size: var(--mahshar-caption-size); text-transform: uppercase; letter-spacing: .08em; }
 .sidebarFooter { margin-top: auto; padding: 48px 18px 16px; }
 .sidebarFooter p { font-size: clamp(28px, 1.45vw, 34px); line-height: 1.14; font-weight: 700; letter-spacing: -.045em; margin: 18px 0 12px; }
@@ -216,13 +218,15 @@
 
 @media (max-width: 1199px) {
   .shell { --sidebar-width: 208px; --page-gutter: 28px; --card-gap: 20px; --card-padding: 24px; --header-height: 112px; }
+  .sectionNav a, .sectionNav button { gap: 12px; padding-inline: 13px; font-size: 17px; }
+  .activeDot { right: 12px; }
   .main { padding-bottom: 56px; }
   .content :global(.lg\:grid-cols-4) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .content :global(.lg\:grid-cols-3) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 900px) {
-  .shell { --sidebar-width: 192px; --page-gutter: 22px; }
+  .shell { --sidebar-width: 208px; --page-gutter: 22px; }
   .cards { grid-template-columns: minmax(0, 1fr); }
   .content :global(.md\:col-span-2) { grid-column: auto; }
   .backgroundFlowBottom { display: none; }

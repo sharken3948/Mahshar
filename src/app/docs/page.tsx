@@ -90,7 +90,7 @@ export default function DocsPage() {
             <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>WALLET FUNDING</p><h2>Bridge receipt and Mahshar Balance are separate steps</h2><p>The dashboard exposes both operations without combining their transaction paths.</p></div></div>
             <div className={`${styles.topicGrid} ${styles.topicGridThree}`}>
               <Link href="/dashboard/wallet/bridge" className={styles.topicCard}><span className={styles.iconBox}><PublicIcon name="bridge" /></span><h3>Bridge to Arc</h3><p>The Bridge page discovers official Circle routes for supported Mainnet source wallets and targets the connected EVM wallet on Arc Mainnet.</p></Link>
-              <Link href="/dashboard/solana" className={styles.topicCard}><span className={styles.iconBox}><PublicIcon name="wallet" /></span><h3>Solana → Arc</h3><p>The Solana → Arc page moves supported SPL USDC from the connected Solana source wallet to the connected EVM wallet on Arc Mainnet.</p></Link>
+              <Link href="/dashboard/solana" className={styles.topicCard}><span className={styles.iconBox}><PublicIcon name="wallet" /></span><h3>Solana to Arc</h3><p>The Solana to Arc page moves supported SPL USDC from the connected Solana source wallet to the connected EVM wallet on Arc Mainnet.</p></Link>
               <Link href="/dashboard/wallet#deposit" className={styles.topicCard}><span className={styles.iconBox}><PublicIcon name="balance" /></span><h3>Deposit to Mahshar Balance</h3><p>The Wallet deposit is a separate, explicit action from USDC already held by the connected EVM wallet on Arc Mainnet.</p></Link>
             </div>
           </div>

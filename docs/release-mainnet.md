@@ -4,7 +4,7 @@ Mahshar's Arc Mainnet release introduces:
 
 - USDC pay-per-call API execution.
 - Machine-readable API discovery.
-- A directional Solana → Arc funding workspace with a separate optional Mahshar Balance deposit step.
+- A directional Solana to Arc funding workspace with a separate optional Mahshar Balance deposit step.
 - Four upstream authentication models: public, API-key header, bearer token, and query credential.
 - Durable purchase-scoped response recovery.
 - Wallet-bound browser sessions with reduced signature repetition.

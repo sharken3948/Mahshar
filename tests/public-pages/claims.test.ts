@@ -62,8 +62,8 @@ test('current public documentation describes the dashboard funding flow as Solan
 
   assert.match(solana, /<h1>Bridge USDC from Solana to Arc<\/h1>/)
   assert.match(solana, /Select Solana wallet/)
-  assert.match(docs, /<h3>Solana → Arc<\/h3>/)
-  for (const content of [readme, changelog, release, bridgeGuide]) assert.match(content, /Solana → Arc/)
+  assert.match(docs, /<h3>Solana to Arc<\/h3>/)
+  for (const content of [readme, changelog, release, bridgeGuide]) assert.match(content, /Solana to Arc/)
   assert.match(bridgeGuide, /connected Solana wallet is the source/)
   assert.match(bridgeGuide, /Mahshar Balance remains a separate, explicit wallet action/)
 })

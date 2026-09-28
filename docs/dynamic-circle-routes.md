@@ -2,9 +2,9 @@
 
 BridgeKit 1.15.1 supplies the candidate universe through `getSupportedChains({ isTestnet: false })`. `discoverCircleRoutes` calls each default provider's public `supportsRoute(source, Arc, 'USDC')` in SDK selection order, then checks forwarding on the selected provider. Unsupported routes and unsupported browser ecosystems are excluded. No manually maintained source allowlist, chain IDs, CCTP domains or contract builders are used.
 
-## Solana → Arc workspace
+## Solana to Arc workspace
 
-The dedicated dashboard route at `/dashboard/solana` is presented as **Solana → Arc** because it is directional: the connected Solana wallet is the source, and the connected EVM wallet on Arc Mainnet is the destination. It moves supported SPL USDC to Arc. Depositing received USDC into Mahshar Balance remains a separate, explicit wallet action.
+The dedicated dashboard route at `/dashboard/solana` is presented as **Solana to Arc** because it is directional: the connected Solana wallet is the source, and the connected EVM wallet on Arc Mainnet is the destination. It moves supported SPL USDC to Arc. Depositing received USDC into Mahshar Balance remains a separate, explicit wallet action.
 
 The installed registry contains 26 Mainnets. It confirms 25 native-USDC routes to Arc, all forwarding-capable: Arbitrum, Avalanche, Base, Codex Mainnet, Cronos, Edge, Ethereum, HyperEVM, Injective, Ink, Linea, Monad, Morph, Optimism, Pharos, Plasma, Plume, Polygon, Sei, Solana, Sonic, Unichain, World Chain, XDC and X Layer. Arc itself is the destination, not a bridge source. These counts describe the installed SDK, not a frozen application configuration.
 

@@ -34,7 +34,7 @@ export function DashboardSidebar() {
     { icon: 'wallet', label: 'Wallet', href: '/dashboard/wallet', available: true },
     { icon: 'bridge', label: 'Bridge', href: '/dashboard/wallet/bridge', available: true },
     { icon: 'earnings', label: 'Earnings', href: '/dashboard/earnings', available: true },
-    { icon: 'solana', label: 'Solana → Arc', href: '/dashboard/solana', available: true },
+    { icon: 'solana', label: 'Solana to Arc', href: '/dashboard/solana', available: true },
     { icon: 'apis', label: 'APIs', href: '/dashboard/apis', available: true },
     { icon: 'settings', label: 'Settings', href: '/dashboard/settings', available: true },
   ] as const
@@ -49,7 +49,7 @@ export function DashboardSidebar() {
           if (!available) {
             return <button key={icon} type="button" disabled title={`${label} will be available in a future update`}><DashboardIcon name={icon} />{label}<span className={styles.soon}>Soon</span></button>
           }
-          return <Link key={icon} href={href} aria-current={active ? 'page' : undefined}><DashboardIcon name={icon} />{label}{active && <span className={styles.activeDot} />}</Link>
+          return <Link key={icon} href={href} aria-current={active ? 'page' : undefined}><DashboardIcon name={icon} /><span className={styles.navText}>{label}</span>{active && <span className={styles.activeDot} />}</Link>
         })}
       </nav>
       <div className={styles.sidebarFooter}><span className={styles.footerMark} aria-hidden="true">↗</span><p>Build.<br />Monetize.</p><span>A More Open<br />AI Economy.</span><div className={styles.footerRule} /><small>Powered by possibility.</small></div>

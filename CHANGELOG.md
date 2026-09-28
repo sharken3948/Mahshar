@@ -74,7 +74,7 @@ All notable changes to Mahshar are documented in this file.
 
 ### Dashboard and UX
 
-- Clarified the dedicated Solana → Arc funding workspace and its separate post-bridge deposit step.
+- Clarified the dedicated Solana to Arc funding workspace and its separate post-bridge deposit step.
 - Scoped private dashboard state to the connected wallet.
 - Prevented stale responses from a previous wallet from updating the active wallet view.
 - Preserved last-known-good balance data during refresh failures.
