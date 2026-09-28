@@ -66,3 +66,12 @@ test('shared dashboard card headings render once and Settings content opts out o
  assert.match(css,/\.balanceValue\s*\{/)
  assert.match(css,/\.card :global\(\.font-mono\.text-2xl\)/)
 })
+
+test('dashboard navigation names the dedicated Solana funding flow directionally',()=>{
+ const visuals=readFileSync('src/app/dashboard/dashboard-visuals.tsx','utf8')
+ const overview=readFileSync('src/app/dashboard/page.tsx','utf8')
+ assert.match(visuals,/label: 'Solana → Arc', href: '\/dashboard\/solana'/)
+ assert.doesNotMatch(visuals,/label: 'Solana', href: '\/dashboard\/solana'/)
+ assert.equal(overview.match(/Open Solana → Arc/g)?.length,2)
+ assert.doesNotMatch(overview,/Open Solana to/)
+})

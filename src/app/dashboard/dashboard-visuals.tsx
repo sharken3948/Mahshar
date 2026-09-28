@@ -34,7 +34,7 @@ export function DashboardSidebar() {
     { icon: 'wallet', label: 'Wallet', href: '/dashboard/wallet', available: true },
     { icon: 'bridge', label: 'Bridge', href: '/dashboard/wallet/bridge', available: true },
     { icon: 'earnings', label: 'Earnings', href: '/dashboard/earnings', available: true },
-    { icon: 'solana', label: 'Solana', href: '/dashboard/solana', available: true },
+    { icon: 'solana', label: 'Solana → Arc', href: '/dashboard/solana', available: true },
     { icon: 'apis', label: 'APIs', href: '/dashboard/apis', available: true },
     { icon: 'settings', label: 'Settings', href: '/dashboard/settings', available: true },
   ] as const

@@ -10,7 +10,9 @@ import { shouldAutoConnectSolanaWallet } from '../../src/lib/solana-wallet-routi
 test('Solana workspace renders the official route controls without automatic execution',()=>{
  state.successful=false;calls.length=0
  const html=renderToStaticMarkup(createElement(Page))
- for(const label of ['Solana Wallet','SPL USDC','Solana → Arc Mainnet','Connected EVM wallet','Get Circle estimate ↻','Bridge to Arc','Bridge Progress'])assert.ok(html.includes(label),label)
+ for(const label of ['Bridge USDC from Solana to Arc','Solana Wallet','SPL USDC','Solana → Arc','Connected EVM wallet','Get Circle estimate ↻','Bridge to Arc','Solana → Arc progress'])assert.ok(html.includes(label),label)
+ assert.match(html,/Move supported SPL USDC from Solana to your connected wallet on Arc Mainnet/)
+ assert.match(html,/Connected as the source wallet for this Solana-to-Arc transfer/)
  assert.match(html,/2\.5/)
  assert.equal((html.match(/id="solana-bridge-amount"/g)??[]).length,1)
  assert.match(html,/class="amountInput"/)

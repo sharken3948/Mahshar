@@ -74,21 +74,21 @@ export default function SolanaDashboardPage() {
     <div className={dashboardStyles.content}>
       <div className={styles.page}>
         <div className={dashboardStyles.pageHeader}>
-        <p className={dashboardStyles.eyebrow}>SOLANA → ARC MAINNET</p>
-        <h1>Solana</h1>
+        <p className={dashboardStyles.eyebrow}>SOLANA → ARC</p>
+        <h1>Bridge USDC from Solana to Arc</h1>
         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[#6B7280]">
-          Bridge native SPL USDC into your connected Arc Mainnet wallet through Circle&apos;s official bridge route.
+          Move supported SPL USDC from Solana to your connected wallet on Arc Mainnet through Circle&apos;s official bridge route.
         </p>
       </div>
 
       <div className={styles.summaryGrid}>
         <section className={dashboardStyles.card}>
-          <DashboardCardHeader title="Solana Wallet" subtitle="Your connection stays in your control." icon="solana" tone="purple" />
+          <DashboardCardHeader title="Solana Wallet" subtitle="Source wallet for the Solana → Arc transfer." icon="solana" tone="purple" />
           <p className={styles.label}>Connection status</p>
           <div className={styles.walletValue}>{solanaConnected && connectedAddress ? shortAddress(connectedAddress) : 'No wallet selected'}</div>
-          <p className={styles.copy}>{solanaConnected && connectedAddress ? 'Connected through your Solana wallet provider.' : 'Select a supported wallet to bridge native SPL USDC.'}</p>
+          <p className={styles.copy}>{solanaConnected && connectedAddress ? 'Connected as the source wallet for this Solana-to-Arc transfer.' : 'Select a supported Solana wallet to bridge supported SPL USDC to Arc.'}</p>
           <button onClick={() => solanaConnected ? void solanaDisconnect() : setSolanaModalVisible(true)} className={styles.solanaButton}>
-            {solanaConnected && connectedAddress ? 'Disconnect wallet' : 'Select SOL Wallet'}
+            {solanaConnected && connectedAddress ? 'Disconnect wallet' : 'Select Solana wallet'}
           </button>
         </section>
 
@@ -104,13 +104,13 @@ export default function SolanaDashboardPage() {
       <section className={styles.workspace} aria-labelledby="solana-workspace-title">
         <div className={styles.workspaceHeading}>
           <p className={dashboardStyles.eyebrow}>CIRCLE BRIDGE WORKSPACE</p>
-          <h2 id="solana-workspace-title">Solana → Arc Mainnet</h2>
+          <h2 id="solana-workspace-title">Solana → Arc</h2>
           <p>Official Circle bridge route into your connected Arc wallet.</p>
         </div>
         <div className={styles.workspaceGrid}>
           <section className={`${dashboardStyles.card} ${styles.workspaceCard} ${styles.formColumn}`}>
             <div className={styles.routeLine}><span><DashboardIcon name="solana" /></span><strong>Solana</strong><span aria-hidden="true">→</span><strong>Arc Mainnet</strong></div>
-            <p className={styles.copy}>{route ? route.useForwarder ? 'Circle forwarding is available for this route.' : 'Circle requires an Arc wallet signature for the destination mint.' : circleBridge.catalog ? 'Circle does not currently report a supported Solana Mainnet route to Arc.' : 'Checking Circle route support…'}</p>
+            <p className={styles.copy}>{route ? route.useForwarder ? 'Circle forwarding is available for this route.' : 'Circle requires an Arc wallet signature for the destination mint.' : circleBridge.catalog ? 'Circle does not currently report a supported Solana Mainnet route to Arc.' : 'Checking Circle Solana-to-Arc route support…'}</p>
 
             <label className={styles.fieldLabel} htmlFor="solana-bridge-amount">Amount</label>
             <BridgeAmountControl id="solana-bridge-amount" value={amount} onChange={setAmount} onMax={() => setAmount(solanaBalance.usdcBalance)} unit={<UsdcUnit />} disabled={journey.working || circleBridge.isLoading} maxDisabled={available === null || available === BigInt(0) || journey.working} invalid={!!issue} />
@@ -137,20 +137,20 @@ export default function SolanaDashboardPage() {
           </section>
 
           <section className={`${dashboardStyles.card} ${styles.workspaceCard} ${styles.progressColumn}`}>
-            <div className={styles.progressHeading}><h2>Bridge Progress</h2><span className={result?.state === 'success' ? bridgeStyles.valid : result?.state === 'error' ? bridgeStyles.error : bridgeStyles.badge}>{result?.state === 'success' ? 'Success' : result?.state ?? 'Ready'}</span></div>
+            <div className={styles.progressHeading}><h2>Solana → Arc progress</h2><span className={result?.state === 'success' ? bridgeStyles.valid : result?.state === 'error' ? bridgeStyles.error : bridgeStyles.badge}>{result?.state === 'success' ? 'Success' : result?.state ?? 'Ready'}</span></div>
             <ol className={bridgeStyles.stages}>{STAGES.map((label,index) => <li key={label} className={bridgeStyles[stages[index]]} aria-current={stages[index] === 'current' ? 'step' : undefined}><span>{stages[index] === 'completed' ? '✓' : index+1}</span><strong>{label}</strong><small>{stages[index]}</small></li>)}</ol>
             <div role="status" className={bridgeStyles.status}><strong>{result?.state === 'success' ? 'Received on Arc' : circleBridge.stepLabel}</strong><p>{result?.state === 'success' ? activeJourney?.receivedAmount ? `${sixDecimals(activeJourney.receivedAmount)} USDC` : 'USDC is confirmed in your Arc wallet.' : 'Circle Bridge Kit controls approval, burn, attestation, forwarding, and mint recovery.'}</p></div>
             {circleBridge.error && <p role="alert" className={styles.error}>{circleBridge.error}</p>}
             {circleBridge.recoveryNotice && <p role="status" className={bridgeStyles.warning}>{circleBridge.recoveryNotice}</p>}
             <div className={bridgeStyles.actions}>{links.map(link => <a key={link.step+link.hash} href={link.href} target="_blank" rel="noopener noreferrer">{link.label} · {link.step} ↗</a>)}
-              {result && circleBridge.resumable && <button type="button" className={bridgeStyles.secondary} disabled={circleBridge.isLoading} onClick={() => { if (window.confirm(`Resume the existing ${result.amount} USDC Solana transfer with Circle?`)) void circleBridge.retry().then(retried => { if (retried?.state === 'success') scheduleWalletRefresh({ kind: 'bridge', source: 'solana' }) }) }}>Resume with Circle</button>}
+              {result && circleBridge.resumable && <button type="button" className={bridgeStyles.secondary} disabled={circleBridge.isLoading} onClick={() => { if (window.confirm(`Resume the existing ${result.amount} USDC Solana-to-Arc transfer with Circle?`)) void circleBridge.retry().then(retried => { if (retried?.state === 'success') scheduleWalletRefresh({ kind: 'bridge', source: 'solana' }) }) }}>Resume with Circle</button>}
               {result?.state === 'error' && !circleBridge.resumable && <button type="button" className={bridgeStyles.textButton} onClick={circleBridge.reset}>New transfer</button>}
             </div>
-            {circleBridge.pending && !result && <p className={bridgeStyles.warning}>A saved transfer from another source needs review before a new Solana bridge can begin.</p>}
+            {circleBridge.pending && !result && <p className={bridgeStyles.warning}>A saved transfer from another source needs review before a new Solana-to-Arc transfer can begin.</p>}
             {circleBridge.technicalError && circleBridge.technicalError !== circleBridge.error && <details><summary>Technical details</summary><pre className={bridgeStyles.recorded}>{circleBridge.technicalError}</pre></details>}
 
             {result?.state === 'success' && <div className={bridgeStyles.depositPanel} aria-label="Optional Mahshar deposit">
-              <div><h3>Mahshar Deposit <span>Optional</span></h3><p>The Solana bridge is complete. Deposit the measured Arc receipt only if you choose.</p></div>
+              <div><h3>Mahshar Deposit <span>Optional</span></h3><p>The Solana-to-Arc bridge is complete. Deposit the measured Arc receipt only if you choose.</p></div>
               {activeJourney?.deposit === 'available' && activeJourney.receivedAmount ? <button type="button" className={bridgeStyles.secondary} disabled={journey.depositing} onClick={() => {
                 if (window.confirm(`Deposit ${sixDecimals(activeJourney.receivedAmount!)} USDC from your Arc wallet to Mahshar Balance? This is a separate transaction.`)) void journey.deposit()
               }}>Deposit to Mahshar Balance</button> : activeJourney?.deposit === 'current' ? <strong>Confirming Gateway deposit…</strong> : activeJourney?.deposit === 'completed' ? <strong className={bridgeStyles.valid}>{sixDecimals(activeJourney.depositedAmount ?? activeJourney.receivedAmount ?? result.amount)} USDC deposited</strong> : <Link className={bridgeStyles.secondary} href="/dashboard/wallet#deposit">Review deposit in Wallet →</Link>}

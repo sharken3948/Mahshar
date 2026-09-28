@@ -52,6 +52,22 @@ test('Docs provider, auth, payment, and wallet statements match current implemen
   assert.match(solana, /This is a separate transaction/)
 })
 
+test('current public documentation describes the dashboard funding flow as Solana to Arc', () => {
+  const solana = read('src/app/dashboard/solana/page.tsx')
+  const docs = read('src/app/docs/page.tsx')
+  const readme = read('README.md')
+  const changelog = read('CHANGELOG.md')
+  const release = read('docs/release-mainnet.md')
+  const bridgeGuide = read('docs/dynamic-circle-routes.md')
+
+  assert.match(solana, /<h1>Bridge USDC from Solana to Arc<\/h1>/)
+  assert.match(solana, /Select Solana wallet/)
+  assert.match(docs, /<h3>Solana → Arc<\/h3>/)
+  for (const content of [readme, changelog, release, bridgeGuide]) assert.match(content, /Solana → Arc/)
+  assert.match(bridgeGuide, /connected Solana wallet is the source/)
+  assert.match(bridgeGuide, /Mahshar Balance remains a separate, explicit wallet action/)
+})
+
 test('Support exposes only the support channel already used by Mahshar', () => {
   const support = read('src/app/support/page.tsx')
   const settings = read('src/app/dashboard/settings/page.tsx')
