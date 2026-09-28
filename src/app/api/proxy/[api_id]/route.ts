@@ -10,7 +10,7 @@ import { resolveListingProxyMethod } from '@/lib/proxy-policy'
 import { settlementStore } from '@/lib/payments/server'
 import { beginDelivery, DeliveryRequestMismatchError, deliveryError, deliveryRequestHash, finishDelivery } from '@/lib/payments/delivery'
 import { enforceRateLimit } from '@/lib/rate-limit'
-import { authorizeProxyTarget } from '@/lib/marketplace/proxy-target'
+import { authorizeProxyTarget, ProxyTargetError } from '@/lib/marketplace/proxy-target'
 import { marketplaceOrigin } from '@/lib/marketplace/server'
 
 export const runtime = 'nodejs'
@@ -25,7 +25,7 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
   const supabase = createServiceClient()
   const { data: listing, error } = await supabase
     .from('api_listings')
-    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method, endpoint_url, auth_type, auth_param_name, dynamic_path_supported, path_parameters, query_parameters')
+    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method, endpoint_url, auth_type, auth_param_name, body_required, dynamic_path_supported, path_parameters, query_parameters')
     .eq('id', apiId)
     .single()
 
@@ -45,7 +45,13 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
 
   const sellerAddress = listing.seller_wallet as `0x${string}`
   const priceUsd = Number(listing.price_per_call)
-  const canonicalTarget = authorizeProxyTarget(listing, '').toString()
+  const requestSuffix = request.nextUrl.search
+  let canonicalTarget: string
+  try { canonicalTarget = authorizeProxyTarget(listing, requestSuffix).toString() }
+  catch (targetError) {
+    const code = targetError instanceof ProxyTargetError ? targetError.code : 'invalid_dynamic_path'
+    return NextResponse.json({ error: code }, { status: 400 })
+  }
 
   // Validate the paid request payload before presenting a 402 so an agent is
   // never charged for JSON that Mahshar cannot forward.
@@ -60,8 +66,11 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
       catch { return NextResponse.json({ error: 'invalid_request', message: 'POST body must be valid JSON.' }, { status: 400 }) }
     }
   }
+  if (listing.body_required === true && upstreamBody === undefined) {
+    return NextResponse.json({ error: 'request_body_required', message: 'POST listing requires a JSON request body.' }, { status: 400 })
+  }
 
-  const resourceUrl = new URL(`/api/proxy/${encodeURIComponent(apiId)}`, marketplaceOrigin()).toString()
+  const resourceUrl = new URL(`/api/proxy/${encodeURIComponent(apiId)}${requestSuffix}`, marketplaceOrigin()).toString()
 
   const paymentSignature = request.headers.get('payment-signature')
   if (!paymentSignature) {
@@ -122,7 +131,7 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
     deliveryAttemptId: paymentResult.attemptId,
     purchaseAccessToken,
     method: resolvedMethod.method,
-    dynamicPath: '',
+    dynamicPath: requestSuffix,
     canonicalTarget,
     incomingHeaders: {},
     body: upstreamBody,

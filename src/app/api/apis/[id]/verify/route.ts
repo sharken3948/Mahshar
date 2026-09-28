@@ -8,6 +8,8 @@ import { safeOutboundFetch } from '@/lib/outbound-fetch'
 import { enforceRateLimit } from '@/lib/rate-limit'
 import { assessRepresentativeResponseSize, MAX_SAFE_SERIALIZED_RESPONSE_BYTES, readResponseBytes,
   ResponseTooLargeError } from '@/lib/proxy-response'
+import { validateListingRequestContract } from '@/lib/marketplace/request-contract'
+import { buildUpstreamAuthentication } from '@/lib/marketplace/upstream-auth'
 
 export const runtime = 'nodejs'
 
@@ -21,6 +23,12 @@ export const POST = withWalletSession(async (
   if (limited) return limited
   const supabase = createServiceClient()
   const listing = await requireListingOwner(supabase, id, wallet)
+
+  const requestContract = validateListingRequestContract(listing)
+  if (!requestContract.ok) {
+    return NextResponse.json({ error: requestContract.error, field: requestContract.field,
+      success: false, verified: false }, { status: 400 })
+  }
 
   if (listing.verified_at) {
     return NextResponse.json({ already_verified: true, success: true })
@@ -45,17 +53,16 @@ export const POST = withWalletSession(async (
   const startTime = Date.now()
 
   try {
-    const target = new URL(listing.endpoint_url)
-    const method = listing.method ?? 'GET'
+    const target = new URL(requestContract.example.canonical_target)
+    const method = requestContract.method
     const response = await safeOutboundFetch(target.toString(), () => {
-      const requestUrl = new URL(target)
-      if (listing.auth_type === 'queryparam' && listing.auth_param_name && authKey) requestUrl.searchParams.set(listing.auth_param_name, authKey)
-      const requestHeaders: Record<string, string> = { 'content-type': 'application/json' }
-      if (listing.auth_type === 'apikey' && authKey) requestHeaders['x-api-key'] = authKey
-      else if (listing.auth_type === 'bearer' && authKey) requestHeaders.Authorization = `Bearer ${authKey}`
+      const { requestUrl, headers: requestHeaders } = buildUpstreamAuthentication(
+        target, listing.auth_type, authKey, listing.auth_param_name,
+      )
       return { url: requestUrl, outboundInit: {
         method,
-        body: method !== 'GET' && listing.example_request ? listing.example_request : undefined,
+        body: method !== 'GET' && requestContract.example.body !== null
+          ? JSON.stringify(requestContract.example.body) : undefined,
         headers: requestHeaders,
         redirect: 'manual',
         signal: controller.signal,

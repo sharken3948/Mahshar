@@ -2,12 +2,16 @@ import { isSafeParameterPattern, matchesSafeParameterPattern } from './safe-patt
 
 export type DeclaredParameter = {
   name: string
+  description?: string
   required?: boolean
   enum?: string[]
   pattern?: string
   type?: 'string' | 'integer' | 'number' | 'boolean'
   minLength?: number
   maxLength?: number
+  minimum?: number
+  maximum?: number
+  example?: string | number | boolean
 }
 
 export class ProxyTargetError extends Error {
@@ -18,7 +22,7 @@ export class ProxyTargetError extends Error {
   }
 }
 
-function parameters(value: unknown): DeclaredParameter[] {
+export function declaredParameters(value: unknown): DeclaredParameter[] {
   if (value == null) return []
   if (!Array.isArray(value)) throw new ProxyTargetError('invalid_dynamic_path')
   return value.map(item => {
@@ -28,6 +32,9 @@ function parameters(value: unknown): DeclaredParameter[] {
       throw new ProxyTargetError('invalid_dynamic_path')
     }
     if (candidate.required !== undefined && typeof candidate.required !== 'boolean') throw new ProxyTargetError('invalid_dynamic_path')
+    if (candidate.description !== undefined && (typeof candidate.description !== 'string' || candidate.description.length > 500)) {
+      throw new ProxyTargetError('invalid_dynamic_path')
+    }
     if (candidate.enum !== undefined && (!Array.isArray(candidate.enum) || candidate.enum.length > 100 ||
       candidate.enum.some(value => typeof value !== 'string' || value.length > 512))) throw new ProxyTargetError('invalid_dynamic_path')
     if (candidate.pattern !== undefined) {
@@ -42,6 +49,19 @@ function parameters(value: unknown): DeclaredParameter[] {
         throw new ProxyTargetError('invalid_dynamic_path')
       }
     }
+    for (const key of ['minimum', 'maximum'] as const) {
+      if (candidate[key] !== undefined && (typeof candidate[key] !== 'number' || !Number.isFinite(candidate[key]))) {
+        throw new ProxyTargetError('invalid_dynamic_path')
+      }
+    }
+    if (candidate.minimum !== undefined && candidate.maximum !== undefined && Number(candidate.minimum) > Number(candidate.maximum)) {
+      throw new ProxyTargetError('invalid_dynamic_path')
+    }
+    if (candidate.example !== undefined && !['string', 'number', 'boolean'].includes(typeof candidate.example)) {
+      throw new ProxyTargetError('invalid_dynamic_path')
+    }
+    const allowedKeys = new Set(['name', 'description', 'required', 'enum', 'pattern', 'type', 'minLength', 'maxLength', 'minimum', 'maximum', 'example'])
+    if (Object.keys(candidate).some(key => !allowedKeys.has(key))) throw new ProxyTargetError('invalid_dynamic_path')
     if (candidate.minLength !== undefined && candidate.maxLength !== undefined && Number(candidate.minLength) > Number(candidate.maxLength)) {
       throw new ProxyTargetError('invalid_dynamic_path')
     }
@@ -51,7 +71,7 @@ function parameters(value: unknown): DeclaredParameter[] {
 
 export function validateDeclaredParameterMetadata(value: unknown) {
   try {
-    const parsed = parameters(value)
+    const parsed = declaredParameters(value)
     const names = new Set<string>()
     for (const parameter of parsed) {
       const key = parameter.name.toLowerCase()
@@ -62,7 +82,7 @@ export function validateDeclaredParameterMetadata(value: unknown) {
   } catch { return false }
 }
 
-function validateValue(value: string, parameter: DeclaredParameter) {
+export function validateDeclaredParameterValue(value: string, parameter: DeclaredParameter) {
   if (value.length > 2048 || (parameter.minLength !== undefined && value.length < parameter.minLength) ||
     (parameter.maxLength !== undefined && value.length > parameter.maxLength)) return false
   if (parameter.enum && !parameter.enum.includes(value)) return false
@@ -70,6 +90,8 @@ function validateValue(value: string, parameter: DeclaredParameter) {
   if (parameter.type === 'integer' && !/^-?(?:0|[1-9]\d*)$/.test(value)) return false
   if (parameter.type === 'number' && (value.trim() === '' || !Number.isFinite(Number(value)))) return false
   if (parameter.type === 'boolean' && value !== 'true' && value !== 'false') return false
+  if ((parameter.type === 'integer' || parameter.type === 'number') && parameter.minimum !== undefined && Number(value) < parameter.minimum) return false
+  if ((parameter.type === 'integer' || parameter.type === 'number') && parameter.maximum !== undefined && Number(value) > parameter.maximum) return false
   return true
 }
 
@@ -102,18 +124,25 @@ export function authorizeProxyTarget(listing: ProxyTargetListing, dynamicPath: u
   if (typeof supplied !== 'string' || supplied.length > 8192 || /[\u0000-\u001f\u007f]/.test(supplied)) {
     throw new ProxyTargetError('invalid_dynamic_path')
   }
-  if (!supplied) return new URL(listing.endpoint_url)
-  if (listing.dynamic_path_supported !== true) throw new ProxyTargetError('dynamic_path_not_allowed')
+  if (!supplied) {
+    const base = new URL(listing.endpoint_url)
+    const requiredPath = declaredParameters(listing.path_parameters).some(rule => rule.required !== false)
+    if (requiredPath) throw new ProxyTargetError('undeclared_path')
+    const requiredQuery = declaredParameters(listing.query_parameters).some(rule => rule.required === true)
+    if (requiredQuery) throw new ProxyTargetError('invalid_query_parameter')
+    return base
+  }
   if (!supplied.startsWith('/') && !supplied.startsWith('?')) throw new ProxyTargetError('invalid_dynamic_path')
   if (supplied.includes('#')) throw new ProxyTargetError('invalid_dynamic_path')
 
   const queryIndex = supplied.indexOf('?')
   const rawPathname = queryIndex === -1 ? supplied : supplied.slice(0, queryIndex)
   const rawQuery = queryIndex === -1 ? '' : supplied.slice(queryIndex + 1)
+  if (rawPathname && listing.dynamic_path_supported !== true) throw new ProxyTargetError('dynamic_path_not_allowed')
   assertNoTraversal(rawPathname)
   if (/%2f|%5c/i.test(rawPathname)) throw new ProxyTargetError('invalid_dynamic_path')
 
-  const pathRules = parameters(listing.path_parameters)
+  const pathRules = declaredParameters(listing.path_parameters)
   const segments = rawPathname.split('/').filter(Boolean).map(segment => {
     try { return decodeURIComponent(segment) } catch { throw new ProxyTargetError('invalid_dynamic_path') }
   })
@@ -121,9 +150,9 @@ export function authorizeProxyTarget(listing: ProxyTargetListing, dynamicPath: u
   if (segments.length > pathRules.length || pathRules.slice(segments.length).some(rule => rule.required !== false)) {
     throw new ProxyTargetError('undeclared_path')
   }
-  if (segments.some((segment, index) => !validateValue(segment, pathRules[index]))) throw new ProxyTargetError('undeclared_path')
+  if (segments.some((segment, index) => !validateDeclaredParameterValue(segment, pathRules[index]))) throw new ProxyTargetError('undeclared_path')
 
-  const queryRules = parameters(listing.query_parameters)
+  const queryRules = declaredParameters(listing.query_parameters)
   const rulesByName = new Map(queryRules.map(rule => [rule.name.toLowerCase(), rule]))
   const suppliedNames = new Set<string>()
   const buyerQuery = new URLSearchParams(rawQuery)
@@ -138,7 +167,7 @@ export function authorizeProxyTarget(listing: ProxyTargetListing, dynamicPath: u
     if (credentialName && key === credentialName) throw new ProxyTargetError('credential_query_collision')
     const rule = rulesByName.get(key)
     if (!rule) throw new ProxyTargetError('undeclared_query_parameter')
-    if (!validateValue(value, rule)) throw new ProxyTargetError('invalid_query_parameter')
+    if (!validateDeclaredParameterValue(value, rule)) throw new ProxyTargetError('invalid_query_parameter')
   }
   if (queryRules.some(rule => rule.required === true && !suppliedNames.has(rule.name.toLowerCase()))) {
     throw new ProxyTargetError('invalid_query_parameter')

@@ -9,7 +9,7 @@ import { POST as reconcile } from '../../src/app/api/payments/reconcile/route'
 import { POST as retiredLegacy } from '../../src/app/api/payments/x402/route'
 import { GET as pathProxyGet, POST as pathProxyPost } from '../../src/app/api/proxy/[api_id]/route'
 
-function reset() { state.store = new MemoryStore(); state.storageReady = true; state.settled = 0; state.proxied = 0; state.verified = 0; state.upstreamStatus = 200; state.deliveryOutcome = undefined; state.listingMethod = 'POST'; state.listingPrice = 0.001; state.lastProxyInput = null }
+function reset() { state.store = new MemoryStore(); state.storageReady = true; state.settled = 0; state.proxied = 0; state.verified = 0; state.upstreamStatus = 200; state.deliveryOutcome = undefined; state.listingMethod = 'POST'; state.listingPrice = 0.001; state.listingBodyRequired = false; state.listingDynamicPath = false; state.listingPathParameters = null; state.listingQueryParameters = null; state.lastProxyInput = null }
 function paid() { return new NextRequest('https://mahshar.xyz/api/proxy', { method: 'POST', headers: { 'content-type': 'application/json', 'payment-signature': Buffer.from(JSON.stringify(payment)).toString('base64') }, body: JSON.stringify({ api_id: apiId, buyer_wallet: payer, method: 'POST', body: { input: true } }) }) }
 test('real gateway pricing and normal paid proxy retain authoritative amount and Arc facilitator configuration', async () => {
   reset()
@@ -45,6 +45,17 @@ test('Ioscope-style POST charges the fee-inclusive total and forwards the actual
   assert.deepEqual(state.lastProxyInput?.body, ioscopeBody)
   assert.equal([...state.store.rows.values()][0].binding.amount_atomic, '110000')
   assert.equal([...state.store.rows.values()][0].binding.seller_atomic, '90000')
+})
+test('envelope proxy forwards declared query input without enabling variable paths', async () => {
+  reset(); state.listingMethod = 'GET'; state.listingQueryParameters = [{ name: 'limit', type: 'integer', maximum: 100 }]
+  const request = new NextRequest('https://mahshar.xyz/api/proxy', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'payment-signature': Buffer.from(JSON.stringify(payment)).toString('base64') },
+    body: JSON.stringify({ api_id: apiId, buyer_wallet: payer, method: 'GET', path: '?limit=10' }),
+  })
+  const response = await POST(request)
+  assert.equal(response.status, 200)
+  assert.equal(state.lastProxyInput?.canonicalTarget, 'https://seller.example/execute?limit=10')
+  assert.equal(state.lastProxyInput?.dynamicPath, '?limit=10')
 })
 test('payment resource URL uses canonical marketplace origin despite a spoofed Host', async () => {
   reset()
@@ -147,6 +158,26 @@ test('path proxy permits only GET/POST requests matching the configured listing 
   reset()
   state.listingMethod = 'PUT'
   assert.equal((await pathProxyPost(paid(), context)).status, 405)
+  assert.equal(state.verified, 0); assert.equal(state.settled, 0); assert.equal(state.proxied, 0)
+})
+test('listing-specific GET proxy validates and hashes declared ordinary query input', async () => {
+  reset(); state.listingMethod = 'GET'; state.listingQueryParameters = [
+    { name: 'limit', type: 'integer', minimum: 1, maximum: 100 },
+    { name: 'sort', enum: ['volume24h', 'marketCap'] },
+  ]
+  const context = { params: Promise.resolve({ api_id: apiId }) }
+  const paidGet = (query: string) => new NextRequest(`https://mahshar.xyz/api/proxy/${apiId}${query}`, {
+    method: 'GET', headers: { 'payment-signature': Buffer.from(JSON.stringify(payment)).toString('base64') },
+  })
+  const response = await pathProxyGet(paidGet('?limit=10&sort=volume24h'), context)
+  assert.equal(response.status, 200)
+  assert.equal(state.lastProxyInput?.dynamicPath, '?limit=10&sort=volume24h')
+  assert.equal(state.lastProxyInput?.canonicalTarget, 'https://seller.example/execute?limit=10&sort=volume24h')
+
+  reset(); state.listingMethod = 'GET'; state.listingQueryParameters = [{ name: 'limit', type: 'integer', maximum: 100 }]
+  const rejected = await pathProxyGet(paidGet('?status=active'), context)
+  assert.equal(rejected.status, 400)
+  assert.equal((await rejected.json()).error, 'undeclared_query_parameter')
   assert.equal(state.verified, 0); assert.equal(state.settled, 0); assert.equal(state.proxied, 0)
 })
 test('path POST rejects malformed JSON before payment verification or settlement', async () => {

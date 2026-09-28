@@ -28,6 +28,7 @@ export interface ApiListing {
   dynamic_path_supported?: boolean;
   path_parameters?: unknown[] | null;
   query_parameters?: unknown[] | null;
+  request_contract_error?: string | null;
 }
 
 export interface Purchase {

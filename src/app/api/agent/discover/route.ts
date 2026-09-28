@@ -26,6 +26,8 @@ interface ListingRow {
   dynamic_path_supported: boolean
   path_parameters: unknown[] | null
   query_parameters: unknown[] | null
+  endpoint_url: string
+  auth_param_name: string | null
 }
 
 interface CallStatsRow {
@@ -56,7 +58,7 @@ export async function GET(request: NextRequest) {
 
     const { data: listings, error: listingsError } = await supabase
       .from('api_listings')
-      .select('id, name, description, category, price_per_call, payment_model, auth_type, method, example_request, example_response, score, verified_at, created_at, request_schema, response_schema, body_required, dynamic_path_supported, path_parameters, query_parameters')
+      .select('id, name, description, category, price_per_call, payment_model, auth_type, auth_param_name, method, endpoint_url, example_request, example_response, score, verified_at, created_at, request_schema, response_schema, body_required, dynamic_path_supported, path_parameters, query_parameters')
       .eq('is_active', true)
       .order('created_at', { ascending: false })
       .range(requestedOffset, requestedOffset + requestedLimit - 1)
@@ -90,8 +92,13 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const apis = rows.map(r => {
-      const execution = agentExecutionContract(r, publicOrigin)
+    const apis = rows.flatMap(r => {
+      let execution: ReturnType<typeof agentExecutionContract>
+      try { execution = agentExecutionContract(r, publicOrigin) }
+      catch (error) {
+        console.error('[discover] excluded invalid listing contract:', r.id, error instanceof Error ? error.message : String(error))
+        return []
+      }
       const s = statsMap.get(r.id)
       const total_calls = s?.total ?? 0
       const success_rate = total_calls > 0 ? Math.round((s!.successes / total_calls) * 100) / 100 : null
@@ -106,19 +113,26 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      return {
+      const auth = r.auth_type === 'public'
+        ? { type: r.auth_type, injected_by: 'none', credential_location: null, seller_credentials_exposed: false }
+        : r.auth_type === 'apikey'
+          ? { type: r.auth_type, injected_by: 'mahshar', credential_location: 'header x-api-key', seller_credentials_exposed: false }
+          : r.auth_type === 'bearer'
+            ? { type: r.auth_type, injected_by: 'mahshar', credential_location: 'header Authorization: Bearer', seller_credentials_exposed: false }
+            : { type: r.auth_type, injected_by: 'mahshar', credential_location: 'reserved upstream query parameter', seller_credentials_exposed: false }
+      return [{
         id: r.id,
         name: r.name,
         description: r.description,
         category: r.category,
         price_per_call_usdc: r.price_per_call,
         payment_model: 'x402-pay-per-call',
-        auth: { type: r.auth_type, injected_by: 'mahshar', seller_credentials_exposed: false },
+        auth,
         auth_type: r.auth_type,
         method: execution.method,
         score: r.score,
         verified: r.verified_at !== null,
-        example_request: execution.request.body.example,
+        example_request: execution.request.example,
         example_response,
         total_calls,
         success_rate,
@@ -127,7 +141,7 @@ export async function GET(request: NextRequest) {
         proxy_style: execution.proxy_style,
         request: execution.request,
         response: execution.response,
-      }
+      }]
     })
 
     return NextResponse.json({
@@ -152,7 +166,7 @@ export async function GET(request: NextRequest) {
       network_note: 'All payment requirements and domains target Arc Mainnet only.',
       payment_protocol: 'x402',
       payment_recipient: paymentRecipient,
-      contract_version: '2.1',
+      contract_version: '2.2',
       openapi_url: `${publicOrigin}/api/openapi`,
       prerequisite: 'USDC must be pre-deposited into the Circle Gateway for the selected network before making payments. A raw EOA USDC balance is not accepted — the facilitator checks Circle Gateway balance, not the token contract. Use the matching entry in `networks` for the Gateway API and payment domain; production agents should select Arc Mainnet (`eip155:5042`).',
       payment_domain: {
@@ -163,9 +177,9 @@ export async function GET(request: NextRequest) {
       },
       proxy_urls: {
         envelope: `${publicOrigin}/api/proxy`,
-        envelope_note: 'POST body carries {api_id, buyer_wallet, method?, path?, body?}. The inner `body` is forwarded upstream. Used by the browser client.',
+        envelope_note: 'POST body carries {api_id, buyer_wallet, method?, path?, body?}. `path` carries only declared path segments and/or declared ordinary query input; `body` is forwarded only for POST, PUT, or DELETE. Used by the browser client.',
         path_template: `${publicOrigin}/api/proxy/{api_id}`,
-        path_note: 'GET and POST listings only, using the same HTTP method configured by the listing. A method mismatch returns 405. POST JSON is parsed and re-serialized before forwarding. Buyer identity is the settled payment signer.',
+        path_note: 'Fixed-path GET and POST listings only, using the configured method. Declared ordinary query inputs are appended to this URL. A method mismatch returns 405. POST JSON is parsed and re-serialized before forwarding. Buyer identity is the settled payment signer.',
         circle_agent_stack_compatible: true,
       },
       eip712_types: {

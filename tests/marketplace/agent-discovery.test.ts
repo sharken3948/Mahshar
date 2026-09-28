@@ -36,6 +36,7 @@ test('agent execution contract is self-describing without guessing legacy schema
   assert.equal(dynamicDelete.request.body.schema, null)
   assert.deepEqual(dynamicDelete.request.body.example, { reason: 'test' })
   assert.equal(dynamicDelete.request.dynamic_path.transport, 'envelope.path')
+  assert.equal(dynamicDelete.request.query_transport, 'envelope.path query string')
   assert.equal(JSON.stringify(dynamicDelete).includes('endpoint_url'), false)
 })
 
@@ -86,8 +87,54 @@ test('agent discovery route emits the safe executable contract and pagination wi
   assert.equal(payload.apis[0].method, 'PUT'); assert.equal(payload.apis[0].proxy_style, 'envelope')
   assert.equal(payload.apis[0].payment_model, 'x402-pay-per-call')
   assert.equal(payload.apis[0].request.body.required, true)
+  assert.deepEqual(payload.apis[0].request.example.body, { value: 1 })
   const serialized = JSON.stringify(payload)
   assert.doesNotMatch(serialized, /secret-upstream|encrypted-secret|secret_name|endpoint_url|encrypted_key|auth_param_name/)
+})
+
+test('Anewone discovery example is executable and never advertises GET input as a body', async () => {
+  reset()
+  state.tables.api_listings.push({
+    id: 'anewone', name: 'A NEW ONE', description: 'Basedbot tokens', category: 'Data', price_per_call: 0.001,
+    payment_model: 'pay-per-call', auth_type: 'public', auth_param_name: null, method: 'GET',
+    endpoint_url: 'https://anewone.xyz/api/basedbot/tokens', encrypted_key: null,
+    example_request: '{"limit":10,"sort":"volume24h"}', example_response: '{"tokens":[]}', score: 9,
+    verified_at: '2026-09-28T00:00:00Z', created_at: '2026-09-28T00:00:00Z', is_active: true,
+    request_schema: null, response_schema: null, body_required: false, dynamic_path_supported: false,
+    path_parameters: [], query_parameters: [
+      { name: 'limit', type: 'integer', minimum: 1, maximum: 100, example: 10 },
+      { name: 'sort', enum: ['volume24h', 'volumeAll', 'marketCap', 'fdv', 'liquidity', 'trades24h', 'holders', 'age', 'created'], example: 'volume24h' },
+    ],
+  })
+  const response = await discover(new NextRequest('https://mahshar.xyz/api/agent/discover'))
+  assert.equal(response.status, 200)
+  const payload = await response.json()
+  assert.equal(payload.apis.length, 1)
+  const contract = payload.apis[0]
+  assert.equal(contract.request.body.supported, false)
+  assert.equal(contract.request.body.example, null)
+  assert.deepEqual(contract.request.example.query_values, { limit: '10', sort: 'volume24h' })
+  assert.equal(contract.request.example.proxy_url,
+    'https://mahshar.xyz/api/proxy/anewone?limit=10&sort=volume24h')
+  assert.equal(JSON.stringify(contract).includes('anewone.xyz'), false)
+})
+
+test('legacy active listing with impossible example is excluded from machine discovery', async () => {
+  reset()
+  state.tables.api_listings.push({
+    id: 'invalid', name: 'Invalid', description: 'Invalid contract', category: 'Data', price_per_call: 0.001,
+    payment_model: 'pay-per-call', auth_type: 'public', auth_param_name: null, method: 'GET',
+    endpoint_url: 'https://anewone.xyz/api/basedbot/tokens', encrypted_key: null,
+    example_request: '{"status":"active"}', example_response: '{}', verified_at: '2026-09-28T00:00:00Z',
+    created_at: '2026-09-28T00:00:00Z', is_active: true, body_required: false, dynamic_path_supported: false,
+    path_parameters: [], query_parameters: [{ name: 'limit', type: 'integer', example: 10 }],
+  })
+  const original = console.error
+  console.error = () => {}
+  try {
+    const payload = await (await discover(new NextRequest('https://mahshar.xyz/api/agent/discover'))).json()
+    assert.deepEqual(payload.apis, [])
+  } finally { console.error = original }
 })
 
 test('machine URLs ignore a spoofed request Host and use MARKETPLACE_ORIGIN', async () => {

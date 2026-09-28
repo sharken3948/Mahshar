@@ -46,14 +46,16 @@ export async function POST(request: NextRequest) {
 
   const { data: matched } = await supabase
     .from('api_listings')
-    .select('id, name, description, category, price_per_call, payment_model, score, uptime, auth_type, method, example_request, example_response, request_schema, response_schema, body_required, dynamic_path_supported, path_parameters, query_parameters')
+    .select('id, name, description, category, price_per_call, payment_model, score, uptime, auth_type, auth_param_name, method, endpoint_url, example_request, example_response, request_schema, response_schema, body_required, dynamic_path_supported, path_parameters, query_parameters')
     .in('id', matchResult.api_ids)
     .eq('is_active', true);
 
   const publicOrigin = marketplaceOrigin()
-  const safeMatched = ((matched ?? []) as unknown as Array<AgentListingRow & Record<string, unknown>>).map(row => {
-    const execution = agentExecutionContract(row, publicOrigin)
-    return {
+  const safeMatched = ((matched ?? []) as unknown as Array<AgentListingRow & Record<string, unknown>>).flatMap(row => {
+    let execution: ReturnType<typeof agentExecutionContract>
+    try { execution = agentExecutionContract(row, publicOrigin) }
+    catch { return [] }
+    return [{
       id: row.id,
       name: row.name,
       description: row.description,
@@ -62,17 +64,17 @@ export async function POST(request: NextRequest) {
       payment_model: 'x402-pay-per-call',
       score: row.score,
       uptime: row.uptime,
-      auth: { type: row.auth_type, injected_by: 'mahshar', seller_credentials_exposed: false },
+      auth: { type: row.auth_type, injected_by: row.auth_type === 'public' ? 'none' : 'mahshar', seller_credentials_exposed: false },
       method: execution.method,
       proxy_url: execution.proxy_url,
       proxy_style: execution.proxy_style,
       request: execution.request,
       response: execution.response,
-    }
+    }]
   })
 
   return NextResponse.json({
-    contract_version: '2.1',
+    contract_version: '2.2',
     discovery_url: `${publicOrigin}/api/agent/discover`,
     openapi_url: `${publicOrigin}/api/openapi`,
     network: 'eip155:5042',

@@ -6,6 +6,7 @@ import { withWalletSession, requireListingOwner, requireOperationAuthorizationFo
 import { assertWalletClaim, OPERATION_AUTH_HEADER } from '@/lib/marketplace/operation-authorization'
 import { credentialProxyAllowed, SENSITIVE_CONFIGURATION, matchListingConfiguration, normalizeExpectedStatusCodes, expectedCodesEqual } from '@/lib/marketplace/listing-security'
 import { listingContractMetadata } from '@/lib/marketplace/listing-contract-metadata'
+import { validateListingRequestContract } from '@/lib/marketplace/request-contract'
 
 export const runtime = 'nodejs'
 type Context = { params: Promise<{ id: string }> }
@@ -23,6 +24,7 @@ function sensitivePatchChanged(body: Record<string, unknown>, patch: Record<stri
 export const GET = withWalletSession(async (_request: NextRequest, wallet: string, { params }: Context) => {
   const { id } = await params
   const listing = await requireListingOwner(createServiceClient(), id, wallet)
+  const requestContract = validateListingRequestContract(listing)
   return NextResponse.json({
     api: {
       id: listing.id,
@@ -50,6 +52,7 @@ export const GET = withWalletSession(async (_request: NextRequest, wallet: strin
       created_at: listing.created_at,
       is_active: listing.is_active,
       verified_at: listing.verified_at,
+      request_contract_error: requestContract.ok ? null : requestContract.error,
     },
   })
 })
@@ -99,11 +102,26 @@ export const PATCH = withWalletSession(async (request: NextRequest, wallet: stri
   const contractResult = listingContractMetadata(body, String(patch.method ?? listing.method ?? 'GET').toUpperCase())
   if (!contractResult.ok) return NextResponse.json({ error: contractResult.error }, { status: 400 })
   Object.assign(patch, contractResult.patch)
+  const updated = { ...listing, ...patch }
+  const contractFields = ['endpoint_url', 'method', 'auth_type', 'auth_param_name', 'example_request', 'body_required',
+    'dynamic_path_supported', 'path_parameters', 'query_parameters']
+  const contractChanged = contractFields.some(key => patch[key] !== undefined && !sameConfiguration(patch[key], listing[key]))
+  if (contractChanged || patch.is_active === true) {
+    const requestContract = validateListingRequestContract(updated)
+    if (!requestContract.ok) {
+      return NextResponse.json({ error: requestContract.error, field: requestContract.field }, { status: 400 })
+    }
+  }
+  if ((updated.auth_type === 'apikey' || updated.auth_type === 'bearer' || updated.auth_type === 'queryparam')
+    && !updated.encrypted_key) {
+    return NextResponse.json({ error: 'A credential is required for the selected authentication type' }, { status: 400 })
+  }
   if (sensitivePatchChanged(body, patch, listing) || request.headers.has(OPERATION_AUTH_HEADER)) {
     const operationWallet = await requireOperationAuthorizationForPayload(request, body)
     assertWalletClaim(operationWallet, wallet)
   }
-  if (SENSITIVE_CONFIGURATION.some(key => patch[key] !== undefined && patch[key] !== listing[key])) {
+  if (SENSITIVE_CONFIGURATION.some(key => patch[key] !== undefined && !sameConfiguration(patch[key], listing[key])) ||
+    (patch.example_request !== undefined && !sameConfiguration(patch.example_request, listing.example_request))) {
     patch.verified_at = null
     patch.is_active = false
   }
@@ -113,7 +131,6 @@ export const PATCH = withWalletSession(async (request: NextRequest, wallet: stri
     patch.verified_at = null
     patch.is_active = false
   }
-  const updated = { ...listing, ...patch }
   if (patch.is_active === true && !credentialProxyAllowed(updated)) {
     return NextResponse.json({ error: 'Verify the endpoint before activation' }, { status: 409 })
   }

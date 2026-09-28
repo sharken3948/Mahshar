@@ -12,11 +12,13 @@ import { assessRepresentativeResponseSize, MAX_SAFE_SERIALIZED_RESPONSE_BYTES, r
 import type { AuthType } from '@/types';
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { readBoundedJson, RequestBodyError } from '@/lib/request-body';
+import { validateListingRequestContract } from '@/lib/marketplace/request-contract';
+import { buildUpstreamAuthentication } from '@/lib/marketplace/upstream-auth';
 
 export const runtime = 'nodejs';
 
 export interface FieldError {
-  field: 'method' | 'example_request' | 'endpoint_url' | 'auth_key';
+  field: 'method' | 'example_request' | 'endpoint_url' | 'auth_key' | 'path_parameters' | 'query_parameters' | 'body_required' | 'auth_param_name' | 'dynamic_path_supported';
   message: string;
 }
 
@@ -44,7 +46,7 @@ function needsRequestBody(exampleRequest: string | undefined): boolean {
   if (!exampleRequest) return false;
   try {
     const parsed = JSON.parse(exampleRequest);
-    return typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length > 0;
+    return parsed !== null;
   } catch {
     return false;
   }
@@ -99,6 +101,10 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     auth_key?: string;
     auth_param_name?: string;
     expected_status_codes?: number[];
+    body_required?: boolean | null;
+    dynamic_path_supported?: boolean;
+    path_parameters?: unknown[] | null;
+    query_parameters?: unknown[] | null;
   };
   try { body = await readBoundedJson<typeof body>(request, 64 * 1024) }
   catch (error) {
@@ -122,6 +128,10 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     body.auth_key = persistedListing.encrypted_key ? decryptKey(persistedListing.encrypted_key) : undefined;
     body.example_request = persistedListing.example_request ?? '';
     body.expected_status_codes = (persistedListing.expected_status_codes as number[] | null) ?? undefined;
+    body.body_required = persistedListing.body_required;
+    body.dynamic_path_supported = persistedListing.dynamic_path_supported;
+    body.path_parameters = persistedListing.path_parameters;
+    body.query_parameters = persistedListing.query_parameters;
   }
 
   const expectedResult = normalizeExpectedStatusCodes(body.expected_status_codes);
@@ -144,10 +154,20 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
 
-  const isBodyMethod = method === 'POST' || method === 'PUT';
+  const requestContract = validateListingRequestContract({
+    endpoint_url, method, auth_type, auth_param_name, example_request,
+    body_required: body.body_required, dynamic_path_supported: body.dynamic_path_supported ?? false,
+    path_parameters: body.path_parameters ?? null, query_parameters: body.query_parameters ?? null,
+  });
+  if (!requestContract.ok) {
+    return hardBlock(requestContract.error, [{ field: requestContract.field, message: requestContract.error }], null,
+      'Live test skipped because the declared request contract is inconsistent.');
+  }
+
+  const isBodyMethod = method !== 'GET';
 
   // Pre-block: body method declared but no example_request (no live test needed to know this is wrong)
-  if (isBodyMethod && !needsRequestBody(example_request)) {
+  if (body.body_required === true && !needsRequestBody(example_request)) {
     return NextResponse.json({
       score: 0,
       suggested_price: 0,
@@ -193,7 +213,8 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
   }
 
   const canTest = auth_type === 'public' || Boolean(auth_key);
-  const bodySent = isBodyMethod && needsRequestBody(example_request) ? example_request : null;
+  const bodySent = isBodyMethod && requestContract.example.body !== null
+    ? JSON.stringify(requestContract.example.body) : null;
 
   // Read current transient count before the live test
   const supabase = createServiceClient();
@@ -221,15 +242,11 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     const startTime = Date.now();
     let timedOut = false;
 
-    const testUrl = new URL(endpoint_url).toString();
+    const testUrl = requestContract.example.canonical_target;
 
     try {
       const response = await safeOutboundFetch(testUrl, () => {
-        const requestUrl = new URL(testUrl);
-        if (auth_type === 'queryparam' && auth_key && auth_param_name) requestUrl.searchParams.set(auth_param_name, auth_key);
-        const headers: Record<string, string> = { 'content-type': 'application/json' };
-        if (auth_type === 'apikey' && auth_key) headers['x-api-key'] = auth_key;
-        else if (auth_type === 'bearer' && auth_key) headers.Authorization = `Bearer ${auth_key}`;
+        const { requestUrl, headers } = buildUpstreamAuthentication(new URL(testUrl), auth_type, auth_key, auth_param_name);
         return { url: requestUrl, outboundInit: {
           method,
           headers,
@@ -283,8 +300,8 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
 
     // Build the diagnostic block — redact the key value from queryparam URLs
     const displayUrl = (auth_type === 'queryparam' && auth_param_name)
-      ? (() => { const u = new URL(endpoint_url); u.searchParams.set(auth_param_name, '****'); return u.toString(); })()
-      : endpoint_url;
+      ? (() => { const u = new URL(testUrl); u.searchParams.set(auth_param_name, '****'); return u.toString(); })()
+      : testUrl;
 
     // Build the diagnostic block (always, for both success and failure)
     diagnostic = {
@@ -366,8 +383,8 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
         fieldErrors = [{ field: 'endpoint_url', message: '404 Not Found — verify this URL is correct and publicly reachable.' }];
       } else if (status === 400 || status === 422) {
         if (!needsRequestBody(example_request)) {
-          criticalIssue = `Your endpoint returned ${statusLabel(status)} for a ${method} request with no body. If your API requires input parameters, switch HTTP Method to POST and fill in example_request. If it uses query parameters, append them to the endpoint URL directly (e.g. ?city=London).`;
-          fieldErrors = [{ field: 'example_request', message: 'Endpoint appears to require input parameters — add an example_request or append query params to the URL.' }];
+          criticalIssue = `Your endpoint returned ${statusLabel(status)} for the representative ${method} request. If it needs ordinary query input, declare those query parameters and examples in the request contract. If it needs a JSON body, enable the body requirement and add a body example.`;
+          fieldErrors = [{ field: 'example_request', message: 'Declare the required query inputs or add the JSON body example this endpoint expects.' }];
         } else {
           criticalIssue = `Your endpoint returned ${statusLabel(status)} when called with your example_request body. The response snippet above typically shows which fields are invalid or missing — update your example_request to match exactly what your API expects.`;
           fieldErrors = [{ field: 'example_request', message: `Request rejected with ${status} — update example_request to match your API's expected input.` }];

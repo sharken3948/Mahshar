@@ -12,7 +12,8 @@ import { buildViewCodeSnippet, renderHighlightedSnippet } from '@/lib/snippets'
 import { paymentErrorMessage } from '@/lib/payments/errors'
 import { readPurchasedResponse, rememberPurchaseAccess } from '@/lib/marketplace/purchase-access-client'
 import { coalescedJsonGet } from '@/lib/client-read'
-import { buildBuyerProxyEnvelope, exampleRequestHasForwardableBody, type BuyerProxyEnvelope } from '@/lib/marketplace/buyer-proxy-request'
+import { buildBuyerProxyEnvelope, buildBuyerRequestSuffix, type BuyerProxyEnvelope } from '@/lib/marketplace/buyer-proxy-request'
+import type { DeclaredParameter } from '@/lib/marketplace/proxy-target'
 import { MahsharFlowMotif } from '@/components/MahsharFlowMotif'
 import { ARC } from '@/lib/arc'
 import { buyerPaymentQuote, gatewayCanPay, insufficientGatewayMessage, type BuyerPaymentQuote } from '@/lib/payments/buyer-balance'
@@ -51,7 +52,7 @@ interface PaymentConfirmation {
   gatewayAvailable: string
 }
 
-type ApiCardFields = Pick<ApiListing, 'id' | 'name' | 'description' | 'category' | 'price_per_call' | 'payment_model' | 'score' | 'uptime' | 'example_request' | 'method' | 'auth_type' | 'created_at'>
+type ApiCardFields = Pick<ApiListing, 'id' | 'name' | 'description' | 'category' | 'price_per_call' | 'payment_model' | 'score' | 'uptime' | 'example_request' | 'method' | 'auth_type' | 'created_at' | 'body_required' | 'dynamic_path_supported' | 'path_parameters' | 'query_parameters'>
 
 
 const CHAIN_LABELS: Record<number, string> = {
@@ -140,9 +141,11 @@ export default function BuyerPage() {
   const [allApis, setAllApis] = useState<ApiCardFields[]>([])
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [latencyMap, setLatencyMap] = useState<Record<string, number>>({})
-  const [requestModal, setRequestModal] = useState<{ apiId: string; method: string } | null>(null)
+  const [requestModal, setRequestModal] = useState<{ apiId: string; method: string; pathParameters: DeclaredParameter[]; queryParameters: DeclaredParameter[]; bodyRequired: boolean } | null>(null)
   const [requestBodyText, setRequestBodyText] = useState('')
   const [requestBodyError, setRequestBodyError] = useState<string | null>(null)
+  const [requestPathValues, setRequestPathValues] = useState<Record<string, string>>({})
+  const [requestQueryValues, setRequestQueryValues] = useState<Record<string, string>>({})
   const [purchasedApiIds, setPurchasedApiIds] = useState<Set<string>>(new Set())
   const [viewApiModal, setViewApiModal] = useState<{ apiId: string; apiName: string; method: string; exampleRequest: string | null } | null>(null)
   const [viewApiResponse, setViewApiResponse] = useState<unknown>(null)
@@ -509,55 +512,75 @@ export default function BuyerPage() {
     }
   }
 
+  function openRequestEditor(api: ApiCardFields) {
+    const method = api.method ?? 'GET'
+    const pathParameters = Array.isArray(api.path_parameters) ? api.path_parameters as DeclaredParameter[] : []
+    const queryParameters = Array.isArray(api.query_parameters) ? api.query_parameters as DeclaredParameter[] : []
+    const pathValues = Object.fromEntries(pathParameters.filter(parameter => parameter.example !== undefined)
+      .map(parameter => [parameter.name, String(parameter.example)]))
+    const queryValues = Object.fromEntries(queryParameters.filter(parameter => parameter.example !== undefined)
+      .map(parameter => [parameter.name, String(parameter.example)]))
+    if (method === 'GET' && api.example_request) {
+      try {
+        const legacy = JSON.parse(api.example_request) as Record<string, unknown>
+        if (legacy && typeof legacy === 'object' && !Array.isArray(legacy)) {
+          for (const parameter of queryParameters) {
+            const value = Object.entries(legacy).find(([name]) => name.toLowerCase() === parameter.name.toLowerCase())?.[1]
+            if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') queryValues[parameter.name] = String(value)
+          }
+        }
+      } catch { /* Server validation remains authoritative. */ }
+    }
+    setRequestPathValues(pathValues)
+    setRequestQueryValues(queryValues)
+    if (method !== 'GET' && api.example_request) {
+      try { setRequestBodyText(JSON.stringify(JSON.parse(api.example_request), null, 2)) }
+      catch { setRequestBodyText(api.example_request) }
+    } else setRequestBodyText('')
+    setRequestBodyError(null)
+    setRequestModal({ apiId: api.id, method, pathParameters, queryParameters, bodyRequired: api.body_required === true })
+  }
+
   function handleUseApi(apiId: string) {
     if (!address) return
     const api = [...allApis, ...results].find(a => a.id === apiId)
-    const method = api?.method ?? 'GET'
-
-    if (api && exampleRequestHasForwardableBody(method, api.example_request)) {
-      try {
-        const formatted = JSON.stringify(JSON.parse(api.example_request!), null, 2)
-        setRequestBodyText(formatted)
-      } catch {
-        setRequestBodyText(api.example_request ?? '')
-      }
-      setRequestBodyError(null)
-      setRequestModal({ apiId, method })
-      return
-    }
-
+    if (!api) return
+    const method = api.method ?? 'GET'
+    const hasInputs = method !== 'GET' || (api.path_parameters?.length ?? 0) > 0 || (api.query_parameters?.length ?? 0) > 0
+    if (hasInputs) { openRequestEditor(api); return }
     void preparePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method))
   }
 
   async function handleModalSubmit() {
     if (!requestModal || !address) return
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(requestBodyText)
-    } catch {
-      setRequestBodyError('Invalid JSON, fix before submitting')
+    let parsed: unknown = undefined
+    if (requestModal.method !== 'GET' && requestBodyText.trim()) {
+      try { parsed = JSON.parse(requestBodyText) }
+      catch { setRequestBodyError('Invalid JSON, fix before submitting'); return }
+    } else if (requestModal.bodyRequired) {
+      setRequestBodyError('A JSON body is required')
       return
     }
     const { apiId, method } = requestModal
+    let suffix: string
+    try {
+      suffix = buildBuyerRequestSuffix(requestModal.pathParameters, requestModal.queryParameters,
+        { path: requestPathValues, query: requestQueryValues })
+    } catch (error) {
+      setRequestBodyError(error instanceof Error ? error.message : 'Request inputs are invalid')
+      return
+    }
     setRequestModal(null)
-    await preparePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method, parsed))
+    await preparePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method, parsed, suffix))
   }
 
   function handleNewQuery() {
     if (!viewApiModal || !address) return
-    const { apiId, method, exampleRequest } = viewApiModal
+    const { apiId, method } = viewApiModal
     setViewApiModal(null)
-    if (exampleRequestHasForwardableBody(method, exampleRequest)) {
-      try {
-        setRequestBodyText(JSON.stringify(JSON.parse(exampleRequest!), null, 2))
-      } catch {
-        setRequestBodyText(exampleRequest ?? '')
-      }
-      setRequestBodyError(null)
-      setRequestModal({ apiId, method })
-    } else {
-      void preparePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method))
-    }
+    const api = [...allApis, ...results].find(item => item.id === apiId)
+    if (api) openRequestEditor(api)
+    else void preparePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method))
   }
 
   async function handleViewApi(apiId: string, apiName: string, method: string, exampleRequest: string | null) {
@@ -625,34 +648,37 @@ export default function BuyerPage() {
         <div className={styles.filterGroup}><h3>Auth type</h3><div className={styles.filterOptions}>{(['public', 'apikey', 'bearer', 'queryparam'] as AuthType[]).filter(type => allApis.some(api => api.auth_type === type)).map(type => <label key={type} className={styles.checkboxOption}><input type="checkbox" checked={authFilters.has(type)} onChange={() => toggleAuthFilter(type)} />{type === 'public' ? 'Public' : type}</label>)}</div></div>
       </div></aside></div>
 
-        {/* Request body modal */}
+        {/* Declared request inputs modal */}
         {requestModal && (
           <div className={styles.modalOverlay}>
             <div className={styles.modalBackdrop} onClick={() => setRequestModal(null)} />
             <div className={styles.modal}>
               <div className={styles.modalHeader}>
-                <div><span className={styles.modalTitle}>Request Body</span><span className={styles.methodBadge}>{requestModal.method}</span></div>
+                <div><span className={styles.modalTitle}>Request Inputs</span><span className={styles.methodBadge}>{requestModal.method}</span></div>
                 <button onClick={() => setRequestModal(null)} className={styles.modalClose}>&times;</button>
               </div>
               <div className={styles.modalBody}>
-                <p className={styles.modalLead}>Edit the JSON body that will be forwarded to this API. The template below is pre-filled from the listing&apos;s example request.</p>
-                <textarea
+                <p className={styles.modalLead}>Fill only the inputs declared by the seller. Review the complete request below before payment.</p>
+                {requestModal.pathParameters.map(parameter => <label key={`path-${parameter.name}`} className="block text-sm font-medium text-[#33445D]">Path · {parameter.name}{parameter.required && ' *'}<input value={requestPathValues[parameter.name] ?? ''} onChange={event => { setRequestPathValues(values => ({ ...values, [parameter.name]: event.target.value })); setRequestBodyError(null) }} placeholder={parameter.description || (parameter.example === undefined ? '' : String(parameter.example))} className="mt-1 w-full rounded-lg border border-[#B7CAE3] px-3 py-2" />{parameter.description && <small className="block mt-1 text-[#6B7280]">{parameter.description}</small>}</label>)}
+                {requestModal.queryParameters.map(parameter => <label key={`query-${parameter.name}`} className="block text-sm font-medium text-[#33445D]">Query · {parameter.name}{parameter.required && ' *'}{parameter.enum?.length ? <select value={requestQueryValues[parameter.name] ?? ''} onChange={event => { setRequestQueryValues(values => ({ ...values, [parameter.name]: event.target.value })); setRequestBodyError(null) }} className="mt-1 w-full rounded-lg border border-[#B7CAE3] px-3 py-2"><option value="">Select…</option>{parameter.enum.map(value => <option key={value} value={value}>{value}</option>)}</select> : <input value={requestQueryValues[parameter.name] ?? ''} onChange={event => { setRequestQueryValues(values => ({ ...values, [parameter.name]: event.target.value })); setRequestBodyError(null) }} placeholder={parameter.description || (parameter.example === undefined ? '' : String(parameter.example))} className="mt-1 w-full rounded-lg border border-[#B7CAE3] px-3 py-2" />}{parameter.description && <small className="block mt-1 text-[#6B7280]">{parameter.description}</small>}</label>)}
+                {requestModal.method !== 'GET' && <label className="block text-sm font-medium text-[#33445D]">JSON body{requestModal.bodyRequired && ' *'}<textarea
                   value={requestBodyText}
                   onChange={e => { setRequestBodyText(e.target.value); setRequestBodyError(null) }}
-                  rows={10}
+                  rows={8}
                   maxLength={10000}
                   className={styles.codeArea}
                   spellCheck={false}
-                />
+                /></label>}
+                <div className="rounded-lg bg-[#F4F8FD] p-3 text-xs text-[#33445D]"><strong>Will be sent</strong><pre className="mt-2 whitespace-pre-wrap break-all">{(() => { try { return `${requestModal.method} ${buildBuyerRequestSuffix(requestModal.pathParameters, requestModal.queryParameters, { path: requestPathValues, query: requestQueryValues }) || '(fixed endpoint)'}${requestModal.method !== 'GET' && requestBodyText.trim() ? `\n${requestBodyText}` : ''}` } catch { return `${requestModal.method} — complete required inputs to preview` } })()}</pre></div>
                 <div className={styles.modalMeta}>
                   <div>
                     {requestBodyError && (
                       <p className={styles.modalError}>{requestBodyError}</p>
                     )}
                   </div>
-                  <span className={requestBodyText.length >= 10000 ? styles.modalError : undefined}>
+                  {requestModal.method !== 'GET' && <span className={requestBodyText.length >= 10000 ? styles.modalError : undefined}>
                     {requestBodyText.length.toLocaleString()}/10,000 characters
-                  </span>
+                  </span>}
                 </div>
                 <button
                   onClick={() => void handleModalSubmit()}
@@ -685,6 +711,7 @@ export default function BuyerPage() {
               <div><dt>Paid from</dt><dd>Mahshar Balance</dd></div>
               <div><dt>Available</dt><dd>{paymentConfirmation.gatewayAvailable} USDC</dd></div>
             </dl>
+            <div className="rounded-lg bg-[#F4F8FD] p-3 text-xs text-[#33445D]"><strong>Request being authorized</strong><pre className="mt-2 whitespace-pre-wrap break-all">{JSON.stringify({ method: paymentConfirmation.proxyBody.method, path: paymentConfirmation.proxyBody.path ?? '(fixed endpoint)', ...(paymentConfirmation.proxyBody.body !== undefined ? { body: paymentConfirmation.proxyBody.body } : {}) }, null, 2)}</pre></div>
             <p className={styles.modalLead}>Wallet USDC is not charged directly. This signature authorizes the exact total above from Circle Gateway.</p>
             <button onClick={() => void submitConfirmedPayment()} className={styles.modalSubmit}>Confirm {paymentConfirmation.quote.total} USDC and sign</button>
           </div>

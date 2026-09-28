@@ -1,4 +1,5 @@
 import { listingProxyEntry } from './proxy-entry'
+import { validateListingRequestContract } from './request-contract'
 
 export type AgentListingRow = {
   id: string
@@ -11,6 +12,9 @@ export type AgentListingRow = {
   dynamic_path_supported?: boolean | null
   path_parameters?: unknown[] | null
   query_parameters?: unknown[] | null
+  endpoint_url?: string
+  auth_type?: string | null
+  auth_param_name?: string | null
 }
 
 function parsedExample(value?: string | null): unknown {
@@ -23,6 +27,11 @@ export function agentExecutionContract(row: AgentListingRow, appUrl = 'https://m
   const bodySupported = method !== 'GET'
   const dynamicPath = row.dynamic_path_supported === true
   const entry = listingProxyEntry(row.id, method, appUrl, dynamicPath)
+  const validation = row.endpoint_url ? validateListingRequestContract({ ...row, endpoint_url: row.endpoint_url }) : null
+  if (validation && !validation.ok) throw new Error(`invalid_listing_contract:${validation.field}:${validation.error}`)
+  const requestExample = validation?.ok ? validation.example : null
+  const exampleProxyUrl = entry.proxy_style === 'path' && requestExample?.suffix.startsWith('?')
+    ? `${entry.proxy_url}${requestExample.suffix}` : entry.proxy_url
   return {
     method: entry.method,
     proxy_url: entry.proxy_url,
@@ -32,17 +41,31 @@ export function agentExecutionContract(row: AgentListingRow, appUrl = 'https://m
       content_type: bodySupported ? 'application/json' : null,
       body: {
         supported: bodySupported,
-        required: bodySupported ? (row.body_required ?? null) : false,
+        required: bodySupported ? row.body_required === true : false,
         schema: row.request_schema ?? null,
-        example: parsedExample(row.example_request),
+        example: bodySupported ? (requestExample?.body ?? parsedExample(row.example_request)) : null,
         delete_body_supported: method === 'DELETE',
       },
       dynamic_path: {
         supported: dynamicPath,
         transport: dynamicPath ? 'envelope.path' : null,
       },
+      query_transport: entry.proxy_style === 'path' ? 'proxy_url query string' : 'envelope.path query string',
       path_parameters: row.path_parameters ?? [],
       query_parameters: row.query_parameters ?? [],
+      example: requestExample ? {
+        path_values: requestExample.path,
+        query_values: requestExample.query,
+        body: requestExample.body,
+        proxy_url: exampleProxyUrl,
+        envelope: entry.proxy_style === 'envelope' ? {
+          api_id: row.id,
+          buyer_wallet: '<buyer wallet>',
+          method,
+          ...(requestExample.suffix ? { path: requestExample.suffix } : {}),
+          ...(requestExample.body !== null ? { body: requestExample.body } : {}),
+        } : null,
+      } : null,
       incoming_headers: { supported: false, reason: 'Buyer-supplied headers are not forwarded upstream.' },
     },
     response: {

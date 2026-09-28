@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceClient()
   const { data: listing, error } = await supabase
     .from('api_listings')
-    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method, endpoint_url, auth_type, auth_param_name, dynamic_path_supported, path_parameters, query_parameters')
+    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method, endpoint_url, auth_type, auth_param_name, body_required, dynamic_path_supported, path_parameters, query_parameters')
     .eq('id', api_id)
     .single()
 
@@ -66,6 +66,12 @@ export async function POST(request: NextRequest) {
   const resolvedMethod = resolveListingProxyMethod(method, listing.method)
   if ('error' in resolvedMethod) {
     return NextResponse.json({ error: resolvedMethod.error }, { status: 400 })
+  }
+  if (resolvedMethod.method === 'GET' && reqBody !== undefined) {
+    return NextResponse.json({ error: 'request_body_not_supported', message: 'GET listings do not forward a request body.' }, { status: 400 })
+  }
+  if (listing.body_required === true && (reqBody === undefined || reqBody === null)) {
+    return NextResponse.json({ error: 'request_body_required', message: `${resolvedMethod.method} listing requires a JSON request body.` }, { status: 400 })
   }
 
   let canonicalTarget: string

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server.js'
 import { MemoryStore, payer, seller, apiId } from './fixture'
-export const state = { store: new MemoryStore(), storageReady: true, settled: 0, proxied: 0, upstreamStatus: 200, deliveryOutcome: undefined as undefined | 'succeeded' | 'failed_final' | 'failed_retryable' | 'unknown', verified: 0, listingMethod: 'POST', listingPrice: 0.001, lastProxyInput: null as Record<string, unknown> | null, configs: [] as Record<string, unknown>[] }
+export const state = { store: new MemoryStore(), storageReady: true, settled: 0, proxied: 0, upstreamStatus: 200, deliveryOutcome: undefined as undefined | 'succeeded' | 'failed_final' | 'failed_retryable' | 'unknown', verified: 0, listingMethod: 'POST', listingPrice: 0.001, listingBodyRequired: false, listingDynamicPath: false, listingPathParameters: null as unknown[] | null, listingQueryParameters: null as unknown[] | null, lastProxyInput: null as Record<string, unknown> | null, configs: [] as Record<string, unknown>[] }
 export const settlementStore = () => state.store
 export async function settlementStorageReady() { if (!state.storageReady) throw new Error('storage unavailable') }
 export class AppKit { constructor() { throw new Error('Unrelated payout API forbidden in settlement tests') } }
@@ -21,7 +21,9 @@ export function createServiceClient() {
       select() { return q }, eq(k: string, v: string) { filters[k] = v; return q },
       async single() { return { data: { id: apiId, name: 'fixture', price_per_call: state.listingPrice, seller_wallet: seller,
         is_active: true, encrypted_key: null, method: state.listingMethod, endpoint_url: 'https://seller.example/execute',
-        auth_type: 'public', auth_param_name: null, dynamic_path_supported: false, path_parameters: null, query_parameters: null }, error: null } },
+        auth_type: 'public', auth_param_name: null, body_required: state.listingBodyRequired,
+        dynamic_path_supported: state.listingDynamicPath, path_parameters: state.listingPathParameters,
+        query_parameters: state.listingQueryParameters }, error: null } },
       async maybeSingle() {
         if (table !== 'x402_settlement_attempts') throw new Error('unexpected table')
         const a = state.store.rows.get(filters.id)

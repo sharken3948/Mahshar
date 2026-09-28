@@ -1,11 +1,14 @@
 openapi: 3.1.0
 info:
   title: Mahshar V2 Agent API
-  version: 2.1.0
+  version: 2.2.0
   description: |
     Public machine interface for discovering and purchasing proxied APIs with
     Circle Gateway x402 v2 on Arc Mainnet (chain 5042, CAIP-2 eip155:5042).
     Seller upstream URLs and credentials are never part of this contract.
+    Listing-specific path/query/body declarations are returned by discovery;
+    this static document defines their transport but does not generate one
+    OpenAPI path per seller listing.
 servers:
   - url: https://mahshar.example
     description: Example only; the served document substitutes MARKETPLACE_ORIGIN.
@@ -48,7 +51,8 @@ paths:
       summary: Probe or execute any listing through the envelope proxy
       description: |
         The outer method is POST. `method` is the configured upstream method.
-        `path` is an optional relative suffix. First omit Payment-Signature. A
+        `path` is an optional relative suffix containing only path segments and
+        ordinary query inputs declared by the selected listing. First omit Payment-Signature. A
         402 has body `{}` and a base64 x402 v2 challenge in PAYMENT-REQUIRED.
         Retry the identical URL and JSON body with Payment-Signature.
       requestBody:
@@ -74,6 +78,7 @@ paths:
       tags: [Paid execution]
       operationId: executeGetListing
       summary: Probe or execute a GET listing
+      description: Append only ordinary query parameters declared by this listing's discovery metadata. GET request bodies are rejected.
       responses:
         '200': { $ref: '#/components/responses/PaidResult' }
         '402': { $ref: '#/components/responses/PaymentRequired' }
@@ -84,7 +89,7 @@ paths:
       tags: [Paid execution]
       operationId: executePostListing
       summary: Probe or execute a POST listing
-      description: JSON is parsed and re-serialized before being sent upstream.
+      description: Declared ordinary query parameters may be appended to the proxy URL. JSON is parsed and re-serialized before being sent upstream.
       requestBody:
         required: false
         content:
@@ -170,8 +175,8 @@ components:
           type: string
           description: Probe hint only; the verified settlement payer is authoritative.
         method: { type: string, enum: [GET, POST, PUT, DELETE] }
-        path: { type: string, description: Relative suffix when discovery declares dynamic path support. }
-        body: { description: JSON for POST, PUT, or DELETE; GET never forwards a body. }
+        path: { type: string, description: Relative path segments and/or query string. Every value must be declared by discovery; query input does not require dynamic path support. }
+        body: { description: JSON for POST, PUT, or DELETE. Required when discovery says body.required=true. GET bodies are rejected. }
     PaymentRequirement:
       type: object
       required: [scheme, network, asset, amount, payTo, maxTimeoutSeconds, extra]
@@ -233,9 +238,13 @@ components:
         proxy_url: { type: string, format: uri }
         auth:
           type: object
+          required: [type, injected_by, credential_location, seller_credentials_exposed]
           properties:
             type: { enum: [public, apikey, bearer, queryparam] }
-            injected_by: { const: mahshar }
+            injected_by: { enum: [none, mahshar] }
+            credential_location:
+              type: [string, 'null']
+              description: Describes where Mahshar injects seller authentication; never contains a credential value or the private query credential name.
             seller_credentials_exposed: { const: false }
         request:
           type: object
@@ -244,10 +253,32 @@ components:
             content_type: { type: [string, 'null'] }
             body: { type: object }
             dynamic_path: { type: object }
-            path_parameters: { type: array }
-            query_parameters: { type: array }
+            query_transport: { type: string }
+            path_parameters:
+              type: array
+              items: { $ref: '#/components/schemas/DeclaredParameter' }
+            query_parameters:
+              type: array
+              items: { $ref: '#/components/schemas/DeclaredParameter' }
+            example: { type: [object, 'null'] }
             incoming_headers: { type: object }
         response: { type: object }
+    DeclaredParameter:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        required: { type: boolean }
+        type: { enum: [string, integer, number, boolean] }
+        enum: { type: array, items: { type: string } }
+        pattern: { type: string, description: Safe declarative pattern; never evaluated as JavaScript regex. }
+        minLength: { type: integer, minimum: 0, maximum: 2048 }
+        maxLength: { type: integer, minimum: 0, maximum: 2048 }
+        minimum: { type: number }
+        maximum: { type: number }
+        example: { type: [string, number, boolean] }
     Discovery:
       type: object
       required: [marketplace, contract_version, openapi_url, network, payment_protocol, payment_recipient, payment_domain, apis]

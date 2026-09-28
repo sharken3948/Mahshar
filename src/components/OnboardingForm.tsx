@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { MahsharFlowMotif } from '@/components/MahsharFlowMotif';
 import type { AuthType, PaymentModel } from '@/types';
+import type { DeclaredParameter } from '@/lib/marketplace/proxy-target';
+import { RequestParameterEditor } from '@/components/RequestParameterEditor';
 import styles from './onboarding-form.module.css';
 
 const CATEGORIES = ['AI', 'Data', 'Finance', 'Weather', 'Geo', 'Social', 'Media', 'Utility', 'Other'];
@@ -26,6 +28,10 @@ interface FormState {
   example_request: string;
   example_response: string;
   expected_status_codes: string;
+  body_required: boolean;
+  dynamic_path_supported: boolean;
+  path_parameters: DeclaredParameter[];
+  query_parameters: DeclaredParameter[];
 }
 
 interface FieldError {
@@ -75,6 +81,10 @@ const initialState: FormState = {
   example_request: '',
   example_response: '',
   expected_status_codes: '',
+  body_required: false,
+  dynamic_path_supported: false,
+  path_parameters: [],
+  query_parameters: [],
 };
 
 // Parse the comma-separated field into a validated integer array (300-599).
@@ -108,7 +118,8 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
   const [showDescHelp, setShowDescHelp] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const router = useRouter();
-  const persistedSensitive = useRef<Pick<FormState, 'endpoint_url' | 'method' | 'auth_type' | 'auth_key' | 'auth_param_name'> | null>(null)
+  const persistedSensitive = useRef<Pick<FormState, 'endpoint_url' | 'method' | 'auth_type' | 'auth_key' | 'auth_param_name' |
+    'body_required' | 'dynamic_path_supported' | 'path_parameters' | 'query_parameters'> | null>(null)
   const { request: marketplaceFetch, sensitiveRequest } = useMarketplaceSession()
   useEffect(() => {
     setForm({ ...initialState, seller_wallet: sellerWallet ?? '' });
@@ -118,13 +129,20 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
     persistedSensitive.current = null;
   }, [sellerWallet]);
 
-  const isBodyMethod = form.method === 'POST' || form.method === 'PUT';
+  const isBodyMethod = form.method !== 'GET';
   const authComplete = form.auth_type === 'public' || Boolean(form.auth_key.trim() && (form.auth_type !== 'queryparam' || form.auth_param_name.trim()));
-  const requestComplete = !isBodyMethod || needsRequestBody(form.example_request);
+  const requestComplete = !form.body_required || needsRequestBody(form.example_request);
   const readyForReview = Boolean(form.name && form.description && form.example_response && form.endpoint_url && form.seller_wallet && authComplete && requestComplete);
 
-  function update(field: keyof FormState, value: string) {
-    setForm((prev) => ({ ...prev, [field]: value }));
+  function update<K extends keyof FormState>(field: K, value: FormState[K]) {
+    setForm((prev) => {
+      if (field === 'method') {
+        const method = String(value)
+        return { ...prev, method, body_required: method === 'POST' || method === 'PUT',
+          ...(method === 'GET' ? { example_request: '' } : {}) }
+      }
+      return { ...prev, [field]: value }
+    });
     // Clear field error as soon as the seller edits that field
     if (fieldErrors[field]) {
       setFieldErrors(prev => {
@@ -154,7 +172,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
       setError(null);
       return;
     }
-    if (isBodyMethod && !needsRequestBody(form.example_request)) {
+    if (form.body_required && !needsRequestBody(form.example_request)) {
       setFieldErrors({ example_request: `${form.method} APIs must include a non-empty example_request so buyers know what parameters to send.` });
       setError(null);
       return;
@@ -322,6 +340,15 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
               {form.auth_type === 'public' && <div className={styles.warning}><span className={styles.warningIcon}>!</span><div><strong>Public endpoint</strong>Public endpoints can be called directly outside Mahshar. For stronger monetization protection, use API Key or Bearer Token authentication.</div></div>}
               {form.auth_type === 'queryparam' && <Field label="Query Parameter Name"><input value={form.auth_param_name} onChange={(e) => update('auth_param_name', e.target.value)} placeholder="e.g. appid, api_key, token" className={inputCls(fieldErrors.auth_param_name)} />{fieldErrors.auth_param_name ? <p className={styles.fieldError}>{fieldErrors.auth_param_name}</p> : <p className={styles.fieldHint}>The parameter name your API expects — your key will be appended as ?{form.auth_param_name || 'param'}=KEY</p>}</Field>}
               <Field label="Expected non-2xx status codes (optional)"><input value={form.expected_status_codes} onChange={(e) => update('expected_status_codes', e.target.value)} placeholder="e.g. 401, 409" className={inputCls(fieldErrors.expected_status_codes)} />{fieldErrors.expected_status_codes ? <p className={styles.fieldError}>{fieldErrors.expected_status_codes}</p> : <p className={styles.fieldHint}>If your API intentionally returns specific error codes in some cases (e.g. 401 for unauthenticated probes, 409 for conflicting writes), list them comma-separated so AI review doesn&apos;t auto-reject those responses. Transient codes (429, 502, 503, 504) and timeouts cannot be declared expected — they always signal infrastructure issues.</p>}</Field>
+              <details className="rounded-xl border border-[#D8E3F2] bg-white p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-[#172033]">Path and query inputs</summary>
+                <p className="mt-2 text-xs text-[#5B6B82]">Add only inputs buyers may control. Mahshar keeps authentication credentials separate and private.</p>
+                <div className="mt-4 space-y-4">
+                  <label className="flex items-center gap-2 text-sm font-medium text-[#33445D]"><input type="checkbox" checked={form.dynamic_path_supported} onChange={event => setForm(previous => ({ ...previous, dynamic_path_supported: event.target.checked, ...(!event.target.checked ? { path_parameters: [] } : {}) }))} />This endpoint accepts variable path segments</label>
+                  {form.dynamic_path_supported && <RequestParameterEditor location="path" value={form.path_parameters} onChange={value => update('path_parameters', value)} />}
+                  <RequestParameterEditor location="query" value={form.query_parameters} onChange={value => update('query_parameters', value)} />
+                </div>
+              </details>
             </div>
           </PublishingSection>
 
@@ -335,7 +362,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
           <PublishingSection number="04" title="Example Request & Response" helper="Give buyers a clear template for calling your API." tone="pink">
             <div className={styles.stack}>
               <div className={styles.codeGrid}>
-                <Field label={`Example Request (JSON)${isBodyMethod ? ' *' : ''}`}><textarea rows={5} required={isBodyMethod} value={form.example_request} onChange={(e) => update('example_request', e.target.value)} placeholder={'{"city": "London"}'} className={`${inputCls(fieldErrors.example_request)} ${styles.codeInput}`} />{fieldErrors.example_request ? <p className={styles.fieldError}>{fieldErrors.example_request}</p> : isBodyMethod ? <p className={`${styles.fieldHint} ${styles.fieldHintBlue}`}>Required for {form.method} APIs — buyers see this as a template when calling your API.</p> : null}</Field>
+                <Field label={isBodyMethod ? `Example JSON Body${form.body_required ? ' *' : ''}` : 'Request inputs'}>{isBodyMethod ? <><label className="mb-2 flex items-center gap-2 text-xs text-[#40516A]"><input type="checkbox" checked={form.body_required} onChange={event => update('body_required', event.target.checked)} />A JSON body is required</label><textarea rows={5} required={form.body_required} value={form.example_request} onChange={(e) => update('example_request', e.target.value)} placeholder={'{"city": "London"}'} className={`${inputCls(fieldErrors.example_request)} ${styles.codeInput}`} />{fieldErrors.example_request ? <p className={styles.fieldError}>{fieldErrors.example_request}</p> : <p className={`${styles.fieldHint} ${styles.fieldHintBlue}`}>This is the body buyers can review and edit. Path and query examples come from the declared inputs above.</p>}</> : <p className={`${styles.fieldHint} ${styles.fieldHintBlue}`}>GET requests do not forward JSON bodies. Add path and query inputs in Endpoint &amp; Access, including an example for each required input.</p>}</Field>
                 <Field label="Example Response (JSON)" required><textarea rows={5} value={form.example_response} onChange={(e) => update('example_response', e.target.value)} placeholder={'{"temp": 18, "condition": "Cloudy"}'} className={`${inputCls()} ${styles.codeInput}`} /></Field>
               </div>
             </div>
@@ -360,7 +387,9 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
 
 function sensitiveSnapshot(form: FormState) {
   return { endpoint_url: form.endpoint_url, method: form.method, auth_type: form.auth_type,
-    auth_key: form.auth_key, auth_param_name: form.auth_param_name };
+    auth_key: form.auth_key, auth_param_name: form.auth_param_name, body_required: form.body_required,
+    dynamic_path_supported: form.dynamic_path_supported, path_parameters: form.path_parameters,
+    query_parameters: form.query_parameters };
 }
 
 function PublishingSection({ number, title, helper, tone, children }: { number: string; title: string; helper: string; tone: 'blue' | 'purple' | 'green' | 'pink'; children: React.ReactNode }) {
@@ -418,7 +447,7 @@ function needsRequestBody(exampleRequest: string): boolean {
   if (!exampleRequest) return false;
   try {
     const parsed = JSON.parse(exampleRequest);
-    return typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length > 0;
+    return parsed !== null;
   } catch {
     return false;
   }

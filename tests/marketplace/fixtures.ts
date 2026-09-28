@@ -45,7 +45,10 @@ class Query {
   columns = '*'; take = Infinity; skip = 0; singleRow = false; mutation?: { kind: string; value?: Record<string, any> }
   constructor(readonly table: string) {}
   select(columns = '*') { this.columns = columns; return this }
-  eq(key: string, value: unknown) { this.predicates.push(r => r[key] === value); return this }
+  eq(key: string, value: unknown) { this.predicates.push(r => {
+    if (r[key] && value && typeof r[key] === 'object' && typeof value === 'object') return JSON.stringify(r[key]) === JSON.stringify(value)
+    return r[key] === value
+  }); return this }
   ilike(key: string, value: string) { this.predicates.push(r => String(r[key]).toLowerCase() === value.toLowerCase()); return this }
   filter(key: string, op: string, value: unknown) { return op === 'is' ? this.is(key, value) : this.eq(key, value) }
   is(key: string, value: unknown) { this.predicates.push(r => (r[key] ?? null) === value); return this }

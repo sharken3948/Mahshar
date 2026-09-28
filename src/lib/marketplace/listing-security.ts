@@ -1,5 +1,5 @@
 export const SENSITIVE_CONFIGURATION = ['endpoint_url', 'auth_type', 'encrypted_key', 'auth_param_name', 'method',
-  'dynamic_path_supported', 'path_parameters', 'query_parameters'] as const
+  'body_required', 'dynamic_path_supported', 'path_parameters', 'query_parameters'] as const
 
 export function credentialProxyAllowed(listing: { encrypted_key: unknown; verified_at: unknown }) {
   return !listing.encrypted_key || Boolean(listing.verified_at)

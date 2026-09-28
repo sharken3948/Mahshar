@@ -27,9 +27,10 @@ test('proxy target rejects direct and encoded dot-segment traversal', () => {
   }
 })
 
-test('proxy target rejects every non-empty path when dynamic paths are disabled', () => {
+test('proxy target rejects path segments but permits separately declared query input when dynamic paths are disabled', () => {
   assert.equal(code('/users/42', { ...base, dynamic_path_supported: false }), 'dynamic_path_not_allowed')
-  assert.equal(code('?view=summary', { ...base, dynamic_path_supported: false }), 'dynamic_path_not_allowed')
+  assert.equal(authorizeProxyTarget({ ...base, dynamic_path_supported: false, path_parameters: [] }, '?view=summary').toString(),
+    'https://api.example/v1?fixed=yes&view=summary')
 })
 
 test('proxy target permits only declared path and query values and returns a canonical URL', () => {

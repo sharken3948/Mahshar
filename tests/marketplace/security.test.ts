@@ -67,6 +67,47 @@ test('the same session supports ordinary repeated management without another sig
   assert.equal(state.tables.api_listings.length, 2)
 })
 
+test('seller creation persists an executable GET query contract for all four authentication models', async () => {
+  const authModels = [
+    { auth_type: 'public' },
+    { auth_type: 'apikey', auth_key: 'header-secret' },
+    { auth_type: 'bearer', auth_key: 'bearer-secret' },
+    { auth_type: 'queryparam', auth_key: 'query-secret', auth_param_name: 'api_key' },
+  ] as const
+  for (const [index, auth] of authModels.entries()) {
+    const body = { ...createBody, name: `Contract ${index}`, endpoint_url: 'https://anewone.xyz/api/basedbot/tokens',
+      method: 'GET', example_request: '{"limit":10,"sort":"volume24h"}', dynamic_path_supported: false,
+      path_parameters: [], query_parameters: [
+        { name: 'limit', type: 'integer', minimum: 1, maximum: 100, example: 10 },
+        { name: 'sort', enum: ['volume24h', 'marketCap'], example: 'volume24h' },
+      ], ...auth }
+    const response = await listings.POST(await authorized('/api/apis', 'POST', body))
+    assert.equal(response.status, 201, auth.auth_type)
+  }
+  assert.equal(state.tables.api_listings.length, 4)
+  for (const row of state.tables.api_listings) {
+    assert.deepEqual(row.query_parameters.map((parameter: { name: string }) => parameter.name), ['limit', 'sort'])
+    assert.equal(row.dynamic_path_supported, false)
+    assert.equal(row.auth_type === 'public' ? row.encrypted_key : Boolean(row.encrypted_key), row.auth_type === 'public' ? null : true)
+  }
+})
+
+test('seller creation rejects impossible GET examples and query credential collisions', async () => {
+  const baseContract = { ...createBody, endpoint_url: 'https://anewone.xyz/api/basedbot/tokens', method: 'GET',
+    dynamic_path_supported: false, path_parameters: [], query_parameters: [{ name: 'limit', type: 'integer', example: 10 }] }
+  const impossible = await listings.POST(await authorized('/api/apis', 'POST', {
+    ...baseContract, example_request: '{"limit":10,"status":"active"}',
+  }))
+  assert.equal(impossible.status, 400)
+  assert.match((await impossible.json()).error, /undeclared query parameter "status"/)
+  const collision = await listings.POST(await authorized('/api/apis', 'POST', {
+    ...baseContract, auth_type: 'queryparam', auth_key: 'secret', auth_param_name: 'api_key',
+    query_parameters: [{ name: 'API_KEY', type: 'string', example: 'attacker' }], example_request: '',
+  }))
+  assert.equal(collision.status, 400)
+  assert.match((await collision.json()).error, /credential name/)
+})
+
 test('expired session and cross-origin mutation fail before data changes', async () => {
   const expired = request('/api/apis', 'POST', createBody, sessionHeaders(alice, { expired: true }))
   assert.equal((await listings.POST(expired)).status, 401)
@@ -107,6 +148,22 @@ test('endpoint, auth semantics, and credential changes require an exact fresh pr
     reset(); seed(a)
     assert.equal((await listing.PATCH(await authorized('/api/apis/victim', 'PATCH', patch), context('victim'))).status, 401)
     assert.equal((await listing.PATCH(await sensitivelyAuthorized('/api/apis/victim', patch), context('victim'))).status, 200)
+    assert.equal(state.tables.withdraw_used_nonces.length, 1)
+  }
+})
+
+test('path, query, method, and body-required edits require exact fresh proof and deactivate verification', async () => {
+  const patches = [
+    { seller_wallet: a, method: 'POST', body_required: true, example_request: '{"value":1}' },
+    { seller_wallet: a, dynamic_path_supported: true, path_parameters: [{ name: 'address', required: true, example: '0x1234' }] },
+    { seller_wallet: a, query_parameters: [{ name: 'limit', type: 'integer', maximum: 100, example: 10 }] },
+  ]
+  for (const patch of patches) {
+    reset(); const row = seed(a)
+    assert.equal((await listing.PATCH(await authorized('/api/apis/victim', 'PATCH', patch), context('victim'))).status, 401)
+    assert.equal((await listing.PATCH(await sensitivelyAuthorized('/api/apis/victim', patch), context('victim'))).status, 200)
+    assert.equal(row.is_active, false)
+    assert.equal(row.verified_at, null)
     assert.equal(state.tables.withdraw_used_nonces.length, 1)
   }
 })
@@ -171,6 +228,21 @@ test('public marketplace excludes inactive seller inventory and credentials', as
   const catalog = await listings.GET(request('/api/apis'))
   const catalogText = JSON.stringify(await catalog.json())
   assert.doesNotMatch(catalogText, /seller\.example|fixture-key|encrypted_key|endpoint_url|auth_param_name/)
+})
+
+test('impossible legacy request contracts are withheld from buyers but flagged for their seller', async () => {
+  state.tables.api_listings.push({
+    id: 'invalid-contract', seller_wallet: a, name: 'Anewone', description: 'description', category: 'Data',
+    endpoint_url: 'https://anewone.xyz/api/basedbot/tokens', auth_type: 'public', auth_param_name: null,
+    encrypted_key: null, method: 'GET', is_active: true, verified_at: new Date().toISOString(), price_per_call: 0.001,
+    example_request: '{"limit":10,"status":"active"}', example_response: '{}', dynamic_path_supported: false,
+    path_parameters: [], query_parameters: [],
+  })
+  assert.deepEqual((await (await listings.GET(request('/api/apis'))).json()).apis, [])
+  const sellerPayload = await (await listings.GET(await authorized(`/api/apis?seller_wallet=${a}`))).json()
+  assert.equal(sellerPayload.apis.length, 1)
+  assert.match(sellerPayload.apis[0].request_contract_error, /undeclared query parameter "limit"/)
+  assert.equal(JSON.stringify(sellerPayload).includes('anewone.xyz'), false)
 })
 
 test('private listing configuration requires owner proof and never returns encrypted credentials', async () => {
