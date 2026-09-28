@@ -3,7 +3,7 @@ import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
 import { matchListingConfiguration, normalizeExpectedStatusCodes } from '@/lib/marketplace/listing-security'
 import { decryptKey } from '@/lib/crypto'
 import { NextRequest, NextResponse } from 'next/server';
-import { scoreApi, type RealTestResult } from '@/lib/groq';
+import { scoreApi, ReviewInconclusiveError, type RealTestResult } from '@/lib/groq';
 import { createServiceClient } from '@/lib/supabase/server';
 import { validateEndpointUrl } from '@/lib/url-validation';
 import { OutboundPolicyError, safeOutboundFetch } from '@/lib/outbound-fetch';
@@ -413,6 +413,25 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
       realTestResult,
     );
   } catch (err: unknown) {
+    if (err instanceof ReviewInconclusiveError) {
+      // Distinct "review inconclusive" payload — nothing is persisted, the
+      // seller can retry, and verified_at gating is untouched (the seller-
+      // scoring update path below is bypassed entirely).
+      return NextResponse.json({
+        score: null,
+        suggested_price: null,
+        approved: false,
+        inconclusive: true,
+        critical_issues: [],
+        warnings: [],
+        positives: [],
+        summary: err.message,
+        endpoint_verified: realTestResult?.success === true,
+        endpoint_test_note: endpointTestNote,
+        endpoint_test_diagnostic: diagnostic,
+        field_errors: [] satisfies FieldError[],
+      });
+    }
     const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: message }, { status: 500 });
   }

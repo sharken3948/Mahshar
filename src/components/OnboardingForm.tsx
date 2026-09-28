@@ -48,13 +48,14 @@ interface EndpointTestDiagnostic {
 }
 
 interface AiReport {
-  score: number;
-  suggested_price: number;
+  score: number | null;
+  suggested_price: number | null;
   approved: boolean;
   critical_issues: string[];
   warnings: string[];
   positives: string[];
   summary: string;
+  inconclusive?: boolean;
   field_errors?: FieldError[];
   endpoint_test_diagnostic?: EndpointTestDiagnostic | null;
 }
@@ -267,7 +268,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
       }
 
       setScoreResult(data);
-      if (data.suggested_price) {
+      if (!data.inconclusive && typeof data.suggested_price === 'number' && data.suggested_price > 0) {
         setForm(f => ({ ...f, price_per_call: String(data.suggested_price) }));
       }
     } catch {
@@ -355,7 +356,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
           <PublishingSection number="03" title="Pricing" helper="Mahshar handles pay-per-call payment requirements for buyers." tone="green">
             <div className={styles.stack}>
               <div className={styles.paymentModel}><div><strong>Payment model</strong><span>Pay-per-call (x402)</span></div><div className={styles.chips}><span className={styles.chip}>x402</span><span className={styles.chip}>USDC</span><span className={styles.chip}>Arc Mainnet</span></div></div>
-              {scoreResult && <div className={styles.pricePanel}><Field label="Price per call (USDC)" required><p className={styles.priceNote}>AI suggested: ${scoreResult.suggested_price} (you can adjust this)</p><input required type="number" step="0.0001" min="0.0001" value={form.price_per_call} onChange={(e) => update('price_per_call', e.target.value)} className={inputCls()} /></Field></div>}
+              {scoreResult && !scoreResult.inconclusive && typeof scoreResult.suggested_price === 'number' && <div className={styles.pricePanel}><Field label="Price per call (USDC)" required><p className={styles.priceNote}>AI suggested: ${scoreResult.suggested_price} (you can adjust this)</p><input required type="number" step="0.0001" min="0.0001" value={form.price_per_call} onChange={(e) => update('price_per_call', e.target.value)} className={inputCls()} /></Field></div>}
             </div>
           </PublishingSection>
 
@@ -376,7 +377,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
         <div className={styles.actionColumn}>
           <div className={styles.reviewAction}><Button type="button" variant="primary" size="lg" onClick={handleScore} disabled={scoring || (form.auth_type !== 'public' && !form.auth_key) || (form.auth_type === 'queryparam' && !form.auth_param_name)} className={styles.reviewButton}>{scoring ? 'AI is analyzing your API...' : 'Continue to AI Review'}</Button><p className={styles.reviewHelp}>Your API will not be published yet.</p></div>
           {scoreResult && <ReviewReport result={scoreResult} />}
-          {scoreResult && <div className={styles.publishBlock}><Button type="submit" variant="accent" size="lg" disabled={!scoreResult || !scoreResult.approved || loading} className={styles.publishButton}>{loading ? 'Listing API...' : 'List My API'}</Button>{!scoreResult.approved && <p className={styles.publishWarning}>Fix the critical issues above before listing.</p>}</div>}
+          {scoreResult && <div className={styles.publishBlock}><Button type="submit" variant="accent" size="lg" disabled={!scoreResult.approved || loading} className={styles.publishButton}>{loading ? 'Listing API...' : 'List My API'}</Button>{!scoreResult.approved && (scoreResult.inconclusive ? <p className={styles.publishWarning}>Review inconclusive. Click &quot;Continue to AI Review&quot; to try again.</p> : <p className={styles.publishWarning}>Fix the critical issues above before listing.</p>)}</div>}
         </div>
       </div>
 
@@ -428,7 +429,10 @@ function Readiness({ form, requestComplete, authComplete, readyForReview }: { fo
 }
 
 function ReviewReport({ result }: { result: AiReport }) {
-  return <section className={styles.report}><div className={`${styles.reportHeader} ${result.approved ? styles.reportPassed : styles.reportFailed}`}><div><p className={styles.reportTitle}>{result.approved ? '✓ AI Review Passed' : '✗ AI Review Failed'}</p><p className={styles.reportSummary}>{result.summary}</p></div><p className={styles.score}>{result.score}<small>/10</small></p></div>{result.endpoint_test_diagnostic && <EndpointDiagnostic diagnostic={result.endpoint_test_diagnostic} />}{result.critical_issues?.length > 0 && <ReportList className={styles.issues} title="Critical Issues: Listing Blocked" items={result.critical_issues} />}{result.warnings?.length > 0 && <ReportList className={styles.warnings} title="Warnings: Please Fix" items={result.warnings} />}{result.positives?.length > 0 && <ReportList className={styles.positives} title="Looks Good" items={result.positives} />}{result.approved && <div className={styles.reportBlock}><p className={styles.reportSummary}>AI suggested price: <strong>${result.suggested_price} USDC/call</strong></p></div>}</section>;
+  if (result.inconclusive) {
+    return <section className={styles.report}><div className={styles.reportHeader}><div><p className={styles.reportTitle}>Review inconclusive</p><p className={styles.reportSummary}>{result.summary || 'The automated reviewer could not complete a full check. Please try again in a moment.'}</p></div></div>{result.endpoint_test_diagnostic && <EndpointDiagnostic diagnostic={result.endpoint_test_diagnostic} />}</section>;
+  }
+  return <section className={styles.report}><div className={`${styles.reportHeader} ${result.approved ? styles.reportPassed : styles.reportFailed}`}><div><p className={styles.reportTitle}>{result.approved ? '✓ AI Review Passed' : '✗ AI Review Failed'}</p><p className={styles.reportSummary}>{result.summary}</p></div><p className={styles.score}>{result.score}<small>/10</small></p></div>{result.endpoint_test_diagnostic && <EndpointDiagnostic diagnostic={result.endpoint_test_diagnostic} />}{result.critical_issues?.length > 0 && <ReportList className={styles.issues} title="Critical Issues: Listing Blocked" items={result.critical_issues} />}{result.warnings?.length > 0 && <ReportList className={styles.warnings} title="Warnings: Please Fix" items={result.warnings} />}{result.positives?.length > 0 && <ReportList className={styles.positives} title="Looks Good" items={result.positives} />}{result.approved && typeof result.suggested_price === 'number' && <div className={styles.reportBlock}><p className={styles.reportSummary}>AI suggested price: <strong>${result.suggested_price} USDC/call</strong></p></div>}</section>;
 }
 
 function EndpointDiagnostic({ diagnostic }: { diagnostic: EndpointTestDiagnostic }) {

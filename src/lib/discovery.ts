@@ -1,34 +1,37 @@
-import { groq } from '@/lib/groq';
+import { groq, GROQ_MODEL, DISCOVERY_PROMPT_SYSTEM, buildDiscoveryPrompt } from '@/lib/groq';
 import { isOutboundUrlShapeAllowed } from '@/lib/outbound-fetch';
 
-// Shared by crawl and retest routes — keeps Groq model/prompt in one place
+// Shared by crawl and retest routes — keeps Groq model/prompt in one place.
+// A malformed response falls back to score 1 so it sits well below the crawl
+// threshold even if that threshold is later relaxed.
 export async function scoreForDiscovery(
   name: string,
   description: string,
 ): Promise<{ score: number; reason: string }> {
   const completion = await groq.chat.completions.create({
-    model: 'openai/gpt-oss-120b',
+    model: GROQ_MODEL,
     messages: [
-      {
-        role: 'user',
-        content:
-          `Rate this API from 1 to 10 based on usefulness, clarity, and developer appeal.\n` +
-          `API Name: ${name}\nDescription: ${description}\n` +
-          `Return ONLY valid JSON with no markdown: {"score": <integer 1-10>, "reason": "<one sentence>"}`,
-      },
+      { role: 'system', content: DISCOVERY_PROMPT_SYSTEM },
+      { role: 'user', content: buildDiscoveryPrompt(name, description) },
     ],
     response_format: { type: 'json_object' },
     temperature: 0.3,
   });
-  const content = completion.choices[0]?.message?.content ?? '{"score":5,"reason":"unknown"}';
+  const content = completion.choices[0]?.message?.content ?? '{"score":1,"reason":"empty groq response"}';
   try {
-    return JSON.parse(content) as { score: number; reason: string };
+    const parsed = JSON.parse(content) as { score?: unknown; reason?: unknown };
+    const rawScore = typeof parsed.score === 'number' && Number.isFinite(parsed.score) ? parsed.score : 1;
+    const score = Math.max(1, Math.min(10, Math.round(rawScore)));
+    const reason = typeof parsed.reason === 'string' && parsed.reason.length > 0
+      ? parsed.reason.slice(0, 500)
+      : 'no reason provided';
+    return { score, reason };
   } catch {
-    return { score: 5, reason: 'Groq returned invalid JSON' };
+    return { score: 1, reason: 'malformed groq output' };
   }
 }
 
-// Rejects non-HTTPS and private/loopback/link-local URLs (SSRF protection)
+// Rejects non-HTTPS and private/loopback/link-local URLs (SSRF protection).
 export function isSafeUrl(url: string): boolean {
   return isOutboundUrlShapeAllowed(url);
 }
