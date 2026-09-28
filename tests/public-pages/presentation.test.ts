@@ -37,12 +37,28 @@ test('primary public-page calls to action resolve to implemented routes or verif
   for (const route of expectedRoutes) assert.ok(existsSync(route), route)
 
   const agents = readFileSync('src/app/agents/page.tsx', 'utf8')
+  assert.match(agents, /View raw discovery JSON/)
+  assert.match(agents, /Open OpenAPI specification/)
+  assert.match(agents, /machine data, not a product page/)
+  assert.doesNotMatch(agents, />Open discovery</)
   for (const file of ['docs/agent-integration.md', 'scripts/mahshar-agent-client.mts', 'scripts/mahshar-agent-e2e.mts']) {
     assert.ok(existsSync(file), file)
     if (file.startsWith('scripts/')) assert.match(agents, new RegExp(file.replace(/[./-]/g, '\\$&')))
   }
   const support = readFileSync('src/app/support/page.tsx', 'utf8')
   assert.match(support, /mailto:support@mahshar\.xyz/)
+})
+
+test('canonical production hosts permanently redirect without widening auth origins', () => {
+  const config = readFileSync('next.config.ts', 'utf8')
+  const server = readFileSync('src/lib/marketplace/server.ts', 'utf8')
+  const layout = readFileSync('src/app/layout.tsx', 'utf8')
+  for (const host of ['www.mahshar.xyz', 'mahshar.vercel.app']) assert.ok(config.includes(host), host)
+  assert.match(config, /destination: 'https:\/\/mahshar\.xyz\/:path\*'/)
+  assert.equal((config.match(/permanent: true/g) ?? []).length, 2)
+  assert.match(layout, /metadataBase: new URL\('https:\/\/mahshar\.xyz'\)/)
+  assert.match(server, /request\.headers\.get\('origin'\) !== marketplaceOrigin\(\)/)
+  assert.doesNotMatch(server, /www\.mahshar\.xyz|vercel\.app/)
 })
 
 test('shared public layout has capped desktop width and explicit overflow safeguards', () => {

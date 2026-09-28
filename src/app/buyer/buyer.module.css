@@ -20,6 +20,14 @@
 .categoryPill { min-height: 32px; padding: 6px 12px; border: 1px solid #d8e3ef; border-radius: 999px; background: #fff; color: #62768e; font-size: var(--mahshar-support-size); font-weight: 700; transition: background-color .18s ease, border-color .18s ease, color .18s ease; }
 .categoryPill:hover { border-color: #a8c5e4; color: #2775ca; }
 .categoryPillActive { border-color: #2775ca; background: #2775ca; color: #fff; }
+.paymentBalances { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(180px, .7fr) minmax(280px, 1.3fr); gap: 1px; overflow: hidden; margin: -10px 0 28px; border: 1px solid #d2deeb; border-radius: 16px; background: #dce6f0; box-shadow: 0 8px 24px #203c650b; }
+.paymentBalances > div, .paymentBalances > p { background: #fff; padding: 16px 18px; }
+.paymentBalances > div { display: grid; gap: 4px; }
+.paymentBalances span { color: #70839a; font-size: var(--mahshar-caption-size); font-weight: 780; letter-spacing: .06em; text-transform: uppercase; }
+.paymentBalances strong { color: #203f61; font-family: var(--font-geist-mono, ui-monospace, monospace); font-size: 16px; }
+.paymentBalances small { color: #7c8da0; font-size: var(--mahshar-caption-size); }
+.paymentBalances > p { color: #5f748c; font-size: var(--mahshar-support-size); line-height: 1.55; }
+.paymentBalances a, .fundingLink { color: #2775ca; font-weight: 760; text-decoration: underline; text-underline-offset: 3px; }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(272px, .31fr); gap: clamp(22px, 2.8vw, 42px); align-items: start; }
 .resultsColumn { min-width: 0; }
 .resultsHeader { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 17px; }
@@ -76,6 +84,7 @@
 .loadingState { display: grid; gap: 12px; }
 .skeleton { height: 142px; border: 1px solid #e2eaf2; border-radius: 19px; background: linear-gradient(100deg, #f7f9fc 20%, #edf2f8 40%, #f7f9fc 60%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
 .errorState { border-style: solid; border-color: #f0c8d0; background: #fff7f8; color: #b64152; }
+.fundingLink { display: inline-flex; margin-top: 13px; }
 .connectMain { position: relative; isolation: isolate; display: grid; min-height: 100vh; place-items: center; overflow: hidden; padding: 112px 24px 48px; background: #f5f7fb; }
 .connectBackgroundFlow { position: absolute; z-index: -1; top: 12%; right: clamp(-330px, -14vw, -170px); width: clamp(480px, 34vw, 700px); opacity: .075; }
 .connectCard { position: relative; overflow: hidden; width: min(100%, 464px); padding: 38px; border: 1px solid #d3e0ec; border-radius: 24px; background: #fff; box-shadow: 0 18px 46px #203c6517; text-align: center; }
@@ -100,6 +109,12 @@
 .modalError { color: #c13d50; }
 .modalSubmit { min-height: 45px; border-radius: 11px; background: #198959; color: #fff; font-size: 13px; font-weight: 750; }
 .modalSubmit:hover { background: #13764a; }
+.paymentBreakdown { overflow: hidden; border: 1px solid #dbe5ef; border-radius: 13px; }
+.paymentBreakdown div { display: flex; justify-content: space-between; gap: 18px; padding: 11px 13px; border-bottom: 1px solid #e8eef4; color: #587089; font-size: 13px; }
+.paymentBreakdown div:last-child { border-bottom: 0; }
+.paymentBreakdown dd { color: #243f5d; font-family: var(--font-geist-mono, ui-monospace, monospace); font-weight: 750; text-align: right; }
+.paymentBreakdown .paymentTotal { background: #f0f8f4; color: #236b4a; font-weight: 800; }
+.paymentBreakdown .paymentTotal dd { color: #198959; }
 .responseSection { display: grid; gap: 9px; }
 .responseSection h3 { color: #36516f; font-size: var(--mahshar-support-size); font-weight: 780; }
 .responseCode { max-height: 235px; overflow: auto; border: 1px solid #e1e8f0; border-radius: 12px; background: #f7f9fc; padding: 14px; color: #314965; font-family: var(--font-geist-mono, ui-monospace, monospace); font-size: var(--mahshar-support-size); line-height: 1.55; white-space: pre-wrap; }
@@ -111,5 +126,5 @@
 @keyframes shimmer { to { background-position: -200% 0; } }
 
 @media (max-width: 980px) { .workspace { grid-template-columns: minmax(0, 1fr) minmax(250px, .33fr); gap: 22px; } .apiCard { gap: 15px; } }
-@media (max-width: 820px) { .workspace { grid-template-columns: minmax(0, 1fr); } .filterRail { position: static; } .filterBody { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } .filterGroup:last-child { grid-column: span 2; } }
-@media (max-width: 620px) { .main { padding-top: 106px; padding-inline: 16px; } .backgroundFlow, .connectBackgroundFlow { display: none; } .searchRow { gap: 6px; } .searchButton { padding-inline: 14px; } .workspace { gap: 24px; } .resultsHeader { align-items: flex-start; flex-direction: column; gap: 10px; } .apiCard { grid-template-columns: minmax(0, 1fr); } .apiSide { display: flex; align-items: end; justify-content: space-between; min-width: 0; gap: 14px; } .price { text-align: left; } .filterBody { grid-template-columns: minmax(0, 1fr); } .filterGroup:last-child { grid-column: auto; } .modalActions { grid-template-columns: minmax(0, 1fr); } .connectMain { padding: 100px 16px 32px; } .connectCard { padding: 30px 22px; } .connectCta :global(button) { width: 100%; min-width: 0; } }
+@media (max-width: 820px) { .paymentBalances { grid-template-columns: 1fr 1fr; } .paymentBalances > p { grid-column: span 2; } .workspace { grid-template-columns: minmax(0, 1fr); } .filterRail { position: static; } .filterBody { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } .filterGroup:last-child { grid-column: span 2; } }
+@media (max-width: 620px) { .main { padding-top: 106px; padding-inline: 16px; } .backgroundFlow, .connectBackgroundFlow { display: none; } .searchRow { gap: 6px; } .searchButton { padding-inline: 14px; } .paymentBalances { grid-template-columns: minmax(0, 1fr); } .paymentBalances > p { grid-column: auto; } .workspace { gap: 24px; } .resultsHeader { align-items: flex-start; flex-direction: column; gap: 10px; } .apiCard { grid-template-columns: minmax(0, 1fr); } .apiSide { display: flex; align-items: end; justify-content: space-between; min-width: 0; gap: 14px; } .price { text-align: left; } .filterBody { grid-template-columns: minmax(0, 1fr); } .filterGroup:last-child { grid-column: auto; } .modalActions { grid-template-columns: minmax(0, 1fr); } .connectMain { padding: 100px 16px 32px; } .connectCard { padding: 30px 22px; } .connectCta :global(button) { width: 100%; min-width: 0; } }

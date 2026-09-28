@@ -1,8 +1,10 @@
 'use client'
 import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
-import { useAccount, useSignTypedData } from 'wagmi'
+import { useAccount, useReadContract, useSignTypedData } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
-import { useState, useEffect, useMemo } from 'react'
+import Link from 'next/link'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { formatUnits } from 'viem'
 import { BackButton } from '@/components/BackButton'
 import type { ApiListing, AuthType } from '@/types'
 import { NavBar } from '@/components/NavBar'
@@ -12,6 +14,8 @@ import { readPurchasedResponse, rememberPurchaseAccess } from '@/lib/marketplace
 import { coalescedJsonGet } from '@/lib/client-read'
 import { buildBuyerProxyEnvelope, exampleRequestHasForwardableBody, type BuyerProxyEnvelope } from '@/lib/marketplace/buyer-proxy-request'
 import { MahsharFlowMotif } from '@/components/MahsharFlowMotif'
+import { ARC } from '@/lib/arc'
+import { buyerPaymentQuote, gatewayCanPay, insufficientGatewayMessage, type BuyerPaymentQuote } from '@/lib/payments/buyer-balance'
 import styles from './buyer.module.css'
 
 interface PaymentRequirements {
@@ -34,6 +38,19 @@ interface PaymentRequired {
   accepts: PaymentRequirements[]
 }
 
+interface PaymentConfirmation {
+  apiId: string
+  apiName: string
+  apiMethod: string
+  exampleRequest: string | null
+  proxyBody: BuyerProxyEnvelope
+  paymentRequired: PaymentRequired
+  requirements: PaymentRequirements
+  quote: BuyerPaymentQuote
+  wallet: string
+  gatewayAvailable: string
+}
+
 type ApiCardFields = Pick<ApiListing, 'id' | 'name' | 'description' | 'category' | 'price_per_call' | 'payment_model' | 'score' | 'uptime' | 'example_request' | 'method' | 'auth_type' | 'created_at'>
 
 
@@ -51,6 +68,10 @@ const TRANSFER_TYPES = {
     { name: 'nonce', type: 'bytes32' },
   ],
 } as const
+
+const ERC20_BALANCE_ABI = [
+  { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
+] as const
 
 function generateNonce(): `0x${string}` {
   const bytes = new Uint8Array(32)
@@ -112,6 +133,10 @@ export default function BuyerPage() {
   const [calling, setCalling] = useState<string | null>(null)
   const [paymentStep, setPaymentStep] = useState<'probing' | 'signing' | 'submitting'>('probing')
   const [paymentError, setPaymentError] = useState<string | null>(null)
+  const [gatewayFundingNeeded, setGatewayFundingNeeded] = useState(false)
+  const [gatewayAvailable, setGatewayAvailable] = useState<string | null>(null)
+  const [gatewayBalanceUnavailable, setGatewayBalanceUnavailable] = useState(false)
+  const [paymentConfirmation, setPaymentConfirmation] = useState<PaymentConfirmation | null>(null)
   const [allApis, setAllApis] = useState<ApiCardFields[]>([])
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [latencyMap, setLatencyMap] = useState<Record<string, number>>({})
@@ -129,6 +154,31 @@ export default function BuyerPage() {
   const [scoreFilter, setScoreFilter] = useState('all')
   const [authFilters, setAuthFilters] = useState<Set<AuthType>>(new Set())
   const [sortBy, setSortBy] = useState<'newest' | 'price-low' | 'price-high' | 'score' | 'latency'>('newest')
+
+  const { data: walletUsdcRaw } = useReadContract({
+    address: ARC.usdcAddress,
+    abi: ERC20_BALANCE_ABI,
+    functionName: 'balanceOf',
+    args: [address ?? '0x0000000000000000000000000000000000000000'],
+    chainId: ARC.chainId,
+    query: { enabled: !!address, staleTime: 60_000, refetchOnWindowFocus: false, refetchOnReconnect: false },
+  })
+
+  const refreshGatewayBalance = useCallback(async (wallet: string) => {
+    try {
+      const response = await protectedFetch(`/api/gateway/balance?wallet=${encodeURIComponent(wallet)}`, { cache: 'no-store' })
+      const data = await response.json().catch(() => null) as { gatewayAvailable?: unknown } | null
+      if (!response.ok || typeof data?.gatewayAvailable !== 'string') throw new Error('Mahshar Balance unavailable')
+      if (address?.toLowerCase() === wallet) {
+        setGatewayAvailable(data.gatewayAvailable)
+        setGatewayBalanceUnavailable(false)
+      }
+      return data.gatewayAvailable
+    } catch {
+      if (address?.toLowerCase() === wallet) setGatewayBalanceUnavailable(true)
+      return null
+    }
+  }, [address, protectedFetch])
 
   useEffect(() => {
     setListingsLoading(true)
@@ -163,6 +213,14 @@ export default function BuyerPage() {
       .catch(() => {})
     return () => { cancelled = true }
   }, [address, protectedFetch])
+
+  useEffect(() => {
+    setGatewayAvailable(null)
+    setGatewayBalanceUnavailable(false)
+    setPaymentConfirmation(null)
+    if (!address) return
+    void refreshGatewayBalance(address.toLowerCase())
+  }, [address, refreshGatewayBalance])
 
   const topCategories = useMemo(() => {
     const counts = new Map<string, number>()
@@ -276,12 +334,13 @@ export default function BuyerPage() {
     }
   }
 
-  async function executePaymentFlow(
+  async function preparePaymentFlow(
     apiId: string,
     proxyBody: BuyerProxyEnvelope,
   ) {
     setCalling(apiId)
     setPaymentError(null)
+    setGatewayFundingNeeded(false)
 
     const api = [...allApis, ...results].find(a => a.id === apiId)
     const apiName = api?.name ?? apiId
@@ -336,8 +395,40 @@ export default function BuyerPage() {
         return
       }
 
-      const selectedChainId = parseInt(requirements.network.split(':')[1], 10)
+      if (!address || !api) throw new Error('Connect your wallet and reload the listing before paying')
+      const currentGatewayAvailable = await refreshGatewayBalance(address.toLowerCase())
+      if (currentGatewayAvailable === null) {
+        setPaymentError('Mahshar Balance could not be checked. No payment was signed; try again when the balance is available.')
+        return
+      }
+      const quote = buyerPaymentQuote(api.price_per_call, requirements.amount)
+      if (!gatewayCanPay(currentGatewayAvailable, requirements.amount)) {
+        setGatewayFundingNeeded(true)
+        setPaymentError(insufficientGatewayMessage(requirements.amount))
+        return
+      }
+      setPaymentConfirmation({ apiId, apiName, apiMethod, exampleRequest: api.example_request ?? null,
+        proxyBody, paymentRequired, requirements, quote, wallet: address.toLowerCase(),
+        gatewayAvailable: currentGatewayAvailable })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      setPaymentError(message)
+    } finally {
+      setCalling(null)
+    }
+  }
 
+  async function submitConfirmedPayment() {
+    const confirmation = paymentConfirmation
+    if (!confirmation || !address) return
+    setPaymentConfirmation(null)
+    setCalling(confirmation.apiId)
+    setPaymentError(null)
+    setGatewayFundingNeeded(false)
+    const { apiId, apiName, apiMethod, exampleRequest, proxyBody, paymentRequired, requirements, wallet } = confirmation
+    try {
+      if (address.toLowerCase() !== wallet) throw new Error('Wallet changed. Review the payment again.')
+      const selectedChainId = parseInt(requirements.network.split(':')[1], 10)
       setPaymentStep('signing')
       const now = Math.floor(Date.now() / 1000)
       const nonce = generateNonce()
@@ -393,14 +484,23 @@ export default function BuyerPage() {
       if (address) rememberPurchaseAccess(address, apiId, paidData.purchase_access_token)
 
       if (!paidRes.ok) {
+        if (paidData.error === 'verification_failed') {
+          const currentGatewayAvailable = await refreshGatewayBalance(wallet)
+          if (currentGatewayAvailable !== null && !gatewayCanPay(currentGatewayAvailable, requirements.amount)) {
+            setGatewayFundingNeeded(true)
+            setPaymentError(insufficientGatewayMessage(requirements.amount))
+            return
+          }
+        }
         setPaymentError(paymentErrorMessage(paidData.error, paidData.message ?? `Request failed: ${paidRes.status}`, paidData.attemptId))
         return
       }
 
       setPurchasedApiIds(prev => new Set([...prev, apiId]))
-      setViewApiModal({ apiId, apiName, method: apiMethod, exampleRequest: api?.example_request ?? null })
+      setViewApiModal({ apiId, apiName, method: apiMethod, exampleRequest })
       setViewApiResponse(paidData.response ?? (paidData as Record<string, unknown>))
       setViewApiLoading(false)
+      void refreshGatewayBalance(wallet)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
       setPaymentError(message)
@@ -426,7 +526,7 @@ export default function BuyerPage() {
       return
     }
 
-    void executePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method))
+    void preparePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method))
   }
 
   async function handleModalSubmit() {
@@ -440,7 +540,7 @@ export default function BuyerPage() {
     }
     const { apiId, method } = requestModal
     setRequestModal(null)
-    await executePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method, parsed))
+    await preparePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method, parsed))
   }
 
   function handleNewQuery() {
@@ -456,7 +556,7 @@ export default function BuyerPage() {
       setRequestBodyError(null)
       setRequestModal({ apiId, method })
     } else {
-      void executePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method))
+      void preparePaymentFlow(apiId, buildBuyerProxyEnvelope(apiId, address, method))
     }
   }
 
@@ -491,6 +591,7 @@ export default function BuyerPage() {
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://mahshar.xyz'
   const viewCodeSnippet = viewApiModal ? buildViewCodeSnippet(viewApiModal.apiId, appUrl, viewApiModal.method) : ''
+  const walletUsdcDisplay = walletUsdcRaw === undefined ? '—' : formatUnits(walletUsdcRaw, 6)
 
   return (
     <>
@@ -506,8 +607,14 @@ export default function BuyerPage() {
         <div className={styles.categoryBar}>{categoryTabs.map(cat => <button key={cat} onClick={() => setSelectedCategory(cat)} className={`${styles.categoryPill} ${selectedCategory === cat ? styles.categoryPillActive : ''}`}>{cat}</button>)}</div>
       </header>
 
+      <section className={styles.paymentBalances} aria-label="Purchase balances">
+        <div><span>Arc Wallet USDC</span><strong>{walletUsdcDisplay} USDC</strong><small>Available in your connected wallet</small></div>
+        <div><span>Mahshar Balance</span><strong>{gatewayAvailable ?? '—'} USDC</strong><small>{gatewayBalanceUnavailable ? 'Balance unavailable' : 'Used for paid API calls'}</small></div>
+        <p>Mahshar x402 purchases use your Circle Gateway balance, not wallet USDC. <Link href="/dashboard/wallet#deposit">Fund Mahshar Balance</Link></p>
+      </section>
+
       <div className={styles.workspace}><section className={styles.resultsColumn}><div className={styles.resultsHeader}><div><h2>{searchHasRun ? 'AI search results' : 'Marketplace APIs'}</h2><p>{filteredApis.length} {filteredApis.length === 1 ? 'API found' : 'APIs found'}{searchHasRun ? ' for your search' : ''}</p></div><select value={sortBy} onChange={event => setSortBy(event.target.value as typeof sortBy)} className={styles.sortSelect} aria-label="Sort marketplace results"><option value="newest">Newest</option><option value="price-low">Price: Low to High</option><option value="price-high">Price: High to Low</option><option value="score">AI Score</option><option value="latency">Latency</option></select></div>
-        {paymentError && <div className={`${styles.emptyState} ${styles.errorState}`}><h3>Request needs attention</h3><p>{paymentError}</p></div>}
+        {paymentError && <div className={`${styles.emptyState} ${styles.errorState}`}><h3>Request needs attention</h3><p>{paymentError}</p>{gatewayFundingNeeded && <Link className={styles.fundingLink} href="/dashboard/wallet#deposit">Fund Mahshar Balance</Link>}</div>}
         {listingsLoading ? <div className={styles.loadingState}><div className={styles.skeleton} /><div className={styles.skeleton} /><div className={styles.skeleton} /></div> : listingsError ? <div className={`${styles.emptyState} ${styles.errorState}`}><h3>Marketplace unavailable</h3><p>{listingsError}</p></div> : searchHasRun && !searching && !searchError && results.length === 0 ? <div className={styles.emptyState}><h3>No AI matches found</h3><p>Try describing the capability, data source, or task in a different way.</p></div> : filteredApis.length === 0 ? <div className={styles.emptyState}><h3>No APIs match these filters</h3><p>Clear a filter or choose another category to see active marketplace listings.</p></div> : <div className={styles.resultsList}>{filteredApis.map(api => <ApiRow key={api.id} api={api} avgLatency={latencyMap[api.id] ?? null} calling={calling} paymentStep={paymentStep} onUse={handleUseApi} purchased={purchasedApiIds.has(api.id)} onView={handleViewApi} />)}</div>}
       </section>
       <aside className={styles.filterRail}><header className={styles.filterHeader}><h2>Filters</h2>{filtersActive && <button onClick={clearFilters} className={styles.clearButton}>Clear all</button>}</header><div className={styles.filterBody}>
@@ -560,6 +667,30 @@ export default function BuyerPage() {
 
       </div>
     </main>
+
+    {paymentConfirmation && (
+      <div className={styles.modalOverlay}>
+        <div className={styles.modalBackdrop} onClick={() => setPaymentConfirmation(null)} />
+        <div className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="payment-confirmation-title">
+          <div className={styles.modalHeader}>
+            <span id="payment-confirmation-title" className={styles.modalTitle}>Confirm {paymentConfirmation.apiName} payment</span>
+            <button onClick={() => setPaymentConfirmation(null)} className={styles.modalClose} aria-label="Close payment confirmation">&times;</button>
+          </div>
+          <div className={styles.modalBody}>
+            <p className={styles.modalLead}>Review the complete charge before your wallet signs the x402 authorization.</p>
+            <dl className={styles.paymentBreakdown}>
+              <div><dt>Listed API price</dt><dd>{paymentConfirmation.quote.listed} USDC</dd></div>
+              <div><dt>Buyer platform fee</dt><dd>{paymentConfirmation.quote.fee} USDC</dd></div>
+              <div className={styles.paymentTotal}><dt>Total payment</dt><dd>{paymentConfirmation.quote.total} USDC</dd></div>
+              <div><dt>Paid from</dt><dd>Mahshar Balance</dd></div>
+              <div><dt>Available</dt><dd>{paymentConfirmation.gatewayAvailable} USDC</dd></div>
+            </dl>
+            <p className={styles.modalLead}>Wallet USDC is not charged directly. This signature authorizes the exact total above from Circle Gateway.</p>
+            <button onClick={() => void submitConfirmedPayment()} className={styles.modalSubmit}>Confirm {paymentConfirmation.quote.total} USDC and sign</button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {/* View API modal */}
     {viewApiModal && (

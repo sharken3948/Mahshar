@@ -17,3 +17,16 @@ test('Marketplace handles a failed payment probe before requesting wallet approv
   assert.ok(failedProbe > 0 && approval > failedProbe)
   assert.match(buyer, /setPaymentError\(paymentErrorMessage\(data\.error, data\.message, data\.attemptId\)\)/)
 })
+
+test('Marketplace shows both balances, preflights Gateway funds, and confirms the fee-inclusive total before signing', () => {
+  const buyer = readFileSync('src/app/buyer/page.tsx', 'utf8')
+  const preflight = buyer.indexOf('gatewayCanPay(currentGatewayAvailable, requirements.amount)')
+  const confirmation = buyer.indexOf('setPaymentConfirmation({')
+  const approval = buyer.indexOf('signTypedDataAsync({')
+  assert.ok(preflight > 0 && confirmation > preflight && approval > confirmation)
+  assert.match(buyer, /Arc Wallet USDC/)
+  assert.match(buyer, /Mahshar Balance/)
+  assert.match(buyer, /Buyer platform fee/)
+  assert.match(buyer, /Total payment/)
+  assert.match(buyer, /\/dashboard\/wallet#deposit/)
+})

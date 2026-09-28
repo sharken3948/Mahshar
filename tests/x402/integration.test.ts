@@ -9,7 +9,7 @@ import { POST as reconcile } from '../../src/app/api/payments/reconcile/route'
 import { POST as retiredLegacy } from '../../src/app/api/payments/x402/route'
 import { GET as pathProxyGet, POST as pathProxyPost } from '../../src/app/api/proxy/[api_id]/route'
 
-function reset() { state.store = new MemoryStore(); state.storageReady = true; state.settled = 0; state.proxied = 0; state.verified = 0; state.upstreamStatus = 200; state.deliveryOutcome = undefined; state.listingMethod = 'POST' }
+function reset() { state.store = new MemoryStore(); state.storageReady = true; state.settled = 0; state.proxied = 0; state.verified = 0; state.upstreamStatus = 200; state.deliveryOutcome = undefined; state.listingMethod = 'POST'; state.listingPrice = 0.001; state.lastProxyInput = null }
 function paid() { return new NextRequest('https://mahshar.xyz/api/proxy', { method: 'POST', headers: { 'content-type': 'application/json', 'payment-signature': Buffer.from(JSON.stringify(payment)).toString('base64') }, body: JSON.stringify({ api_id: apiId, buyer_wallet: payer, method: 'POST', body: { input: true } }) }) }
 test('real gateway pricing and normal paid proxy retain authoritative amount and Arc facilitator configuration', async () => {
   reset()
@@ -27,6 +27,24 @@ test('real gateway pricing and normal paid proxy retain authoritative amount and
   const replay = await POST(paid()); assert.equal(replay.status, 200); assert.equal(state.settled, 1); assert.equal(state.proxied, 1)
   assert.equal(replay.headers.get('cache-control'), 'no-store')
   assert.equal(typeof (await replay.json()).purchase_access_token, 'string')
+})
+test('Ioscope-style POST charges the fee-inclusive total and forwards the actual fixture body', async () => {
+  reset(); state.listingPrice = 0.1
+  const ioscopePayment = structuredClone(payment)
+  ioscopePayment.payload.authorization.value = '110000'
+  const ioscopeBody = { address: '0x1234567890123456789012345678901234567890', chain: 'arc' }
+  const request = new NextRequest('https://mahshar.xyz/api/proxy', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'payment-signature': Buffer.from(JSON.stringify(ioscopePayment)).toString('base64') },
+    body: JSON.stringify({ api_id: apiId, buyer_wallet: payer, method: 'POST', body: ioscopeBody }),
+  })
+  const response = await POST(request)
+  assert.equal(response.status, 200)
+  assert.equal(state.settled, 1)
+  assert.equal(state.proxied, 1)
+  assert.deepEqual(state.lastProxyInput?.body, ioscopeBody)
+  assert.equal([...state.store.rows.values()][0].binding.amount_atomic, '110000')
+  assert.equal([...state.store.rows.values()][0].binding.seller_atomic, '90000')
 })
 test('payment resource URL uses canonical marketplace origin despite a spoofed Host', async () => {
   reset()

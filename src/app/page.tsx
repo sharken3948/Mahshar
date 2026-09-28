@@ -1,8 +1,11 @@
 import Image from 'next/image'
 import Link from 'next/link'
+import type { Metadata } from 'next'
 import { NavBar } from '@/components/NavBar'
 import { PublicSiteFooter } from '@/components/PublicSiteFooter'
 import styles from './landing.module.css'
+
+export const metadata: Metadata = { alternates: { canonical: '/' } }
 
 const workflow = [
   { number: '01', title: 'Discover', copy: 'Find the API your agent or application needs.', icon: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.6 15.6 4.4 4.4" /></> },

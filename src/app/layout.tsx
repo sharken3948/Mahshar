@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'Mahshar: The API Economy, Powered by USDC',
   description: 'Buy and sell API access with instant USDC nanopayments. AI-matched, x402-powered, zero integration.',
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? 'https://mahshar.xyz'),
+  metadataBase: new URL('https://mahshar.xyz'),
   icons: {
     icon: [
       { url: '/icon.png', sizes: '512x512', type: 'image/png' },

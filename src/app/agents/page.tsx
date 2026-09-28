@@ -7,6 +7,7 @@ import styles from '../public-pages.module.css'
 export const metadata: Metadata = {
   title: 'Agents | Mahshar',
   description: 'Use Mahshar’s public discovery, OpenAPI, proxy, and x402 contracts from an autonomous client.',
+  alternates: { canonical: '/agents' },
 }
 
 const features = [
@@ -17,8 +18,8 @@ const features = [
 ]
 
 const resources = [
-  { icon: 'discover' as const, title: 'Agent Discovery API', copy: 'Read the live machine catalog and payment contract.', href: '/api/agent/discover', label: 'Open discovery' },
-  { icon: 'docs' as const, title: 'OpenAPI 3.1 YAML', copy: 'Inspect the public discovery, execution, access, and recovery contract.', href: '/api/openapi', label: 'Open specification' },
+  { icon: 'discover' as const, title: 'Raw machine discovery', copy: 'View the public JSON catalog consumed by agents. This is machine data, not a product page.', href: '/api/agent/discover', label: 'View raw discovery JSON' },
+  { icon: 'docs' as const, title: 'OpenAPI 3.1 specification', copy: 'Inspect the public discovery, execution, access, and recovery contract.', href: '/api/openapi', label: 'Open OpenAPI specification' },
   { icon: 'book' as const, title: 'Integration guide', copy: 'Follow the documented discovery, payment, delivery-state, and recovery sequence.', href: '/docs#agent-integration', label: 'Read guide' },
   { icon: 'code' as const, title: 'Client example', copy: 'The repository client covers discovery, probes, signing, execution, retrieval, and replay checks.', path: 'scripts/mahshar-agent-client.mts' },
   { icon: 'terminal' as const, title: 'E2E harness', copy: 'The repository harness has a dry run that fetches discovery and OpenAPI without signing or sending a payment.', path: 'scripts/mahshar-agent-e2e.mts' },
@@ -37,7 +38,7 @@ export default function AgentsPage() {
                 <h1>Agent-ready API access,<span>defined by a public contract.</span></h1>
                 <p className={styles.lead}>Mahshar exposes active API listings, request contracts, payment requirements, and proxy execution details through its discovery endpoint and OpenAPI document.</p>
                 <div className={styles.actions}>
-                  <Link href="/api/agent/discover" className={styles.primaryButton}>Open discovery <PublicIcon name="arrow" /></Link>
+                  <Link href="/api/agent/discover" className={styles.primaryButton}>View raw discovery JSON <PublicIcon name="arrow" /></Link>
                   <Link href="/docs#agent-integration" className={styles.secondaryButton}>Read integration guide</Link>
                 </div>
               </div>

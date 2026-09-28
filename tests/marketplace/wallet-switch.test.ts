@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test } from 'node:test'
-import { MarketplaceSessionProvider } from '../../src/components/MarketplaceSessionProvider'
+import { MarketplaceSessionProvider, resetMarketplaceSessionCoordinatorForTests } from '../../src/components/MarketplaceSessionProvider'
 import { alice, bob, flush, releaseSessionBodies, remount, render, replayEffects, reset, runEffects,
-  state } from './wallet-switch-register.mjs'
+  signature, state } from './wallet-switch-register.mjs'
 
-beforeEach(reset)
+beforeEach(() => {
+  resetMarketplaceSessionCoordinatorForTests()
+  reset()
+})
 
 async function connect() {
   let context = render(MarketplaceSessionProvider)
@@ -21,6 +24,35 @@ test('initial connection and simultaneous private requests share one login signa
   await Promise.all(reads)
   assert.equal(state.signatures, 1)
   assert.deepEqual(state.protectedFetches, ['/api/calls', '/api/seller/calls', '/api/gateway/balance'])
+})
+
+test('fresh connect, Strict Mode remount, and all initial private consumers complete behind one login', async () => {
+  state.deferSignatures = true
+  render(MarketplaceSessionProvider)
+  runEffects()
+  await flush()
+  assert.equal(state.signatures, 1)
+
+  replayEffects()
+  remount()
+  const context = render(MarketplaceSessionProvider)
+  runEffects()
+  const reads = [
+    context.request('/api/gateway/balance?wallet=' + alice),
+    context.request('/api/calls?buyer_wallet=' + alice),
+    context.request('/api/seller/statistics/' + alice),
+    context.request('/api/seller/calls?seller_wallet=' + alice),
+    context.request('/api/gateway/balance?wallet=' + alice + '&include_history=true'),
+  ]
+  await flush()
+  assert.equal(state.signatures, 1)
+  state.pendingSignatures.shift().resolve(signature)
+  const responses = await Promise.all(reads)
+  assert.ok(responses.every(response => response.ok))
+  assert.equal(state.signatures, 1)
+  assert.equal(state.fetches.filter((item: { input: string }) => item.input === '/api/auth/challenge').length, 1)
+  assert.equal(state.fetches.filter((item: { input: string; init: RequestInit }) =>
+    item.input === '/api/auth/session' && item.init.method === 'POST').length, 1)
 })
 
 test('a provider remount reuses a valid matching server session without requesting a signature', async () => {

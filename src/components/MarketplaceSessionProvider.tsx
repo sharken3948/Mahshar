@@ -23,7 +23,21 @@ type SessionContextValue = {
 const SessionContext = createContext<SessionContextValue | null>(null)
 const loginInFlight = new Map<string, Promise<LoginResult>>()
 const checkInFlight = new Map<string, Promise<SessionCheckResult>>()
+// The server session belongs to the browser, not to a particular React mount.
+// Keep the successful hand-off visible across Strict Mode remounts and to every
+// consumer before the POST /api/auth/session promise is released.
+let establishedSessionWallet: string | null = null
+let establishedSessionGeneration = 0
 let signatureQueue: Promise<void> = Promise.resolve()
+
+/** Test isolation for the module-level browser-session coordinator. */
+export function resetMarketplaceSessionCoordinatorForTests() {
+  loginInFlight.clear()
+  checkInFlight.clear()
+  establishedSessionWallet = null
+  establishedSessionGeneration = 0
+  signatureQueue = Promise.resolve()
+}
 
 function serializeSignature<T>(sign: () => Promise<T>) {
   const previous = signatureQueue
@@ -76,6 +90,13 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
   }, [])
 
   const initializeSession = useCallback(async (requestedWallet: string): Promise<SessionCheckResult> => {
+    if (establishedSessionWallet === requestedWallet) {
+      authenticatedWallet.current = requestedWallet
+      initializedSession.current = { wallet: requestedWallet, result: 'authenticated' }
+      setStatus('authenticated')
+      setError(null)
+      return 'authenticated'
+    }
     if (authenticatedWallet.current === requestedWallet) return 'authenticated'
     if (initializedSession.current?.wallet === requestedWallet) return initializedSession.current.result
     if (currentWallet.current === requestedWallet) {
@@ -88,6 +109,7 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     }
     initializedSession.current = { wallet: requestedWallet, result }
     if (result === 'authenticated') {
+      establishedSessionWallet = requestedWallet
       authenticatedWallet.current = requestedWallet
       rejectedWallet.current = null
       setStatus('authenticated')
@@ -140,6 +162,11 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
         if (!response.ok || result?.authenticated !== true || result.wallet?.toLowerCase() !== requestedWallet) {
           throw new Error(result?.error ?? 'Wallet session could not be created')
         }
+        // Publish success before resolving loginInFlight. This closes the gap
+        // where another consumer/remount could observe no in-flight login and
+        // no provider-local authenticated ref, then open a second prompt.
+        establishedSessionWallet = requestedWallet
+        establishedSessionGeneration += 1
         return { authenticated: true, rejected: false, error: null }
       } catch (loginError) {
         if (userRejected(loginError)) return { authenticated: false, rejected: true,
@@ -155,9 +182,28 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
   }, [config, signTypedDataAsync])
 
   const establishSession = useCallback(async (requestedWallet: string, explicit: boolean) => {
+    if (establishedSessionWallet === requestedWallet) {
+      initializedSession.current = { wallet: requestedWallet, result: 'authenticated' }
+      authenticatedWallet.current = requestedWallet
+      rejectedWallet.current = null
+      setStatus('authenticated')
+      setError(null)
+      return true
+    }
     if (authenticatedWallet.current === requestedWallet) return true
     const checked = await initializeSession(requestedWallet)
     if (currentWallet.current !== requestedWallet || getAccount(config).address?.toLowerCase() !== requestedWallet) return false
+    // A parallel consumer may have completed login while this caller awaited
+    // its earlier session check. Re-adopt that result before considering a new
+    // challenge; loginInFlight may already have completed and been removed.
+    if (establishedSessionWallet === requestedWallet) {
+      initializedSession.current = { wallet: requestedWallet, result: 'authenticated' }
+      authenticatedWallet.current = requestedWallet
+      rejectedWallet.current = null
+      setStatus('authenticated')
+      setError(null)
+      return true
+    }
     if (checked === 'authenticated') return true
     if (checked === 'unavailable') return false
     if (!explicit && rejectedWallet.current === requestedWallet) {
@@ -205,10 +251,17 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     const requestedWallet = normalizedWallet(connected)
     if (!await establishSession(requestedWallet, false)) throw new Error('Sign in with your wallet to continue')
     if (getAccount(config).address?.toLowerCase() !== requestedWallet) throw new Error('Wallet changed')
+    const dispatchedGeneration = establishedSessionGeneration
     const response = await fetch(input, { ...init, credentials: 'same-origin' })
     if (response.status !== 401) return response
     const rejection = await response.clone().json().catch(() => null) as { error?: unknown } | null
     if (!['Wallet session required', 'Wallet session expired'].includes(String(rejection?.error ?? ''))) return response
+    // Another parallel read may already have replaced the expired session.
+    // Retry with that newer cookie instead of invalidating it and prompting.
+    if (establishedSessionWallet === requestedWallet && establishedSessionGeneration !== dispatchedGeneration) {
+      return fetch(input, { ...init, credentials: 'same-origin' })
+    }
+    establishedSessionWallet = null
     authenticatedWallet.current = null
     initializedSession.current = null
     if (!await establishSession(requestedWallet, false)) return response
@@ -254,6 +307,9 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
   useEffect(() => {
     const priorWallet = previousWallet.current
     previousWallet.current = wallet
+    if (!wallet || (establishedSessionWallet !== null && establishedSessionWallet !== wallet)) {
+      establishedSessionWallet = null
+    }
     authenticatedWallet.current = null
     initializedSession.current = null
     setError(null)
