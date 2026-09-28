@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext } from 'react'
-import { useWalletAuthorization } from '@/hooks/useWalletAuthorization'
+import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
 
 const AdminRequest = createContext<((url: string, init?: RequestInit) => Promise<Response>) | null>(null)
 
@@ -17,6 +17,6 @@ export function useAdminRequest() {
  * administrator allowlist.
  */
 export function AdminAccess({ children }: { children: React.ReactNode }) {
-  const { request } = useWalletAuthorization()
+  const { request } = useMarketplaceSession()
   return <AdminRequest.Provider value={request}>{children}</AdminRequest.Provider>
 }

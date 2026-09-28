@@ -54,6 +54,19 @@ test('OpenAPI is served publicly with a machine-readable media type', async () =
   assert.match(await response.text(), /^openapi: 3\.1\.0/m)
 })
 
+test('served OpenAPI substitutes MARKETPLACE_ORIGIN rather than request or template hosts', async () => {
+  const previous = process.env.MARKETPLACE_ORIGIN
+  process.env.MARKETPLACE_ORIGIN = 'https://staging.mahshar.example'
+  try {
+    const response = await openapi()
+    const document = await response.text()
+    assert.match(document, /- url: https:\/\/staging\.mahshar\.example/)
+    assert.equal(document.includes('https://mahshar.xyz'), false)
+  } finally {
+    process.env.MARKETPLACE_ORIGIN = previous
+  }
+})
+
 test('agent discovery route emits the safe executable contract and pagination without seller configuration', async () => {
   reset()
   state.tables.api_listings.push({

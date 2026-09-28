@@ -7,7 +7,8 @@ info:
     Circle Gateway x402 v2 on Arc Mainnet (chain 5042, CAIP-2 eip155:5042).
     Seller upstream URLs and credentials are never part of this contract.
 servers:
-  - url: https://mahshar.xyz
+  - url: https://mahshar.example
+    description: Example only; the served document substitutes MARKETPLACE_ORIGIN.
 tags:
   - { name: Discovery }
   - { name: Paid execution }
@@ -102,13 +103,15 @@ paths:
       summary: Retrieve the private response for the exact authorized purchase
       description: |
         Send `x-mahshar-purchase-access` with the purchase-scoped capability.
-        A legacy purchase may exchange one one-use `x-mahshar-authorization`
-        wallet proof for a capability. `buyer_wallet` alone is never ownership.
+        A browser wallet session may exchange a legacy owned purchase for a
+        capability. `buyer_wallet` alone is never ownership.
+      security:
+        - purchaseAccess: []
+        - walletSession: []
       parameters:
         - { name: api_id, in: query, required: true, schema: { type: string } }
         - { name: buyer_wallet, in: query, required: true, schema: { type: string } }
         - { name: x-mahshar-purchase-access, in: header, required: false, schema: { type: string } }
-        - { name: x-mahshar-authorization, in: header, required: false, schema: { type: string } }
       responses:
         '200':
           description: Stored response and optionally a newly issued capability
@@ -127,8 +130,8 @@ paths:
       tags: [Recovery]
       operationId: reconcilePaymentAccounting
       summary: Reconcile accounting; never settles or replays upstream delivery
-      parameters:
-        - { name: x-mahshar-authorization, in: header, required: true, schema: { type: string } }
+      security:
+        - walletSession: []
       requestBody:
         required: true
         content:
@@ -146,6 +149,16 @@ paths:
         '409': { $ref: '#/components/responses/DeliveryConflict' }
         '503': { $ref: '#/components/responses/Error' }
 components:
+  securitySchemes:
+    walletSession:
+      type: apiKey
+      in: cookie
+      name: mahshar_session
+      description: Eight-hour HttpOnly browser wallet session.
+    purchaseAccess:
+      type: apiKey
+      in: header
+      name: x-mahshar-purchase-access
   schemas:
     EnvelopeRequest:
       type: object

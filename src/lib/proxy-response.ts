@@ -1,9 +1,24 @@
 import { safeOutboundFetch, type OutboundOptions, type PreparedOutboundRequest } from '@/lib/outbound-fetch';
 
 export const MAX_UPSTREAM_DIAGNOSTIC_BODY_CHARS = 4096;
+export const MAX_SAFE_SERIALIZED_RESPONSE_BYTES = 4_000_000;
+export const VERIFICATION_RESPONSE_WARNING_BYTES = 3_500_000;
+const REPRESENTATIVE_DELIVERY_OVERHEAD_BYTES = 2_048;
 
 export function serializedJsonByteLength(value: unknown) {
   return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
+export function assessRepresentativeResponseSize(body: unknown) {
+  // The live delivery adds payment state, attempt identity and a recovery token.
+  // Reserve fixed conservative headroom so verification never approves a sample
+  // that only fits when those required fields are omitted.
+  const serializedBytes = serializedJsonByteLength(body) + REPRESENTATIVE_DELIVERY_OVERHEAD_BYTES;
+  return {
+    serializedBytes,
+    warning: serializedBytes >= VERIFICATION_RESPONSE_WARNING_BYTES,
+    exceedsLimit: serializedBytes > MAX_SAFE_SERIALIZED_RESPONSE_BYTES,
+  };
 }
 
 export function buildUpstreamFailureDiagnostic(status: number, contentType: string, rawBody: string) {

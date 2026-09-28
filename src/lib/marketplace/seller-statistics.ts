@@ -10,7 +10,9 @@ export interface SellerWithdrawalRow {
   status: string
 }
 
-const RESERVED_WITHDRAWAL_STATUSES = new Set(['pending_mint', 'minted', 'failed'])
+const RESERVED_WITHDRAWAL_STATUSES = new Set([
+  'pending_mint', 'submission_unknown', 'mint_unknown', 'minted', 'failed',
+])
 
 function usdcMicros(value: string | number): number | null {
   const text = String(value).trim()

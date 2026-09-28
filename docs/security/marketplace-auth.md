@@ -1,50 +1,53 @@
-# Sessionless marketplace wallet authorization
+# Wallet session authentication
 
-Mahshar does not create a marketplace login or reusable wallet session. Connecting
-a wallet identifies the address used for public, address-indexed reads. Read-only
-dashboard, listing, earnings, balance, and safe activity views do not request a
-signature.
+Mahshar uses a database-backed, eight-hour wallet session for browser account
+features. Connecting a wallet starts one login flow: the browser requests a
+five-minute, one-use challenge, signs the `MahsharLogin` EIP-712 message, and
+submits it for server verification. The message binds the normalized wallet,
+Mahshar application name, Arc Mainnet chain ID 5042, canonical
+`MARKETPLACE_ORIGIN`, nonce, issue time, and deadline.
 
-## Protected operations
+The server atomically consumes the challenge and sets an opaque random session
+cookie. Only the SHA-256 token hash is stored in `wallet_sessions`. The cookie is
+HttpOnly, SameSite=Lax, Path=/, Secure in production, and unavailable to normal
+client JavaScript. Sessions have a fixed eight-hour server expiry and do not
+roll forward through activity. Expired/revoked sessions and expired challenges
+are removed by the existing protected daily maintenance job.
 
-Seller mutations and sensitive response retrieval use one EIP-712 signature for
-the exact HTTP operation. The signed structure binds the wallet, fixed Mahshar
-application and Arc Mainnet context, HTTP method and route, canonical request
-payload hash, random 256-bit nonce, issue time, and five-minute deadline.
+One shared `MarketplaceSessionProvider` owns login and request coordination.
+Concurrent dashboard/navbar/page reads for the same normalized wallet reuse one
+in-flight check or login, so React remounts and background refreshes do not open
+additional signature prompts. A rejected signature is not retried until the
+user explicitly selects Sign in. A valid same-wallet cookie survives refreshes.
+Switching wallets clears private client state and establishes a distinct session
+for the new wallet; disconnect revokes the active browser session where
+practical.
 
-The browser sends the proof in the x-mahshar-authorization header. The server
-reconstructs the operation and payload hash from the actual request. It verifies
-EOA signatures locally, with Arc Mainnet EIP-1271 verification as the contract
-wallet fallback. Wallet changes during signing are rejected before submission.
+Private reads, low-risk listing management, AI scoring/verification, admin
+operations, balance/accounting reads, and accounting reconciliation use the
+session. Handlers derive authority from the session wallet and only accept body,
+query, or route wallet values as matching consistency claims. Public active
+catalog and x402 proxy/discovery routes remain public or payment-authorized.
 
-After signature verification, the server inserts the nonce into the existing
-server-only withdraw_used_nonces table. Its primary key is the atomic replay
-barrier. The nonce is consumed before the handler executes, so any retry needs a
-fresh authorization. No database migration is needed.
+Sensitive listing edits are a narrowly scoped step-up case. Changes to the
+endpoint, upstream authentication or credential, HTTP method, or declared
+path/query forwarding contract require the owner session plus a fresh
+five-minute, one-use EIP-712 proof over the exact PATCH body and listing route.
+Presentation, pricing, examples, and other fields that cannot redirect stored
+credentials remain session-only.
 
-Listing handlers load the persisted resource and compare its seller wallet with
-the recovered signer. Supplied wallet fields are consistency checks only.
-Creation derives ownership from the signer. Existing credential verification and
-deactivation fences remain in place.
+Cookie-authenticated mutations require the request Origin to equal the validated
+canonical `MARKETPLACE_ORIGIN`; cross-site Fetch Metadata is also rejected.
+SameSite=Lax provides an additional browser boundary. Login challenge and verify
+endpoints have bounded request bodies and fail-closed IP rate limits.
 
-Seller withdrawal and recovery retain their existing amount or withdrawal
-specific EIP-191 messages, timestamp checks, signer verification, one-time nonce
-consumption, and ownership checks. Sensitive last-response retrieval uses the
-one-time EIP-712 request proof. x402 payment, Circle settlement, Bridge, and
-Deposit paths are unchanged.
+Seller withdrawal is deliberately different. Both withdrawal routes require the
+owner session, and starting or reconciling a withdrawal still requires the
+existing fresh operation-specific signature, timestamp, amount or withdrawal ID,
+destination context, and one-use nonce. Session authentication does not replace
+the atomic reservation, ambiguous-execution fence, or idempotent reconciliation.
 
-## Removed infrastructure
-
-The Marketplace SIWE provider, challenge/session endpoints, opaque cookies,
-24-hour session client, logout flow, and pending marketplace-auth migration were
-removed. Bridge-specific archived SIWE material is unrelated and remains outside
-this marketplace architecture.
-
-## Verification
-
-Run node --import tsx --import ./tests/marketplace/register.mjs tests/marketplace/run.mjs,
-then the wallet-switch and withdrawal test files with their adjacent register
-modules. They use synthetic wallets and in-memory boundaries without production
-access. Together they cover payload binding, replay, expiry, origin, ownership,
-public reads, sensitive response authorization, wallet changes during signing,
-and withdrawal-specific signature and nonce protection.
+No new signing secret environment variable is required. Required configuration
+is the existing server-only Supabase service role, `MARKETPLACE_ORIGIN`, Arc
+Mainnet RPC configuration, and `CRON_SECRET` for scheduled pruning. Apply the
+forward wallet-session migration before deploying code that serves these routes.

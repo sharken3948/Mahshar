@@ -6,3 +6,4 @@ export async function verifyAndSettlePayment() { state.settled++; return { succe
 export async function paymentInfrastructureStatus() { return { ready: true as const } }
 export function build402Response() { return NextResponse.json({}, { status: 402 }) }
 export async function writeMemo() {}
+export const PLATFORM_PRIVATE_KEY = `0x${'ab'.repeat(32)}` as `0x${string}`

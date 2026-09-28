@@ -1,4 +1,4 @@
-import { marketplaceErrors, requireOperationAuthorization } from '@/lib/marketplace/server'
+import { marketplaceErrors, requireWalletSession } from '@/lib/marketplace/server'
 import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
 import { issuePurchaseAccess, PURCHASE_ACCESS_HEADER, verifyPurchaseAccess } from '@/lib/marketplace/purchase-access'
 import { NextRequest, NextResponse } from 'next/server'
@@ -23,9 +23,9 @@ export const GET = marketplaceErrors(async (request: NextRequest) => {
     buyerWallet = access.buyerWallet
     purchaseId = access.purchaseId
   } else {
-    // Legacy purchases can exchange one operation proof for a durable,
+    // Browser users may exchange their wallet session for a durable,
     // purchase-scoped read capability. Subsequent reads need no signature.
-    buyerWallet = await requireOperationAuthorization(request)
+    buyerWallet = await requireWalletSession(request)
     assertWalletClaim(searchParams.get('buyer_wallet'), buyerWallet)
   }
 

@@ -4,6 +4,9 @@ import {
   buildUpstreamFailureDiagnostic,
   fetchUpstreamWithoutRedirects,
   MAX_UPSTREAM_DIAGNOSTIC_BODY_CHARS,
+  MAX_SAFE_SERIALIZED_RESPONSE_BYTES,
+  VERIFICATION_RESPONSE_WARNING_BYTES,
+  assessRepresentativeResponseSize,
   readResponseBytes,
   ResponseTooLargeError,
 } from './proxy-response';
@@ -19,6 +22,15 @@ test('upstream fetch forces manual redirect handling', async () => {
   });
   assert.equal(response.status, 302);
   assert.equal(redirectMode, 'manual');
+});
+
+test('representative response sizing distinguishes normal, warning, and blocked samples', () => {
+  assert.deepEqual(assessRepresentativeResponseSize({ ok: true }).warning, false);
+  const warning = assessRepresentativeResponseSize('x'.repeat(VERIFICATION_RESPONSE_WARNING_BYTES));
+  assert.equal(warning.warning, true);
+  assert.equal(warning.exceedsLimit, false);
+  const blocked = assessRepresentativeResponseSize('x'.repeat(MAX_SAFE_SERIALIZED_RESPONSE_BYTES));
+  assert.equal(blocked.exceedsLimit, true);
 });
 
 test('response bytes remain intact below the configured cap', async () => {

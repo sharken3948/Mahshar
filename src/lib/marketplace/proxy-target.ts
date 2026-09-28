@@ -1,3 +1,5 @@
+import { isSafeParameterPattern, matchesSafeParameterPattern } from './safe-pattern'
+
 export type DeclaredParameter = {
   name: string
   required?: boolean
@@ -30,7 +32,7 @@ function parameters(value: unknown): DeclaredParameter[] {
       candidate.enum.some(value => typeof value !== 'string' || value.length > 512))) throw new ProxyTargetError('invalid_dynamic_path')
     if (candidate.pattern !== undefined) {
       if (typeof candidate.pattern !== 'string' || candidate.pattern.length > 256) throw new ProxyTargetError('invalid_dynamic_path')
-      try { new RegExp(`^(?:${candidate.pattern})$`, 'u') } catch { throw new ProxyTargetError('invalid_dynamic_path') }
+      if (!isSafeParameterPattern(candidate.pattern)) throw new ProxyTargetError('invalid_dynamic_path')
     }
     if (candidate.type !== undefined && !['string', 'integer', 'number', 'boolean'].includes(String(candidate.type))) {
       throw new ProxyTargetError('invalid_dynamic_path')
@@ -64,7 +66,7 @@ function validateValue(value: string, parameter: DeclaredParameter) {
   if (value.length > 2048 || (parameter.minLength !== undefined && value.length < parameter.minLength) ||
     (parameter.maxLength !== undefined && value.length > parameter.maxLength)) return false
   if (parameter.enum && !parameter.enum.includes(value)) return false
-  if (parameter.pattern && !new RegExp(`^(?:${parameter.pattern})$`, 'u').test(value)) return false
+  if (parameter.pattern && !matchesSafeParameterPattern(parameter.pattern, value)) return false
   if (parameter.type === 'integer' && !/^-?(?:0|[1-9]\d*)$/.test(value)) return false
   if (parameter.type === 'number' && (value.trim() === '' || !Number.isFinite(Number(value)))) return false
   if (parameter.type === 'boolean' && value !== 'true' && value !== 'false') return false

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { privateKeyToAccount } from 'viem/accounts'
 import { OPERATION_AUTH_DOMAIN, OPERATION_AUTH_HEADER, OPERATION_AUTH_SECONDS, OPERATION_AUTH_TYPES,
   authorizationMessage, encodeAuthorizationProof, requestPayload } from '../../src/lib/marketplace/operation-authorization'
@@ -7,12 +7,24 @@ export const alice = privateKeyToAccount(`0x${'11'.repeat(32)}`)
 export const bob = privateKeyToAccount(`0x${'22'.repeat(32)}`)
 export const origin = 'https://mahshar.xyz'
 export const state = { tables: {} as Record<string, Record<string, any>[]>, upstream: 0, settled: 0,
-  rateLimitError: false, rateLimitAllowed: true, failApiCallInsert: false }
+  rateLimitError: false, rateLimitAllowed: true, failApiCallInsert: false, pruneCalls: 0, pruneResult: 0,
+  authPruneCalls: 0, authPruneResult: { challenges: 0, sessions: 0 } }
 export function reset() {
   state.upstream = 0; state.settled = 0
   state.rateLimitError = false; state.rateLimitAllowed = true
   state.failApiCallInsert = false
-  state.tables = { api_listings: [], api_calls: [], purchases: [], credit_balances: [], seller_withdrawals: [], withdraw_used_nonces: [] }
+  state.pruneCalls = 0; state.pruneResult = 0
+  state.authPruneCalls = 0; state.authPruneResult = { challenges: 0, sessions: 0 }
+  state.tables = { api_listings: [], api_calls: [], purchases: [], credit_balances: [], seller_withdrawals: [],
+    withdraw_used_nonces: [], wallet_auth_challenges: [], wallet_sessions: [] }
+}
+export function sessionHeaders(account = alice, options: { expired?: boolean; revoked?: boolean; token?: string } = {}) {
+  const token = options.token ?? randomBytes(32).toString('base64url')
+  state.tables.wallet_sessions.push({ id: randomUUID(), token_hash: createHash('sha256').update(token).digest('hex'),
+    wallet: account.address.toLowerCase(), created_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + (options.expired ? -60_000 : 8 * 60 * 60 * 1000)).toISOString(),
+    revoked_at: options.revoked ? new Date().toISOString() : null })
+  return { origin, cookie: `mahshar_session=${token}` }
 }
 let nonceCounter = 0
 export async function operationHeaders(path: string, method = 'GET', body?: unknown, account = alice, options: { issuedAt?: number; nonce?: Hex } = {}) {
@@ -40,6 +52,7 @@ class Query {
   not(key: string, _op: string, value: unknown) { this.predicates.push(r => (r[key] ?? null) !== value); return this }
   in(key: string, values: unknown[]) { this.predicates.push(r => values.includes(r[key])); return this }
   gte(key: string, value: unknown) { this.predicates.push(r => r[key] >= (value as any)); return this }
+  gt(key: string, value: unknown) { this.predicates.push(r => r[key] > (value as any)); return this }
   order(_key: string, _options?: unknown) { return this }
   limit(n: number) { this.take = n; return this }
   range(from: number, to: number) { this.skip = from; this.take = to - from + 1; return this }
@@ -57,7 +70,8 @@ class Query {
       if (this.table === 'withdraw_used_nonces' && table.some(row => row.nonce === this.mutation!.value!.nonce)) {
         return Promise.resolve({ data: null, error: { code: '23505', message: 'duplicate nonce' } }).then(resolve)
       }
-      const row = { id: randomUUID(), verified_at: null, method: 'GET', auth_param_name: null, encrypted_key: null, ...this.mutation.value }
+      const row = { id: randomUUID(), created_at: new Date().toISOString(), verified_at: null, method: 'GET',
+        auth_param_name: null, encrypted_key: null, ...this.mutation.value }
       table.push(row as any); table = [row as any]
     }
     let rows = table.filter(r => this.predicates.every(p => p(r))).slice(this.skip, this.skip + this.take) as Record<string, any>[]
@@ -75,6 +89,13 @@ export function createServiceClient() {
       return { data: [{ allowed: state.rateLimitAllowed, remaining: state.rateLimitAllowed ? Number(args.p_limit) - 1 : 0,
         retry_after_seconds: state.rateLimitAllowed ? 0 : 12 }], error: null }
     }
+    if (name === 'mahshar_take_rate_limits') {
+      if (state.rateLimitError) return { data: null, error: { message: 'limiter unavailable' } }
+      const buckets = args.p_buckets as Array<{ limit: number }>
+      return { data: [{ allowed: state.rateLimitAllowed,
+        remaining: state.rateLimitAllowed ? Math.min(...buckets.map(bucket => Number(bucket.limit) - 1)) : 0,
+        retry_after_seconds: state.rateLimitAllowed ? 0 : 12 }], error: null }
+    }
     if (name === 'mahshar_agent_listing_stats') {
       const ids = new Set(args.p_api_ids as string[])
       const grouped = new Map<string, { api_id: string; total_calls: number; successful_calls: number; total_latency: number }>()
@@ -88,13 +109,24 @@ export function createServiceClient() {
       }
       return { data: [...grouped.values()].map(value => ({ ...value, avg_latency_ms: value.total_latency / value.total_calls })), error: null }
     }
+    if (name === 'mahshar_prune_api_call_responses') {
+      state.pruneCalls++
+      if (Number(args.p_limit) !== 1000) return { data: null, error: { message: 'invalid prune bound' } }
+      return { data: state.pruneResult, error: null }
+    }
+    if (name === 'mahshar_prune_wallet_auth') {
+      state.authPruneCalls++
+      if (Number(args.p_limit) !== 1000) return { data: null, error: { message: 'invalid prune bound' } }
+      return { data: state.authPruneResult, error: null }
+    }
     if (name === 'mahshar_reserve_seller_withdrawal') {
       const wallet = String(args.p_seller_wallet).toLowerCase()
       const listingIds = new Set((state.tables.api_listings ?? []).filter(row => String(row.seller_wallet).toLowerCase() === wallet).map(row => row.id))
       const earned = (state.tables.purchases ?? []).filter(row => listingIds.has(row.api_id))
         .reduce((sum, row) => sum + Number(row.seller_share_usdc ?? 0), 0)
       const consumed = (state.tables.seller_withdrawals ?? []).filter(row => String(row.seller_wallet).toLowerCase() === wallet &&
-        ['pending_mint', 'minted', 'failed'].includes(row.status)).reduce((sum, row) => sum + Number(row.amount_usdc), 0)
+        ['pending_mint', 'submission_unknown', 'mint_unknown', 'minted', 'failed'].includes(row.status))
+        .reduce((sum, row) => sum + Number(row.amount_usdc), 0)
       if (Number(args.p_amount_usdc) > earned - consumed) return { data: null, error: { message: 'insufficient withdrawal balance' } }
       const row = { id: randomUUID(), seller_wallet: wallet, network_id: args.p_network_id, amount_usdc: args.p_amount_usdc,
         net_amount_usdc: args.p_amount_usdc, gas_cost_usdc: 0, burn_intent: {}, status: 'pending_mint', created_at: new Date().toISOString() }

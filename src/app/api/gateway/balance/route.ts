@@ -1,4 +1,4 @@
-import { withOperationAuthorization } from '@/lib/marketplace/server'
+import { withWalletSession } from '@/lib/marketplace/server'
 import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -12,12 +12,12 @@ function gatewayBalance(value: unknown): string | null {
   return typeof value === 'string' && /^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(value) ? value : null
 }
 
-export const GET = withOperationAuthorization(async (request: NextRequest, authorizedWallet: string) => {
+export const GET = withWalletSession(async (request: NextRequest, authorizedWallet: string) => {
   const includeHistory = request.nextUrl.searchParams.get('include_history') === 'true'
   assertWalletClaim(request.nextUrl.searchParams.get('wallet'), authorizedWallet)
   const wallet = authorizedWallet.toLowerCase()
   const limited = await enforceRateLimit({ request, scope: 'gateway-balance', limit: 30, windowSeconds: 60,
-    dimensions: [wallet], failClosed: true })
+    wallet, failClosed: false })
   if (limited) return limited
 
   let gatewayAvailable: string

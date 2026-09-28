@@ -4,7 +4,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { decryptKey } from '@/lib/crypto'
 import type { ApiListing, PaymentModel } from '@/types'
 import { buildUpstreamFailureDiagnostic, fetchUpstreamWithoutRedirects, readResponseBytes, ResponseTooLargeError,
-  serializedJsonByteLength } from '@/lib/proxy-response'
+  serializedJsonByteLength, MAX_SAFE_SERIALIZED_RESPONSE_BYTES } from '@/lib/proxy-response'
 import { buildUpstreamAuthentication } from '@/lib/marketplace/upstream-auth'
 import { OutboundPolicyError } from '@/lib/outbound-fetch'
 
@@ -20,7 +20,7 @@ export interface ProxyResult {
   callId?: string
 }
 
-export const MAX_SAFE_SERIALIZED_RESPONSE_BYTES = 4_000_000
+export { MAX_SAFE_SERIALIZED_RESPONSE_BYTES } from '@/lib/proxy-response'
 const MAX_UPSTREAM_BYTES = MAX_SAFE_SERIALIZED_RESPONSE_BYTES
 const CLIENT_FAULT_CODES = new Set([400, 404, 405, 422])
 

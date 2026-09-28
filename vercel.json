@@ -1,0 +1,9 @@
+{
+  "crons": [
+    {
+      "path": "/api/internal/maintenance/prune-responses",
+      "schedule": "17 3 * * *"
+    }
+  ]
+}
+

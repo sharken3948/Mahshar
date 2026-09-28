@@ -1,7 +1,7 @@
 'use client'
-import { useWalletAuthorization } from '@/hooks/useWalletAuthorization'
+import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
 import { useAccount, useReadContract, useWriteContract, usePublicClient, useBlockNumber, useSwitchChain, useSignMessage } from 'wagmi'
-import { buildWithdrawMessage } from '@/lib/withdraw-auth-message'
+import { buildConfirmMessage, buildWithdrawMessage } from '@/lib/withdraw-auth-message'
 import { createContext, useContext, useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { parseUnits, type EIP1193Provider } from 'viem'
 import { usdcAmount } from '@/lib/circle-bridge'
@@ -132,7 +132,7 @@ function useDashboardWorkspaceState() {
   const { writeContractAsync } = useWriteContract()
   const { switchChainAsync } = useSwitchChain()
   const { signMessageAsync } = useSignMessage()
-  const { request: authorizedFetch } = useWalletAuthorization()
+  const { request: authorizedFetch, sensitiveRequest } = useMarketplaceSession()
   const publicClient = usePublicClient({ chainId: ARC_CHAIN_ID })
   const { preferences } = useProductPreferences()
   const preferencesRef = useRef(preferences)
@@ -163,9 +163,11 @@ function useDashboardWorkspaceState() {
   const [releaseStep, setReleaseStep] = useState<'idle' | 'releasing'>('idle')
   const [releaseError, setReleaseError] = useState<string | null>(null)
   const [earningsWithdrawAmount, setEarningsWithdrawAmount] = useState('')
-  const [earningsWithdrawStep, setEarningsWithdrawStep] = useState<'idle' | 'withdrawing'>('idle')
+  const [earningsWithdrawStep, setEarningsWithdrawStep] = useState<'idle' | 'withdrawing' | 'checking'>('idle')
   const [earningsWithdrawError, setEarningsWithdrawError] = useState<string | null>(null)
   const [earningsWithdrawResult, setEarningsWithdrawResult] = useState<{ net: number; gas: number; tx: string } | null>(null)
+  const [pendingWithdrawalRecovery, setPendingWithdrawalRecovery] = useState<{ id: string; status: string } | null>(null)
+  const [withdrawalRecoveryMessage, setWithdrawalRecoveryMessage] = useState<string | null>(null)
   const [sellCallGroups, setSellCallGroups] = useState<SellCallGroup[]>([])
   const [detailsApi, setDetailsApi] = useState<string | null>(null)
   const [detailsSellApi, setDetailsSellApi] = useState<string | null>(null)
@@ -180,10 +182,11 @@ function useDashboardWorkspaceState() {
   const [viewApiLoading, setViewApiLoading] = useState(false)
   const [viewApiCopied, setViewApiCopied] = useState(false)
   const [balanceUpdatedAt, setBalanceUpdatedAt] = useState<number | null>(null)
-  const balanceRefreshInFlight = useRef<Promise<boolean> | null>(null)
-  const marketplaceRefreshInFlight = useRef<Promise<void> | null>(null)
-  const gatewayRefreshInFlight = useRef<Promise<boolean> | null>(null)
-  const sellerStatisticsInFlight = useRef<Promise<ReadOnlySellerStatistics | null> | null>(null)
+  const balanceRefreshInFlight = useRef(new Map<string, Promise<boolean>>())
+  const marketplaceRefreshInFlight = useRef(new Map<string, Promise<void>>())
+  const gatewayRefreshInFlight = useRef(new Map<string, Promise<boolean>>())
+  const sellerStatisticsInFlight = useRef(new Map<string, Promise<ReadOnlySellerStatistics | null>>())
+  const privateRequestControllers = useRef(new Map<string, Set<AbortController>>())
   const myApisRef = useRef<ApiListing[]>([])
   const readOnlyApisRef = useRef<ApiListing[]>([])
   const balanceIsStale = useRef(false)
@@ -193,6 +196,19 @@ function useDashboardWorkspaceState() {
   const initialAggregateRefreshStarted = useRef(false)
   const currentAddress = useRef(address)
   currentAddress.current = address
+  const isCurrentWallet = useCallback((wallet: string) => currentAddress.current?.toLowerCase() === wallet, [])
+  const privateFetch = useCallback(async (wallet: string, input: string) => {
+    const controller = new AbortController()
+    const controllers = privateRequestControllers.current.get(wallet) ?? new Set<AbortController>()
+    controllers.add(controller)
+    privateRequestControllers.current.set(wallet, controllers)
+    try {
+      return await authorizedFetch(input, { cache: 'no-store', signal: controller.signal })
+    } finally {
+      controllers.delete(controller)
+      if (controllers.size === 0) privateRequestControllers.current.delete(wallet)
+    }
+  }, [authorizedFetch])
 
   const { data: walletUsdcRaw, refetch: refetchUsdcBalance } = useReadContract({
     address: ARC_USDC,
@@ -245,42 +261,52 @@ function useDashboardWorkspaceState() {
 
   const fetchGatewayStats = useCallback(() => {
     if (!address) return Promise.resolve(false)
-    if (gatewayRefreshInFlight.current) return gatewayRefreshInFlight.current
+    const wallet = address.toLowerCase()
+    const existing = gatewayRefreshInFlight.current.get(wallet)
+    if (existing) return existing
     const request = (async () => {
       try {
         // This public endpoint returns only Circle's balance, never offchain history.
-        const res = await authorizedFetch(`/api/gateway/balance?wallet=${address}`, { cache: 'no-store' })
-        if (!res.ok) { if (currentAddress.current?.toLowerCase() === address.toLowerCase()) setGatewayUnavailable(true); return false }
+        const res = await privateFetch(wallet, `/api/gateway/balance?wallet=${wallet}`)
+        if (!res.ok) { if (isCurrentWallet(wallet)) setGatewayUnavailable(true); return false }
         const stats = await res.json() as GatewayStats
-        if (typeof stats.gatewayAvailable !== 'string' || currentAddress.current?.toLowerCase() !== address.toLowerCase()) return false
+        if (typeof stats.gatewayAvailable !== 'string' || !isCurrentWallet(wallet)) return false
         setGatewayStats(stats)
         setGatewayUnavailable(false)
         return true
-      } catch { if (currentAddress.current?.toLowerCase() === address.toLowerCase()) setGatewayUnavailable(true); return false }
-    })().finally(() => { if (gatewayRefreshInFlight.current === request) gatewayRefreshInFlight.current = null })
-    gatewayRefreshInFlight.current = request
+      } catch { if (isCurrentWallet(wallet)) setGatewayUnavailable(true); return false }
+    })().finally(() => {
+      if (gatewayRefreshInFlight.current.get(wallet) === request) gatewayRefreshInFlight.current.delete(wallet)
+    })
+    gatewayRefreshInFlight.current.set(wallet, request)
     return request
-  }, [address, authorizedFetch])
+  }, [address, isCurrentWallet, privateFetch])
 
   const fetchSellerStatisticsSnapshot = useCallback(() => {
     if (!address) return Promise.resolve(null)
-    if (sellerStatisticsInFlight.current) return sellerStatisticsInFlight.current
+    const wallet = address.toLowerCase()
+    const existing = sellerStatisticsInFlight.current.get(wallet)
+    if (existing) return existing
     const request = (async () => {
       try {
-        const response = await authorizedFetch(`/api/seller/statistics/${encodeURIComponent(address)}`, { cache: 'no-store' })
+        const response = await privateFetch(wallet, `/api/seller/statistics/${encodeURIComponent(wallet)}`)
         if (!response.ok) return null
         const statistics = await response.json() as ReadOnlySellerStatistics
-        if (!Array.isArray(statistics.listings) || currentAddress.current?.toLowerCase() !== address.toLowerCase()) return null
+        if (!Array.isArray(statistics.listings) || !isCurrentWallet(wallet)) return null
         return statistics
       } catch { return null }
-    })().finally(() => { if (sellerStatisticsInFlight.current === request) sellerStatisticsInFlight.current = null })
-    sellerStatisticsInFlight.current = request
+    })().finally(() => {
+      if (sellerStatisticsInFlight.current.get(wallet) === request) sellerStatisticsInFlight.current.delete(wallet)
+    })
+    sellerStatisticsInFlight.current.set(wallet, request)
     return request
-  }, [address, authorizedFetch])
+  }, [address, isCurrentWallet, privateFetch])
 
   const fetchReadOnlySellerStatistics = useCallback(async () => {
+    if (!address) return false
+    const wallet = address.toLowerCase()
     const statistics = await fetchSellerStatisticsSnapshot()
-    if (!statistics) return false
+    if (!statistics || !isCurrentWallet(wallet)) return false
     try {
       const safeListings: ApiListing[] = statistics.listings.map(listing => ({
         ...listing,
@@ -301,69 +327,87 @@ function useDashboardWorkspaceState() {
       sellerSalesCount.current = statistics.total_calls
       return true
     } catch { return false }
-  }, [fetchSellerStatisticsSnapshot])
+  }, [address, fetchSellerStatisticsSnapshot, isCurrentWallet])
 
   const fetchSellerEarnings = useCallback(async () => {
+    if (!address) return false
+    const wallet = address.toLowerCase()
     const statistics = await fetchSellerStatisticsSnapshot()
-    if (!statistics) return false
+    if (!statistics || !isCurrentWallet(wallet)) return false
     setSellerEarnings(statistics)
     return true
-  }, [fetchSellerStatisticsSnapshot])
+  }, [address, fetchSellerStatisticsSnapshot, isCurrentWallet])
 
-  const clearPrivateData = useCallback(() => {
+  const clearPrivateData = useCallback((wallet?: string) => {
+    if (wallet && !isCurrentWallet(wallet)) return
     privateSnapshotLoadedRef.current = false
     myApisRef.current = readOnlyApisRef.current
     setMyApis(readOnlyApisRef.current)
     setSellCallGroups([])
     setCalls([])
-  }, [])
+  }, [isCurrentWallet])
 
   const fetchBuyerCalls = useCallback(async () => {
     if (!address) return false
+    const wallet = address.toLowerCase()
     try {
-      const response = await authorizedFetch(`/api/calls?buyer_wallet=${address.toLowerCase()}`, { cache: 'no-store' })
+      const response = await privateFetch(wallet, `/api/calls?buyer_wallet=${wallet}`)
       if (!response.ok) return false
       const data = await response.json() as { calls?: ApiCall[] }
-      if (currentAddress.current?.toLowerCase() !== address.toLowerCase()) return false
+      if (!isCurrentWallet(wallet)) return false
       setCalls(data.calls ?? [])
       return true
     } catch { return false }
-  }, [address, authorizedFetch])
+  }, [address, isCurrentWallet, privateFetch])
 
   const loadPrivateSnapshot = useCallback(async () => {
     if (!address) return false
+    const wallet = address.toLowerCase()
     const [callsResponse, buyerCallsLoaded, historyResponse] = await Promise.all([
-      authorizedFetch(`/api/seller/calls?seller_wallet=${address}`, { cache: 'no-store' }),
+      privateFetch(wallet, `/api/seller/calls?seller_wallet=${wallet}`),
       fetchBuyerCalls(),
-      authorizedFetch(`/api/gateway/balance?wallet=${address}&include_history=true`, { cache: 'no-store' }),
+      privateFetch(wallet, `/api/gateway/balance?wallet=${wallet}&include_history=true`),
     ])
+    if (!isCurrentWallet(wallet)) return false
     if (callsResponse.status === 401 || historyResponse.status === 401) {
-      clearPrivateData()
+      clearPrivateData(wallet)
       return false
     }
     if (callsResponse.ok) {
       const groups = (await callsResponse.json() as { groups: SellCallGroup[] }).groups
+      if (!isCurrentWallet(wallet)) return false
       setSellCallGroups(groups)
     }
-    if (historyResponse.ok) setGatewayStats(await historyResponse.json())
+    if (historyResponse.ok) {
+      const history = await historyResponse.json() as GatewayStats
+      if (!isCurrentWallet(wallet)) return false
+      setGatewayStats(history)
+    }
+    if (!isCurrentWallet(wallet)) return false
     privateSnapshotLoadedRef.current = true
     return callsResponse.ok && buyerCallsLoaded && historyResponse.ok
-  }, [address, authorizedFetch, clearPrivateData, fetchBuyerCalls])
+  }, [address, clearPrivateData, fetchBuyerCalls, isCurrentWallet, privateFetch])
 
   const refreshMarketplaceData = useCallback(() => {
     if (!address) return Promise.resolve()
-    if (marketplaceRefreshInFlight.current) return marketplaceRefreshInFlight.current
+    const wallet = address.toLowerCase()
+    const existing = marketplaceRefreshInFlight.current.get(wallet)
+    if (existing) return existing
     const request = Promise.all([
       fetchReadOnlySellerStatistics(),
       privateSnapshotLoadedRef.current ? loadPrivateSnapshot() : fetchBuyerCalls(),
-    ]).then(() => { marketplaceIsStale.current = false }).finally(() => { if (marketplaceRefreshInFlight.current === request) marketplaceRefreshInFlight.current = null })
-    marketplaceRefreshInFlight.current = request
+    ]).then(() => { if (isCurrentWallet(wallet)) marketplaceIsStale.current = false }).finally(() => {
+      if (marketplaceRefreshInFlight.current.get(wallet) === request) marketplaceRefreshInFlight.current.delete(wallet)
+    })
+    marketplaceRefreshInFlight.current.set(wallet, request)
     return request
-  }, [address, fetchBuyerCalls, fetchReadOnlySellerStatistics, loadPrivateSnapshot])
+  }, [address, fetchBuyerCalls, fetchReadOnlySellerStatistics, isCurrentWallet, loadPrivateSnapshot])
 
   const refreshBalanceData = useCallback(() => {
     if (!address) return Promise.resolve(true)
-    if (balanceRefreshInFlight.current) return balanceRefreshInFlight.current
+    const wallet = address.toLowerCase()
+    const existing = balanceRefreshInFlight.current.get(wallet)
+    if (existing) return existing
     const request = Promise.all([
       fetchGatewayStats(),
       refetchUsdcBalance(),
@@ -372,17 +416,18 @@ function useDashboardWorkspaceState() {
       refreshBridgeBalances(),
       solanaBalance.refresh(),
     ]).then(([gatewaySucceeded, walletResult, withdrawingResult, withdrawalBlockResult, bridgeSucceeded, solanaSucceeded]) => {
+      if (!isCurrentWallet(wallet)) return false
       const succeeded = gatewaySucceeded && walletResult.isSuccess && withdrawingResult.isSuccess
         && withdrawalBlockResult.isSuccess && bridgeSucceeded && solanaSucceeded
       balanceIsStale.current = !succeeded
       if (succeeded) setBalanceUpdatedAt(Date.now())
       return succeeded
     }).finally(() => {
-      if (balanceRefreshInFlight.current === request) balanceRefreshInFlight.current = null
+      if (balanceRefreshInFlight.current.get(wallet) === request) balanceRefreshInFlight.current.delete(wallet)
     })
-    balanceRefreshInFlight.current = request
+    balanceRefreshInFlight.current.set(wallet, request)
     return request
-  }, [address, fetchGatewayStats, refetchUsdcBalance, refetchWithdrawing, refetchWithdrawalBlock, refreshBridgeBalances, solanaBalance.refresh])
+  }, [address, fetchGatewayStats, isCurrentWallet, refetchUsdcBalance, refetchWithdrawing, refetchWithdrawalBlock, refreshBridgeBalances, solanaBalance.refresh])
 
   const fetchLiveData = useCallback(async () => {
     await Promise.all([refreshMarketplaceData(), refreshBalanceData()])
@@ -425,8 +470,15 @@ function useDashboardWorkspaceState() {
   useEffect(() => () => targetedRefreshScheduler.current?.cancel(), [address])
 
   useEffect(() => {
-    if (address && initialLoadAddress.current === address.toLowerCase()) return
-    initialLoadAddress.current = address?.toLowerCase() ?? null
+    const wallet = address?.toLowerCase() ?? null
+    if (wallet && initialLoadAddress.current === wallet) return
+    initialLoadAddress.current = wallet
+    for (const [requestWallet, controllers] of privateRequestControllers.current) {
+      if (requestWallet !== wallet) {
+        for (const controller of controllers) controller.abort()
+        privateRequestControllers.current.delete(requestWallet)
+      }
+    }
     initialAggregateRefreshStarted.current = false
     myApisRef.current = []
     readOnlyApisRef.current = []
@@ -434,13 +486,39 @@ function useDashboardWorkspaceState() {
     setCalls([])
     setSellerEarnings(null)
     setSellCallGroups([])
+    setGatewayStats(null)
+    setGatewayUnavailable(false)
+    setBalanceUpdatedAt(null)
+    sellerSalesCount.current = null
     privateSnapshotLoadedRef.current = false
     setViewApiResponse(null)
     setViewApiModal(null)
-    if (!address) return
+    setViewApiLoading(false)
+    setEarningsWithdrawAmount('')
+    setEarningsWithdrawError(null)
+    setEarningsWithdrawResult(null)
+    setPendingWithdrawalRecovery(null)
+    setWithdrawalRecoveryMessage(null)
+    setEarningsWithdrawStep('idle')
+    setDepositAmount('')
+    setDepositError(null)
+    setDepositStep('idle')
+    setWithdrawAmount('')
+    setWithdrawError(null)
+    setWithdrawStep('idle')
+    setInitiateError(null)
+    setInitiateStep('idle')
+    setReleaseError(null)
+    setReleaseStep('idle')
+    setWithdrawFlatFee(null)
+    setApiActionError(null)
+    setEditingApi(null)
+    setShowEditModal(false)
+    setDeletingApiId(null)
+    if (!wallet) { setLoading(false); return }
     setLoading(true)
-    void fetchLiveData().catch(() => {}).finally(() => setLoading(false))
-  }, [address, fetchLiveData])
+    void fetchLiveData().catch(() => {}).finally(() => { if (isCurrentWallet(wallet)) setLoading(false) })
+  }, [address, fetchLiveData, isCurrentWallet])
 
   useVisibilityRefresh(refreshMarketplaceData, !!address)
   useVisibilityRefresh(refreshBalanceData, !!address && preferences.autoRefreshBalances)
@@ -452,10 +530,13 @@ function useDashboardWorkspaceState() {
   }, [address, balanceUpdatedAt, bridgeBalances, refreshBalanceData])
 
   async function beginEditApi(apiId: string) {
+    if (!address) return
+    const wallet = address.toLowerCase()
     setApiActionError(null)
     try {
-      const response = await authorizedFetch(`/api/apis/${encodeURIComponent(apiId)}`)
+      const response = await privateFetch(wallet, `/api/apis/${encodeURIComponent(apiId)}`)
       const payload = await response.json().catch(() => ({})) as { api?: ApiListing; error?: string }
+      if (!isCurrentWallet(wallet)) return
       if (!response.ok || !payload.api) throw new Error(payload.error ?? 'The listing could not be loaded for editing.')
       const api = payload.api
       setEditingApi(api)
@@ -470,6 +551,7 @@ function useDashboardWorkspaceState() {
       })
       setShowEditModal(true)
     } catch (error) {
+      if (!isCurrentWallet(wallet)) return
       setApiActionError(error instanceof Error ? error.message : 'The listing could not be loaded for editing.')
     }
   }
@@ -507,6 +589,7 @@ function useDashboardWorkspaceState() {
 
   async function handleDeposit() {
     if (!address || !depositAmount || !publicClient) return
+    const wallet = address.toLowerCase()
     setDepositStep('approving')
     setDepositError(null)
     try {
@@ -528,17 +611,20 @@ function useDashboardWorkspaceState() {
         amount, token: 'USDC', allowanceStrategy: 'approve',
       })
 
+      if (!isCurrentWallet(wallet)) return
       setDepositAmount('')
       scheduleWalletRefresh({ kind: 'gatewayDeposit' })
     } catch (err: unknown) {
+      if (!isCurrentWallet(wallet)) return
       setDepositError(err instanceof Error ? err.message : String(err))
     } finally {
-      setDepositStep('idle')
+      if (isCurrentWallet(wallet)) setDepositStep('idle')
     }
   }
 
   async function handleWithdraw() {
     if (!address || !withdrawAmount || !connector) return
+    const wallet = address.toLowerCase()
     setWithdrawStep('withdrawing')
     setWithdrawError(null)
     try {
@@ -571,12 +657,14 @@ function useDashboardWorkspaceState() {
         amount: amt.toFixed(6),
       })
 
+      if (!isCurrentWallet(wallet)) return
       setWithdrawAmount('')
       if (preferencesRef.current.notifications.withdrawalCompleted) {
         sendLocalNotification('Withdrawal completed', `${amt.toFixed(6)} USDC was sent to your Arc wallet.`)
       }
       scheduleWalletRefresh({ kind: 'gatewayWithdrawal' })
     } catch (err: unknown) {
+      if (!isCurrentWallet(wallet)) return
       const msg = err instanceof Error ? err.message : String(err)
       setWithdrawError(
         /signature|signer|isvalidsignature|1271/i.test(msg)
@@ -584,12 +672,13 @@ function useDashboardWorkspaceState() {
           : msg,
       )
     } finally {
-      setWithdrawStep('idle')
+      if (isCurrentWallet(wallet)) setWithdrawStep('idle')
     }
   }
 
   async function handleInitiateWithdraw() {
     if (!address || !withdrawAmount || !publicClient) return
+    const wallet = address.toLowerCase()
     setInitiateStep('initiating')
     setInitiateError(null)
     try {
@@ -606,17 +695,20 @@ function useDashboardWorkspaceState() {
       })
       await publicClient.waitForTransactionReceipt({ hash })
 
+      if (!isCurrentWallet(wallet)) return
       setWithdrawAmount('')
       scheduleWalletRefresh({ kind: 'trustlessWithdrawalInitiated' })
     } catch (err: unknown) {
+      if (!isCurrentWallet(wallet)) return
       setInitiateError(err instanceof Error ? err.message : String(err))
     } finally {
-      setInitiateStep('idle')
+      if (isCurrentWallet(wallet)) setInitiateStep('idle')
     }
   }
 
   async function handleReleasePending() {
     if (!address || !publicClient) return
+    const wallet = address.toLowerCase()
     setReleaseStep('releasing')
     setReleaseError(null)
     try {
@@ -628,18 +720,22 @@ function useDashboardWorkspaceState() {
         chainId: ARC_CHAIN_ID,
       })
       await publicClient.waitForTransactionReceipt({ hash })
+      if (!isCurrentWallet(wallet)) return
       scheduleWalletRefresh({ kind: 'trustlessWithdrawalReleased' })
     } catch (err: unknown) {
+      if (!isCurrentWallet(wallet)) return
       setReleaseError(err instanceof Error ? err.message : String(err))
     } finally {
-      setReleaseStep('idle')
+      if (isCurrentWallet(wallet)) setReleaseStep('idle')
     }
   }
 
   async function handleWithdrawEarnings() {
     if (!address || !earningsWithdrawAmount) return
+    const wallet = address.toLowerCase()
     setEarningsWithdrawError(null)
     setEarningsWithdrawResult(null)
+    setWithdrawalRecoveryMessage(null)
     setEarningsWithdrawStep('withdrawing')
     try {
       const amt = parseFloat(earningsWithdrawAmount)
@@ -672,7 +768,17 @@ function useDashboardWorkspaceState() {
           status?: string
           error?: string
       }
+      if (!isCurrentWallet(wallet)) return
+      if (body.withdrawal_id && ['submission_unknown', 'mint_unknown', 'pending_mint'].includes(body.status ?? '')) {
+        setPendingWithdrawalRecovery({ id: body.withdrawal_id, status: body.status! })
+        setEarningsWithdrawAmount('')
+        setWithdrawalRecoveryMessage('Withdrawal is still being confirmed. Your reserved balance is safely recorded and cannot be withdrawn twice.')
+        markMarketplaceStale()
+        scheduleWalletRefresh({ kind: 'sellerWithdrawal' })
+        return
+      }
       if (!res.ok || body.status !== 'minted') throw new Error(body.error ?? `Withdrawal failed (status: ${body.status ?? 'unknown'})`)
+      setPendingWithdrawalRecovery(null)
       setEarningsWithdrawAmount('')
       setEarningsWithdrawResult({
           net: body.net_amount_usdc ?? 0,
@@ -683,18 +789,64 @@ function useDashboardWorkspaceState() {
       markMarketplaceStale()
       scheduleWalletRefresh({ kind: 'sellerWithdrawal' })
     } catch (err: unknown) {
+      if (!isCurrentWallet(wallet)) return
       setEarningsWithdrawError(err instanceof Error ? err.message : String(err))
     } finally {
-      setEarningsWithdrawStep('idle')
+      if (isCurrentWallet(wallet)) setEarningsWithdrawStep('idle')
+    }
+  }
+
+  async function handleCheckWithdrawalStatus(withdrawalId?: string) {
+    if (!address) return
+    const id = withdrawalId ?? pendingWithdrawalRecovery?.id
+    if (!id || earningsWithdrawStep !== 'idle') return
+    const wallet = address.toLowerCase()
+    setEarningsWithdrawStep('checking')
+    setEarningsWithdrawError(null)
+    setWithdrawalRecoveryMessage('Checking the safely reserved withdrawal status…')
+    try {
+      const timestamp = new Date().toISOString()
+      const nonce = crypto.randomUUID()
+      const message = buildConfirmMessage({ sellerWallet: address, withdrawalId: id, timestamp, nonce })
+      const signature = await signMessageAsync({ message })
+      const response = await authorizedFetch('/api/seller/withdraw/confirm', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ withdrawal_id: id, seller_wallet: address, timestamp, nonce, signature }),
+      })
+      const body = await response.json().catch(() => ({})) as { status?: string; mint_tx_hash?: string; error?: string }
+      if (!isCurrentWallet(wallet)) return
+      if (body.status === 'minted') {
+        setPendingWithdrawalRecovery(null)
+        setWithdrawalRecoveryMessage('Withdrawal confirmed. The reserved balance was completed exactly once.')
+        markMarketplaceStale()
+        scheduleWalletRefresh({ kind: 'sellerWithdrawal' })
+        return
+      }
+      if (['submission_unknown', 'mint_unknown', 'pending_mint'].includes(body.status ?? '')) {
+        setPendingWithdrawalRecovery({ id, status: body.status! })
+        setWithdrawalRecoveryMessage('Withdrawal is still being confirmed. Your reserved balance is safely recorded and cannot be withdrawn twice.')
+        return
+      }
+      setPendingWithdrawalRecovery(null)
+      throw new Error(body.error ?? 'Withdrawal status could not be confirmed.')
+    } catch (error) {
+      if (!isCurrentWallet(wallet)) return
+      setEarningsWithdrawError(error instanceof Error ? error.message : 'Withdrawal status could not be confirmed.')
+    } finally {
+      if (isCurrentWallet(wallet)) setEarningsWithdrawStep('idle')
     }
   }
 
   async function handleEditSave() {
     if (!editingApi || !address) return
+    const wallet = address.toLowerCase()
     setApiActionError(null)
     const nextAuthParamName = editForm.auth_type === 'queryparam' ? editForm.auth_param_name : editingApi.auth_param_name
     try {
-      const res = await authorizedFetch(`/api/apis/${editingApi.id}`, {
+      const sensitiveChanged = editingApi.endpoint_url !== editForm.endpoint_url
+        || editingApi.auth_type !== editForm.auth_type
+        || (editingApi.auth_param_name ?? '') !== (editForm.auth_type === 'queryparam' ? editForm.auth_param_name : (editingApi.auth_param_name ?? ''))
+      const res = await (sensitiveChanged ? sensitiveRequest : authorizedFetch)(`/api/apis/${editingApi.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -708,6 +860,7 @@ function useDashboardWorkspaceState() {
           price_per_call: parseFloat(editForm.price_per_call),
         }),
       })
+      if (!isCurrentWallet(wallet)) return
       if (res.ok) {
         setMyApis(prev => prev.map(a => a.id === editingApi.id ? {
           ...a,
@@ -724,15 +877,18 @@ function useDashboardWorkspaceState() {
         setEditingApi(null)
       } else {
         const body = await res.json().catch(() => ({})) as { error?: string }
+        if (!isCurrentWallet(wallet)) return
         setApiActionError(body.error ?? 'Failed to save changes')
       }
     } catch (err: unknown) {
+      if (!isCurrentWallet(wallet)) return
       setApiActionError(err instanceof Error ? err.message : 'Failed to save changes')
     }
   }
 
   async function handleDeleteConfirm() {
     if (!deletingApiId || deleteConfirmText !== 'DELETE' || !address) return
+    const wallet = address.toLowerCase()
     setApiActionError(null)
     try {
       const res = await authorizedFetch(`/api/apis/${deletingApiId}`, {
@@ -740,50 +896,59 @@ function useDashboardWorkspaceState() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ seller_wallet: address }),
       })
+      if (!isCurrentWallet(wallet)) return
       if (res.ok) {
         setMyApis(prev => prev.filter(a => a.id !== deletingApiId))
         setDeletingApiId(null)
         setDeleteConfirmText('')
       } else {
         const body = await res.json().catch(() => ({})) as { error?: string }
+        if (!isCurrentWallet(wallet)) return
         setApiActionError(body.error ?? 'Failed to delete API')
       }
     } catch (err: unknown) {
+      if (!isCurrentWallet(wallet)) return
       setApiActionError(err instanceof Error ? err.message : 'Failed to delete API')
     }
   }
 
   async function toggleActive(apiId: string, currentStatus: boolean) {
     if (!address) return
+    const wallet = address.toLowerCase()
     try {
       if (!currentStatus && !myApis.find(api => api.id === apiId)?.verified_at) {
         const verification = await authorizedFetch(`/api/apis/${apiId}/verify`, { method: 'POST' })
         const result = await verification.json()
+        if (!isCurrentWallet(wallet)) return
         if (!verification.ok || !result.success) { setApiActionError(result.error ?? 'Endpoint verification failed'); return }
+        if (typeof result.response_size_warning === 'string') setApiActionError(result.response_size_warning)
       }
       const res = await authorizedFetch(`/api/apis/${apiId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ seller_wallet: address, is_active: !currentStatus }),
       })
+      if (!isCurrentWallet(wallet)) return
       if (res.ok) {
         setMyApis(prev => prev.map(a => a.id === apiId ? { ...a, is_active: !currentStatus } : a))
       }
     } catch {
+      if (!isCurrentWallet(wallet)) return
       setApiActionError('Unable to update listing activation')
     }
   }
 
   async function handleViewApi(apiId: string, apiName: string, method: string) {
+    if (!address) return
+    const wallet = address.toLowerCase()
     setViewApiModal({ apiId, apiName, method })
     setViewApiResponse(null)
     setViewApiLoading(true)
     try {
-      if (!address) return
       const result = await readPurchasedResponse({ wallet: address, apiId, authorize: authorizedFetch })
-      if (result.ok) setViewApiResponse(result.data.response_body)
+      if (result.ok && isCurrentWallet(wallet)) setViewApiResponse(result.data.response_body)
     } finally {
-      setViewApiLoading(false)
+      if (isCurrentWallet(wallet)) setViewApiLoading(false)
     }
   }
 
@@ -825,6 +990,8 @@ function useDashboardWorkspaceState() {
     earningsWithdrawStep,
     earningsWithdrawError,
     earningsWithdrawResult,
+    pendingWithdrawalRecovery,
+    withdrawalRecoveryMessage,
     sellCallGroups,
     walletUsdcRaw,
     balanceUpdatedAt,
@@ -833,12 +1000,14 @@ function useDashboardWorkspaceState() {
     currentBlock,
     callGroups,
     fetchLiveData,
+    loadPrivateSnapshot,
     scheduleWalletRefresh,
     handleDeposit,
     handleWithdraw,
     handleInitiateWithdraw,
     handleReleasePending,
     handleWithdrawEarnings,
+    handleCheckWithdrawalStatus,
     detailsApi,
     setDetailsApi,
     detailsSellApi,

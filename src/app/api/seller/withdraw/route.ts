@@ -9,11 +9,13 @@ import { randomBytes } from 'node:crypto'
 import { arcPrivateMainnetHeaders } from '@circle-fin/x402-batching/client'
 import { createServiceClient } from '@/lib/supabase/server'
 import { isValidWalletAddress } from '@/lib/wallet-validation'
-import { marketplaceErrors } from '@/lib/marketplace/server'
+import { withWalletSession } from '@/lib/marketplace/server'
+import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
 import { ARC, GATEWAY_MINTER_ABI } from '@/lib/arc'
 import { PLATFORM_PRIVATE_KEY } from '@/lib/gateway'
 import { arcMainnet } from '@/lib/chains'
 import { buildWithdrawMessage, WITHDRAW_TIMESTAMP_WINDOW_SECONDS } from '@/lib/withdraw-auth-message'
+import { classifyGatewayTransferResponse } from '@/lib/withdrawal-outcome'
 
 export const runtime = 'nodejs'
 
@@ -75,7 +77,12 @@ const MIN_WITHDRAW_USDC = 1
 
 const WITHDRAW_COOLDOWN_SECONDS = 60
 
-export const POST = marketplaceErrors(async (request: NextRequest) => {
+function errorText(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.slice(0, 2048)
+}
+
+export const POST = withWalletSession(async (request: NextRequest, sessionWallet: string) => {
   const body = (await request.json().catch(() => ({}))) as {
     seller_wallet?: string
     amount_usdc?: number | string
@@ -88,6 +95,7 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
   if (!sellerWallet || !isValidWalletAddress(sellerWallet)) {
     return NextResponse.json({ error: 'Invalid seller_wallet' }, { status: 400 })
   }
+  assertWalletClaim(sellerWallet, sessionWallet)
   const requestedAmount = Number(body.amount_usdc)
   if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
     return NextResponse.json({ error: 'Invalid amount_usdc' }, { status: 400 })
@@ -164,9 +172,15 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
   if (!reservedRow?.id) return NextResponse.json({ error: 'Withdrawal reservation unavailable' }, { status: 503 })
   const withdrawalId = reservedRow.id
 
-  const expireReservation = async () => {
-    await supabase.from('seller_withdrawals').update({ status: 'expired' })
-      .eq('id', withdrawalId).eq('status', 'pending_mint')
+  const transitionReservation = async (from: string[], values: Record<string, unknown>) => {
+    const { data, error } = await supabase.from('seller_withdrawals').update(values)
+      .eq('id', withdrawalId).in('status', from).select('id').maybeSingle()
+    return !error && !!data
+  }
+  const expireReservation = async (from: string[], reason: string) => {
+    const released = await transitionReservation(from, { status: 'expired', last_error: reason.slice(0, 2048) })
+    if (!released) console.error(`[withdraw-release-failed] withdrawal=${withdrawalId} reason=${reason}`)
+    return released
   }
 
   const chain = arcMainnet
@@ -198,7 +212,7 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
   let gasPrice: bigint
   try { gasPrice = await publicClient.getGasPrice() }
   catch {
-    await expireReservation()
+    await expireReservation(['pending_mint'], 'Arc RPC unavailable before Gateway submission')
     return NextResponse.json({ error: 'Arc RPC is unavailable for fee estimation.' }, { status: 503 })
   }
   const rawGasCost = (gasUsedEstimate * gasPrice * GAS_BUFFER_PERCENT) / BigInt(100)
@@ -206,7 +220,7 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
 
   const requestedAtomic = parseUnits(requestedAmount.toFixed(6), 6)
   if (gasCostAtomic >= requestedAtomic) {
-    await expireReservation()
+    await expireReservation(['pending_mint'], 'Requested amount below estimated gas cost before Gateway submission')
     return NextResponse.json(
       { error: `Requested amount ${formatUnits(requestedAtomic, 6)} USDC is below estimated gas cost ${formatUnits(gasCostAtomic, 6)} USDC. Nothing to send.` },
       { status: 400 },
@@ -233,7 +247,7 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
     })
     if (!balanceRes.ok) {
       await balanceRes.body?.cancel().catch(() => undefined)
-      await expireReservation()
+      await expireReservation(['pending_mint'], `Gateway balance pre-check rejected with HTTP ${balanceRes.status}`)
       return NextResponse.json({ error: 'Gateway balance service unavailable.' }, { status: 502 })
     }
     const balanceData = await balanceRes.json().catch(() => null) as {
@@ -242,19 +256,19 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
     } | null
     const availableStr = balanceData?.balances?.[0]?.balance
     if (typeof availableStr !== 'string' || !/^(?:0|[1-9]\d*)(?:\.\d{1,6})?$/.test(availableStr)) {
-      await expireReservation()
+      await expireReservation(['pending_mint'], 'Gateway balance pre-check returned invalid data')
       return NextResponse.json({ error: 'Gateway balance response was invalid.' }, { status: 502 })
     }
     const availableAtomic = parseUnits(availableStr, 6)
     if (availableAtomic < netAtomic) {
-      await expireReservation()
+      await expireReservation(['pending_mint'], 'Gateway balance pre-check proved insufficient funds')
       return NextResponse.json(
         { error: 'Settlement is still pending, please try again in a few minutes.' },
         { status: 409 },
       )
     }
   } catch {
-    await expireReservation()
+    await expireReservation(['pending_mint'], 'Gateway balance pre-check failed before transfer submission')
     return NextResponse.json({ error: 'Gateway balance service unavailable.' }, { status: 503 })
   }
 
@@ -300,7 +314,7 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
     .select('id')
     .single()
   if (prepareError || !prepared) {
-    await expireReservation()
+    await expireReservation(['pending_mint'], 'Failed to finalize reservation before Gateway submission')
     return NextResponse.json({ error: 'Failed to finalize withdrawal reservation' }, { status: 500 })
   }
 
@@ -314,19 +328,25 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
       message: burnIntent,
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    await expireReservation()
+    const message = errorText(err)
+    await expireReservation(['pending_mint'], `Burn intent signing failed before Gateway submission: ${message}`)
     return NextResponse.json({ error: `Failed to sign burn intent: ${message}` }, { status: 500 })
   }
 
   // ── POST /v1/transfer for attestation ────────────────────────────────────
-  let gatewayResult: {
-    attestation?: string
-    signature?: string
-    success?: boolean
-    error?: string
-    message?: string
-  } = {}
+  // Persist the point-of-no-safe-retry before dispatch. A crash, timeout, or
+  // lost response from this point forward leaves earnings locked for explicit
+  // status reconciliation; the transfer is never blindly POSTed again.
+  const submissionMarked = await transitionReservation(['pending_mint'], {
+    status: 'submission_unknown',
+    gateway_submitted_at: new Date().toISOString(),
+    last_error: 'Gateway transfer submission started; outcome not yet known',
+  })
+  if (!submissionMarked) {
+    return NextResponse.json({ error: 'Could not durably mark Gateway submission' }, { status: 503 })
+  }
+
+  let gatewayAccepted: { attestation: `0x${string}`; signature: `0x${string}`; transferId: string | null } | null = null
   try {
     const gatewayRes = await fetch(`${ARC.gatewayApi}/transfer`, {
       method: 'POST',
@@ -337,64 +357,80 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
       body: JSON.stringify([{ burnIntent, signature: burnSignature }], bigintReplacer),
       signal: AbortSignal.timeout(10_000),
     })
-    gatewayResult = await gatewayRes.json().catch(() => ({})) as typeof gatewayResult
-    if (
-      !gatewayRes.ok ||
-      gatewayResult.success === false ||
-      gatewayResult.error ||
-      !gatewayResult.attestation ||
-      !gatewayResult.signature
-    ) {
-      // Clean rejection: Circle definitively refused — safe to expire the row.
-      await expireReservation()
-      const detail = gatewayResult.message ?? gatewayResult.error ?? JSON.stringify(gatewayResult)
-      return NextResponse.json({ error: `Gateway API error: ${detail}` }, { status: 502 })
+    const gatewayBody = await gatewayRes.json().catch(() => null)
+    const outcome = classifyGatewayTransferResponse(gatewayRes.status, gatewayBody)
+    if (outcome.kind === 'rejected') {
+      const released = await expireReservation(['submission_unknown'], `Gateway definitively rejected transfer: ${outcome.detail}`)
+      return NextResponse.json({
+        error: released ? `Gateway rejected transfer: ${outcome.detail}` : 'Gateway rejection could not be durably recorded',
+        status: released ? 'expired' : 'submission_unknown',
+      }, { status: released ? 502 : 503 })
     }
+    if (outcome.kind === 'unknown') {
+      await transitionReservation(['submission_unknown'], {
+        gateway_transfer_id: outcome.transferId,
+        last_error: outcome.detail,
+      })
+      console.error(`[withdraw-circle-unknown] withdrawal=${withdrawalId} error=${outcome.detail}`)
+      return NextResponse.json({
+        withdrawal_id: withdrawalId,
+        status: 'submission_unknown',
+        error: 'Gateway transfer outcome is unknown; the reservation remains locked for reconciliation.',
+      }, { status: 502 })
+    }
+    gatewayAccepted = outcome
   } catch (err) {
-    // Ambiguous network error: Circle may have processed the request already.
-    // Mark failed (balance stays frozen) so ops can reconcile rather than
-    // silently double-spending on a retry.
-    const message = err instanceof Error ? err.message : String(err)
-    await supabase
-      .from('seller_withdrawals')
-      .update({ status: 'failed' })
-      .eq('id', withdrawalId)
-      .eq('status', 'pending_mint')
+    const message = errorText(err)
+    await transitionReservation(['submission_unknown'], { last_error: `Gateway network outcome unknown: ${message}` })
     console.error(`[withdraw-circle-network-error] withdrawal=${withdrawalId} error=${message}`)
-    return NextResponse.json({ error: `Gateway network error: ${message}` }, { status: 502 })
+    return NextResponse.json({
+      withdrawal_id: withdrawalId,
+      status: 'submission_unknown',
+      error: 'Gateway transfer outcome is unknown; the reservation remains locked for reconciliation.',
+    }, { status: 502 })
   }
 
   // ── Persist attestation so confirm/route.ts can recover a later crash ────
-  const { error: attErr } = await supabase
-    .from('seller_withdrawals')
-    .update({
-      attestation: gatewayResult.attestation,
-      attestation_signature: gatewayResult.signature,
-    })
-    .eq('id', withdrawalId)
-    .eq('status', 'pending_mint')
-  if (attErr) {
+  if (!gatewayAccepted) {
+    return NextResponse.json({ error: 'Gateway transfer outcome was not accepted' }, { status: 502 })
+  }
+  const attestationStored = await transitionReservation(['submission_unknown'], {
+    status: 'pending_mint',
+    attestation: gatewayAccepted.attestation,
+    attestation_signature: gatewayAccepted.signature,
+    gateway_transfer_id: gatewayAccepted.transferId,
+    last_error: null,
+  })
+  if (!attestationStored) {
     console.error(
-      `[withdraw-orphan] withdrawal=${withdrawalId} seller=${sellerWallet.toLowerCase()} db_error=${attErr.message}`,
+      `[withdraw-orphan] withdrawal=${withdrawalId} seller=${sellerWallet.toLowerCase()} attestation_not_persisted`,
     )
     return NextResponse.json(
-      { error: `Failed to store attestation: ${attErr.message}` },
+      { error: 'Failed to store Gateway attestation; reservation remains locked for reconciliation' },
       { status: 500 },
     )
   }
 
   // ── Submit gatewayMint from platform wallet ──────────────────────────────
   const walletClient = createWalletClient({ account, chain, transport: rpcTransport })
+  const mintSubmissionMarked = await transitionReservation(['pending_mint'], {
+    status: 'mint_unknown',
+    last_error: 'Arc mint submission started; transaction hash not yet known',
+  })
+  if (!mintSubmissionMarked) {
+    return NextResponse.json({ error: 'Could not durably mark mint submission' }, { status: 503 })
+  }
   let mintTxHash: Hex
   try {
     mintTxHash = await walletClient.writeContract({
       address: ARC.gatewayMinter,
       abi: GATEWAY_MINTER_ABI,
       functionName: 'gatewayMint',
-      args: [gatewayResult.attestation as Hex, gatewayResult.signature as Hex],
+      args: [gatewayAccepted.attestation, gatewayAccepted.signature],
     })
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = errorText(err)
+    await transitionReservation(['mint_unknown'], { last_error: `Arc mint submission outcome unknown: ${message}` })
     console.error(`[withdraw-mint-submit-failed] withdrawal=${withdrawalId} error=${message}`)
     return NextResponse.json(
       {
@@ -402,11 +438,22 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
         requested_amount_usdc: requestedNum,
         net_amount_usdc: netNum,
         gas_cost_usdc: gasNum,
-        status: 'pending_mint',
-        error: `Mint submission failed: ${message}. Row remains pending_mint; retry via /api/seller/withdraw/confirm.`,
+        status: 'mint_unknown',
+        error: 'Mint submission outcome is unknown; automatic resubmission is disabled.',
       },
       { status: 500 },
     )
+  }
+
+  const mintHashStored = await transitionReservation(['mint_unknown'], {
+    status: 'pending_mint', mint_tx_hash: mintTxHash, last_error: null,
+  })
+  if (!mintHashStored) {
+    console.error(`[withdraw-mint-hash-store-failed] withdrawal=${withdrawalId} tx=${mintTxHash}`)
+    return NextResponse.json({
+      withdrawal_id: withdrawalId, mint_tx_hash: mintTxHash, status: 'mint_unknown',
+      error: 'Mint transaction was submitted but its hash could not be durably stored.',
+    }, { status: 500 })
   }
 
   // ── Wait for receipt, update status ──────────────────────────────────────
@@ -418,7 +465,8 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
     })
     mintStatus = receipt.status === 'success' ? 'minted' : 'failed'
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = errorText(err)
+    await transitionReservation(['pending_mint'], { last_error: `Receipt poll failed: ${message}` })
     console.error(`[withdraw-receipt-poll-failed] withdrawal=${withdrawalId} tx=${mintTxHash} error=${message}`)
     return NextResponse.json(
       {
@@ -434,17 +482,14 @@ export const POST = marketplaceErrors(async (request: NextRequest) => {
     )
   }
 
-  const { error: updErr } = await supabase
-    .from('seller_withdrawals')
-    .update({
-      status: mintStatus,
-      mint_tx_hash: mintTxHash,
-      minted_at: mintStatus === 'minted' ? new Date().toISOString() : null,
-    })
-    .eq('id', withdrawalId)
-    .eq('status', 'pending_mint')
-  if (updErr) {
-    console.error(`[withdraw-status-update-failed] withdrawal=${withdrawalId} tx=${mintTxHash} status=${mintStatus} error=${updErr.message}`)
+  const finalized = await transitionReservation(['pending_mint'], {
+    status: mintStatus,
+    mint_tx_hash: mintTxHash,
+    minted_at: mintStatus === 'minted' ? new Date().toISOString() : null,
+    last_error: mintStatus === 'failed' ? 'Mint transaction reverted on-chain' : null,
+  })
+  if (!finalized) {
+    console.error(`[withdraw-status-update-failed] withdrawal=${withdrawalId} tx=${mintTxHash} status=${mintStatus}`)
     // Fall through — the mint is on-chain, ops can reconcile the row.
   }
 

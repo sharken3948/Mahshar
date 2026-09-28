@@ -2,15 +2,25 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { validateEndpointUrl } from '@/lib/url-validation'
 import { encryptKey } from '@/lib/crypto'
-import { withOperationAuthorization, requireListingOwner } from '@/lib/marketplace/server'
-import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
+import { withWalletSession, requireListingOwner, requireOperationAuthorizationForPayload } from '@/lib/marketplace/server'
+import { assertWalletClaim, OPERATION_AUTH_HEADER } from '@/lib/marketplace/operation-authorization'
 import { credentialProxyAllowed, SENSITIVE_CONFIGURATION, matchListingConfiguration, normalizeExpectedStatusCodes, expectedCodesEqual } from '@/lib/marketplace/listing-security'
 import { listingContractMetadata } from '@/lib/marketplace/listing-contract-metadata'
 
 export const runtime = 'nodejs'
 type Context = { params: Promise<{ id: string }> }
 
-export const GET = withOperationAuthorization(async (_request: NextRequest, wallet: string, { params }: Context) => {
+function sameConfiguration(left: unknown, right: unknown) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
+}
+
+function sensitivePatchChanged(body: Record<string, unknown>, patch: Record<string, unknown>, listing: Record<string, unknown>) {
+  if (body.auth_key !== undefined) return true
+  return SENSITIVE_CONFIGURATION.some(key => key !== 'encrypted_key' && patch[key] !== undefined
+    && !sameConfiguration(patch[key], listing[key]))
+}
+
+export const GET = withWalletSession(async (_request: NextRequest, wallet: string, { params }: Context) => {
   const { id } = await params
   const listing = await requireListingOwner(createServiceClient(), id, wallet)
   return NextResponse.json({
@@ -44,11 +54,11 @@ export const GET = withOperationAuthorization(async (_request: NextRequest, wall
   })
 })
 
-export const PATCH = withOperationAuthorization(async (request: NextRequest, wallet: string, { params }: Context) => {
+export const PATCH = withWalletSession(async (request: NextRequest, wallet: string, { params }: Context) => {
   const { id } = await params
   const db = createServiceClient()
   const listing = await requireListingOwner(db, id, wallet)
-  const body = await request.json()
+  const body = await request.json() as Record<string, unknown>
   assertWalletClaim(body.seller_wallet, wallet)
   const patch: Record<string, unknown> = {}
   for (const key of ['name', 'category', 'description', 'endpoint_url', 'auth_type', 'auth_param_name', 'method', 'example_request', 'example_response']) {
@@ -89,6 +99,10 @@ export const PATCH = withOperationAuthorization(async (request: NextRequest, wal
   const contractResult = listingContractMetadata(body, String(patch.method ?? listing.method ?? 'GET').toUpperCase())
   if (!contractResult.ok) return NextResponse.json({ error: contractResult.error }, { status: 400 })
   Object.assign(patch, contractResult.patch)
+  if (sensitivePatchChanged(body, patch, listing) || request.headers.has(OPERATION_AUTH_HEADER)) {
+    const operationWallet = await requireOperationAuthorizationForPayload(request, body)
+    assertWalletClaim(operationWallet, wallet)
+  }
   if (SENSITIVE_CONFIGURATION.some(key => patch[key] !== undefined && patch[key] !== listing[key])) {
     patch.verified_at = null
     patch.is_active = false
@@ -109,7 +123,7 @@ export const PATCH = withOperationAuthorization(async (request: NextRequest, wal
   return NextResponse.json({ success: true })
 })
 
-export const DELETE = withOperationAuthorization(async (request: NextRequest, wallet: string, { params }: Context) => {
+export const DELETE = withWalletSession(async (request: NextRequest, wallet: string, { params }: Context) => {
   const { id } = await params
   const db = createServiceClient()
   await requireListingOwner(db, id, wallet)

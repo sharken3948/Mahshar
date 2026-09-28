@@ -64,12 +64,12 @@ Never create a new authorization merely because delivery did not succeed.
 Persist `purchase_access_token` scoped by normalized wallet and API ID. Retrieve
 the private response for that exact purchase from
 `GET /api/calls/last-response?api_id=...&buyer_wallet=...` with
-`x-mahshar-purchase-access`. A legacy purchase without a capability may send one
-operation-specific `x-mahshar-authorization` wallet proof once; ownership is
-checked against the purchase row before issuing the capability.
+`x-mahshar-purchase-access`. A browser with a valid owner wallet session may
+exchange a legacy purchase without a capability; ownership is checked against
+the purchase row before issuing the capability.
 
-`POST /api/payments/reconcile` requires that one-use wallet authorization and an
-exact `{ "attemptId": "..." }` body. It can finish durable accounting only. It
+`POST /api/payments/reconcile` requires the payer's wallet session and an exact
+`{ "attemptId": "..." }` body. It can finish durable accounting only. It
 does not settle again, refund, or execute upstream.
 
 ## Limits and errors

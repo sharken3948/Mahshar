@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test, beforeEach } from 'node:test'
 import { NextRequest } from 'next/server'
-import { alice, bob, operationHeaders, reset, state, origin } from '../../tests/marketplace/fixtures'
+import { alice, bob, sessionHeaders, reset, state, origin } from '../../tests/marketplace/fixtures'
 import { boundary } from '../../tests/admin/fixture'
 import * as scan from '../app/api/discovery/scan/route'
 import * as listings from '../app/api/discovery/listings/route'
@@ -14,7 +14,7 @@ function unsigned(path: string, method = 'GET', body?: unknown, headers: Record<
   return new NextRequest(origin + path, { method, headers, ...(body !== undefined && { body: JSON.stringify(body) }) })
 }
 async function request(path: string, method = 'GET', body?: unknown, account = alice) {
-  return unsigned(path, method, body, await operationHeaders(path, method, body, account))
+  return unsigned(path, method, body, sessionHeaders(account))
 }
 beforeEach(() => {
   reset(); boundary.actions = 0; boundary.unavailable = false; boundary.external = 0
@@ -26,13 +26,13 @@ beforeEach(() => {
     verified_at: null, price_per_call: 0.001, is_active: false })
 })
 
-test('admin endpoints require an operation-specific signed authorization', async () => {
+test('admin endpoints require an allowlisted wallet session', async () => {
   assert.equal((await scan.GET(unsigned('/api/discovery/scan'))).status, 401)
   assert.equal((await scan.GET(await request('/api/discovery/scan', 'GET', undefined, bob))).status, 403)
   assert.equal(boundary.external, 0)
 })
 
-test('admin allowlist is checked on every signed request', async () => {
+test('admin allowlist is checked on every session request', async () => {
   assert.equal((await scan.GET(await request('/api/discovery/scan'))).status, 200)
   process.env.ADMIN_WALLETS = other
   assert.equal((await scan.GET(await request('/api/discovery/scan'))).status, 403)
@@ -45,7 +45,7 @@ test('missing or malformed admin configuration fails closed', async () => {
   }
 })
 
-test('admin reads and permitted mutations work without a reusable session', async () => {
+test('admin reads and permitted mutations work with a reusable session', async () => {
   assert.equal((await listings.GET(await request('/api/discovery/listings'))).status, 200)
   const patch = { name: 'New name', price_per_call: 0.002 }
   assert.equal((await edit.PATCH(await request(`/api/discovery/listings/${id}`, 'PATCH', patch), context)).status, 200)
@@ -64,7 +64,7 @@ test('admin mutation cannot change ownership, credentials, or non-discovery rows
 
 test('cross-origin admin mutation is denied before the admin action', async () => {
   const body = {}
-  const headers = await operationHeaders('/api/discovery/scan', 'POST', body)
+  const headers = sessionHeaders()
   headers.origin = 'https://evil.example'
   assert.equal((await scan.POST(unsigned('/api/discovery/scan', 'POST', body, headers))).status, 403)
   assert.equal(boundary.external, 0)

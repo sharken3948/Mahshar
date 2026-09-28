@@ -38,7 +38,7 @@ New purchases reference a unique `settlement_attempt_id`. Their existing `tx_has
 
 ## Recovery interfaces and limitations
 
-* `POST /api/payments/reconcile` accepts only `{ "attemptId": "uuid" }`, uses a one-use operation-specific wallet authorization, and scopes the lookup to its authenticated payer. It accepts no client evidence, amounts, transaction IDs, or state changes.
+* `POST /api/payments/reconcile` accepts only `{ "attemptId": "uuid" }`, uses the browser wallet session, and scopes the lookup to its authenticated payer. It accepts no client evidence, amounts, transaction IDs, or state changes.
 * `reconcileIncompleteSettlements(limit)` in `src/lib/payments/server.ts` is the trusted server/job entry point and does not depend on a browser/session. It scans incomplete attempts and calls the same service-only `x402_recover(uuid)` function. No scheduler was deployed.
 * Database table mutation is denied to anon/authenticated and direct service-role writes; only restricted functions transition attempts. The database is the bookkeeping serialization boundary.
 * A submission still unresolved after two minutes is marked `MANUAL_REVIEW`, **not** treated as unsuccessful. This age is an operational review threshold, not settlement evidence. A late acknowledgement from the original in-flight claimant can still confirm with its private server submission token; another caller cannot claim it again.

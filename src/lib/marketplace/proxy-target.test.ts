@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { authorizeProxyTarget, ProxyTargetError } from './proxy-target'
+import { authorizeProxyTarget, ProxyTargetError, type ProxyTargetListing } from './proxy-target'
 
 const base = {
   endpoint_url: 'https://api.example/v1?fixed=yes',
@@ -14,14 +14,15 @@ const base = {
   auth_param_name: 'api_key',
 }
 
-function code(path: string, listing = base) {
+function code(path: string, listing: ProxyTargetListing = base) {
   try { authorizeProxyTarget(listing, path); return null }
   catch (error) { return error instanceof ProxyTargetError ? error.code : 'unexpected' }
 }
 
 test('proxy target rejects direct and encoded dot-segment traversal', () => {
   for (const path of ['/../admin', '/../../users', '/%2e%2e/admin', '/%2E%2E/%2e%2e/users',
-    '/%252e%252e/admin', '/users/%2e%2e', '/users/%252e%252e']) {
+    '/%252e%252e/admin', '/users/%2e%2e', '/users/%252e%252e',
+    '/users\\..\\admin', '/%5c..%5cadmin', '/%255c..%255cadmin', '/%2f..%2fadmin']) {
     assert.equal(code(path), 'invalid_dynamic_path', path)
   }
 })
@@ -42,4 +43,20 @@ test('proxy target permits only declared path and query values and returns a can
 test('buyer query cannot collide with the credential parameter', () => {
   assert.equal(code('/users/42?api_key=attacker'), 'credential_query_collision')
   assert.equal(code('/users/42?API_KEY=attacker'), 'credential_query_collision')
+})
+
+test('safe declarative patterns work for paths and queries while unsafe legacy regex fails closed', () => {
+  const patterned = {
+    ...base,
+    path_parameters: [{ name: 'slug', pattern: '^[a-z0-9-]+$' }],
+    query_parameters: [{ name: 'page', pattern: '\\d+' }],
+    auth_type: 'public',
+    auth_param_name: null,
+  }
+  assert.equal(authorizeProxyTarget(patterned, '/safe-slug?page=42').toString(),
+    'https://api.example/v1/safe-slug?fixed=yes&page=42')
+  assert.equal(code('/unsafe_slug?page=42', patterned), 'undeclared_path')
+  for (const pattern of ['(a+)+', '(a|aa)+', '([a-z]+)*']) {
+    assert.equal(code(`/${'a'.repeat(2048)}!`, { ...patterned, path_parameters: [{ name: 'slug', pattern }] }), 'invalid_dynamic_path')
+  }
 })

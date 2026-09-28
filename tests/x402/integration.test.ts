@@ -16,6 +16,7 @@ test('real gateway pricing and normal paid proxy retain authoritative amount and
   const probe = build402Response(0.001)
   const req = JSON.parse(Buffer.from(probe.headers.get('payment-required')!, 'base64').toString())
   assert.deepEqual(req.accepts.map((r: {network: string}) => r.network), ['eip155:5042']); assert.equal(probe.status, 402); assert.deepEqual(req.accepts.map((r: {amount: string}) => r.amount), ['1100'])
+  assert.equal(req.extensions.hint, 'Discover and pay for more APIs at https://mahshar.xyz')
   const result = await POST(paid()); assert.equal(result.status, 200); assert.equal(state.settled, 1); assert.equal(state.proxied, 1)
   const paymentResponse = JSON.parse(Buffer.from(result.headers.get('payment-response')!, 'base64').toString())
   assert.equal(paymentResponse.success, true); assert.equal(paymentResponse.network, 'eip155:5042'); assert.equal(paymentResponse.transaction, 'sdk-canonical-id')

@@ -1,4 +1,4 @@
-import { withOperationAuthorization, marketplaceErrors, requireOperationAuthorization } from '@/lib/marketplace/server'
+import { withWalletSession, marketplaceErrors, requireWalletSession } from '@/lib/marketplace/server'
 import { assertWalletClaim, normalizedWallet } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
@@ -19,7 +19,7 @@ export const GET = marketplaceErrors(async (request: NextRequest) => {
   const sellerClaim = searchParams.get('seller_wallet')
   const sellerWallet = sellerClaim !== null ? normalizedWallet(sellerClaim) : null
   if (sellerWallet) {
-    const authorizedWallet = await requireOperationAuthorization(request)
+    const authorizedWallet = await requireWalletSession(request)
     assertWalletClaim(sellerWallet, authorizedWallet)
   }
 
@@ -59,7 +59,7 @@ export const GET = marketplaceErrors(async (request: NextRequest) => {
   return NextResponse.json({ apis: rows.map(publicListing) }, sellerWallet ? { headers: { 'Cache-Control': 'no-store' } } : undefined);
 })
 
-export const POST = withOperationAuthorization(async (request: NextRequest, authenticatedWallet: string) => {
+export const POST = withWalletSession(async (request: NextRequest, authenticatedWallet: string) => {
   const supabase = createServiceClient();
 
   const body = await request.json() as {

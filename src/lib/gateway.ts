@@ -5,6 +5,7 @@ import { settlementStorageReady, settlementStore } from '@/lib/payments/server'
 import { ARC_MAINNET } from '@/lib/arc'
 import { encodePaymentResponseHeader } from '@x402/core/http'
 import type { Network } from '@x402/core/types'
+import { marketplaceOrigin } from '@/lib/marketplace/server'
 
 // USDC decimals are 6 on every supported chain — kept as a constant here
 // because reading decimals() at request time would add an RPC round-trip to
@@ -90,7 +91,7 @@ export function build402Response(sellerPriceUsd: number, resourceUrl = '/api/pro
     },
     accepts,
     extensions: {
-      hint: 'Discover and pay for more APIs at https://mahshar.xyz',
+      hint: `Discover and pay for more APIs at ${marketplaceOrigin()}`,
     },
   }
   return new NextResponse(JSON.stringify({}), {

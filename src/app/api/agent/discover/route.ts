@@ -37,7 +37,7 @@ interface CallStatsRow {
 
 export async function GET(request: NextRequest) {
   try {
-    const limited = await enforceRateLimit({ request, scope: 'agent-discover', limit: 120, windowSeconds: 60, failClosed: true })
+    const limited = await enforceRateLimit({ request, scope: 'agent-discover', limit: 120, windowSeconds: 60, failClosed: false })
     if (limited) return limited
     const supabase = createServiceClient()
 
@@ -221,8 +221,8 @@ export async function GET(request: NextRequest) {
         safe_retry: 'Replay the exact same Payment-Signature and request only when retryable is true. Mahshar never settles that authorization twice.',
         succeeded_replay: 'Returns delivery_state=SUCCEEDED and retrieve_response=/api/calls/last-response without executing upstream again.',
         purchase_access: { response_field: 'purchase_access_token', retrieval_header: 'x-mahshar-purchase-access', retrieval_route: '/api/calls/last-response' },
-        legacy_purchase_access: 'A one-use x-mahshar-authorization wallet proof may exchange a historical owned purchase for a purchase capability.',
-        accounting_reconcile: { route: '/api/payments/reconcile', authorization: 'one-use x-mahshar-authorization', note: 'Finalizes durable accounting only; never resettles or executes upstream.' },
+        legacy_purchase_access: 'An authenticated browser wallet session may exchange a historical owned purchase for a purchase capability.',
+        accounting_reconcile: { route: '/api/payments/reconcile', authorization: 'browser wallet session', note: 'Finalizes durable accounting only; never resettles or executes upstream.' },
       },
       rate_limits: {
         discovery: { limit: 120, window_seconds: 60 },

@@ -28,7 +28,7 @@ export function normalizedWallet(value: unknown): Address {
 }
 export function assertWalletClaim(claim: unknown, principal: string) {
   if (claim !== undefined && claim !== null && (typeof claim !== 'string' || claim.toLowerCase() !== principal)) {
-    throw new MarketplaceError('Wallet does not match the operation signer', 403)
+    throw new MarketplaceError('Wallet does not match the authenticated wallet', 403)
   }
 }
 function canonicalize(value: unknown): unknown {

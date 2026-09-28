@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
 
-test('admin UI uses direct per-request wallet authorization without a login gate', () => {
+test('admin UI uses the centralized wallet session request path', () => {
   const provider = readFileSync('src/components/AdminAccess.tsx', 'utf8')
-  assert.match(provider, /useWalletAuthorization/)
+  assert.match(provider, /useMarketplaceSession/)
   assert.match(provider, /AdminRequest\.Provider/)
   assert.doesNotMatch(provider, /Verify wallet|Sign in|ConnectButton|AdminAccessMessage/)
 })

@@ -10,6 +10,8 @@ export const walletState = {
   connectActions: 0,
   connected: true,
   unsupported: false,
+  sessionStatus: 'authenticated',
+  authenticationActions: 0,
 }
 
 const cssClasses = new Proxy({}, { get: (_target, property) => String(property) })
@@ -51,6 +53,6 @@ Module._load = function(id, parent, main) {
     return { useProductPreferences: () => ({ formatUsdc: value => String(value) }) }
   }
   if (id === '@/hooks/useVisibilityRefresh') return { useVisibilityRefresh: () => {} }
-  if (id === '@/hooks/useWalletAuthorization') return { useWalletAuthorization: () => ({ request: async () => Response.json({ gatewayAvailable: '0' }) }) }
+  if (id === '@/components/MarketplaceSessionProvider' || id === './MarketplaceSessionProvider') return { useMarketplaceSession: () => ({ request: async () => Response.json({ gatewayAvailable: '0' }), status: walletState.sessionStatus, authenticate: async () => { walletState.authenticationActions++; return true }, error: walletState.sessionStatus === 'unauthenticated' ? 'Wallet sign-in was cancelled.' : null, wallet: null }) }
   return load.call(this, id, parent, main)
 }

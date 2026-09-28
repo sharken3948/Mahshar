@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { test, beforeEach, after } from 'node:test'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { NextRequest } from 'next/server'
 import { encryptKey } from '../../src/lib/crypto'
-import { alice, bob, state, reset, operationHeaders, origin } from './fixtures'
+import { alice, bob, state, reset, sessionHeaders, operationHeaders, origin } from './fixtures'
 import * as listings from '../../src/app/api/apis/route'
 import * as listing from '../../src/app/api/apis/[id]/route'
 import * as verify from '../../src/app/api/apis/[id]/verify/route'
@@ -31,9 +31,11 @@ const createBody = { name: 'API', description: 'Description', category: 'Data', 
 function request(path: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) {
   return new NextRequest(origin + path, { method, headers: { origin, ...headers }, ...(body !== undefined && { body: JSON.stringify(body) }) })
 }
-async function authorized(path: string, method = 'GET', body?: unknown, account = alice, signedBody = body,
-  options: Parameters<typeof operationHeaders>[4] = {}) {
-  return request(path, method, body, await operationHeaders(path, method, signedBody, account, options))
+async function authorized(path: string, method = 'GET', body?: unknown, account = alice) {
+  return request(path, method, body, sessionHeaders(account))
+}
+async function sensitivelyAuthorized(path: string, body: unknown, account = alice) {
+  return request(path, 'PATCH', body, { ...sessionHeaders(account), ...await operationHeaders(path, 'PATCH', body, account) })
 }
 function seed(owner = b) {
   const row = { id: 'victim', seller_wallet: owner, name: 'API', description: 'description', category: 'Data',
@@ -44,33 +46,31 @@ function seed(owner = b) {
   return row
 }
 
-test('create requires a fresh operation-specific wallet signature', async () => {
+test('create requires a wallet session and does not consume an operation nonce', async () => {
   assert.equal((await listings.POST(request('/api/apis', 'POST', createBody))).status, 401)
   const response = await listings.POST(await authorized('/api/apis', 'POST', createBody))
   assert.equal(response.status, 201)
   assert.equal(state.tables.api_listings[0].seller_wallet, a)
+  assert.equal(state.tables.withdraw_used_nonces.length, 0)
 })
 
-test('create signature is bound to the exact body and signer wallet', async () => {
-  assert.equal((await listings.POST(await authorized('/api/apis', 'POST',
-    { ...createBody, price_per_call: 50 }, alice, createBody))).status, 401)
+test('create uses the session identity and rejects a conflicting seller claim', async () => {
   assert.equal((await listings.POST(await authorized('/api/apis', 'POST',
     { ...createBody, seller_wallet: b }, alice))).status, 403)
   assert.equal(state.tables.api_listings.length, 0)
 })
 
-test('the same signed authorization cannot be replayed', async () => {
-  const headers = await operationHeaders('/api/apis', 'POST', createBody)
+test('the same session supports ordinary repeated management without another signature', async () => {
+  const headers = sessionHeaders()
   assert.equal((await listings.POST(request('/api/apis', 'POST', createBody, headers))).status, 201)
-  assert.equal((await listings.POST(request('/api/apis', 'POST', createBody, headers))).status, 409)
-  assert.equal(state.tables.api_listings.length, 1)
+  assert.equal((await listings.POST(request('/api/apis', 'POST', { ...createBody, name: 'Second' }, headers))).status, 201)
+  assert.equal(state.tables.api_listings.length, 2)
 })
 
-test('expired authorization and cross-origin mutation fail before data changes', async () => {
-  const expired = await authorized('/api/apis', 'POST', createBody, alice, createBody,
-    { issuedAt: Math.floor(Date.now() / 1000) - 600 })
+test('expired session and cross-origin mutation fail before data changes', async () => {
+  const expired = request('/api/apis', 'POST', createBody, sessionHeaders(alice, { expired: true }))
   assert.equal((await listings.POST(expired)).status, 401)
-  const headers = await operationHeaders('/api/apis', 'POST', createBody)
+  const headers = sessionHeaders()
   headers.origin = 'https://evil.example'
   assert.equal((await listings.POST(request('/api/apis', 'POST', createBody, headers))).status, 403)
   assert.equal(state.tables.api_listings.length, 0)
@@ -84,19 +84,58 @@ test('wallet B cannot edit or delete wallet A listing', async () => {
   assert.deepEqual(row, before)
 })
 
-test('edit authorization is bound to the exact submitted patch', async () => {
+test('ordinary edits use the reusable session and retain owner checks', async () => {
   const row = seed(a)
-  const signedPatch = { seller_wallet: a, name: 'Signed name' }
-  const sentPatch = { seller_wallet: a, name: 'Different name' }
-  const response = await listing.PATCH(
-    await authorized('/api/apis/victim', 'PATCH', sentPatch, alice, signedPatch),
-    context('victim'),
-  )
-  assert.equal(response.status, 401)
-  assert.equal(row.name, 'API')
+  for (const sentPatch of [
+    { seller_wallet: a, name: 'Different name' },
+    { seller_wallet: a, description: 'Different description' },
+    { seller_wallet: a, price_per_call: 0.25 },
+  ]) assert.equal((await listing.PATCH(await authorized('/api/apis/victim', 'PATCH', sentPatch), context('victim'))).status, 200)
+  assert.equal(row.name, 'Different name')
+  assert.equal(row.description, 'Different description')
+  assert.equal(row.price_per_call, 0.25)
+  assert.equal(state.tables.withdraw_used_nonces.length, 0)
 })
 
-test('edit, verification and delete each require their own exact authorization', async () => {
+test('endpoint, auth semantics, and credential changes require an exact fresh proof', async () => {
+  for (const patch of [
+    { seller_wallet: a, endpoint_url: 'https://changed.example/data' },
+    { seller_wallet: a, auth_type: 'bearer' },
+    { seller_wallet: a, auth_key: 'rotated-secret' },
+    { seller_wallet: a, auth_param_name: 'access_token' },
+  ]) {
+    reset(); seed(a)
+    assert.equal((await listing.PATCH(await authorized('/api/apis/victim', 'PATCH', patch), context('victim'))).status, 401)
+    assert.equal((await listing.PATCH(await sensitivelyAuthorized('/api/apis/victim', patch), context('victim'))).status, 200)
+    assert.equal(state.tables.withdraw_used_nonces.length, 1)
+  }
+})
+
+test('sensitive listing proof is listing-specific, patch-specific, wallet-bound, and one-use', async () => {
+  const first = seed(a)
+  state.tables.api_listings.push({ ...structuredClone(first), id: 'other' })
+  const body = { seller_wallet: a, endpoint_url: 'https://changed.example/data' }
+  const proof = await operationHeaders('/api/apis/victim', 'PATCH', body)
+  const session = sessionHeaders()
+  assert.equal((await listing.PATCH(request('/api/apis/other', 'PATCH', body, { ...session, ...proof }), context('other'))).status, 401)
+  assert.equal((await listing.PATCH(request('/api/apis/victim', 'PATCH', { ...body, endpoint_url: 'https://altered.example/data' },
+    { ...session, ...proof }), context('victim'))).status, 401)
+  assert.equal((await listing.PATCH(request('/api/apis/victim', 'PATCH', body, { ...session, ...proof }), context('victim'))).status, 200)
+  assert.equal((await listing.PATCH(request('/api/apis/victim', 'PATCH', body, { ...session, ...proof }), context('victim'))).status, 409)
+
+  reset(); seed(a)
+  const credentialBody = { seller_wallet: a, auth_key: 'signed-secret' }
+  const credentialProof = await operationHeaders('/api/apis/victim', 'PATCH', credentialBody)
+  assert.equal((await listing.PATCH(request('/api/apis/victim', 'PATCH', { ...credentialBody, auth_key: 'altered-secret' },
+    { ...sessionHeaders(), ...credentialProof }), context('victim'))).status, 401)
+
+  reset(); seed(a)
+  const bobProof = await operationHeaders('/api/apis/victim', 'PATCH', body, bob)
+  assert.equal((await listing.PATCH(request('/api/apis/victim', 'PATCH', body,
+    { ...sessionHeaders(alice), ...bobProof }), context('victim'))).status, 403)
+})
+
+test('edit, verification and delete share the owner session', async () => {
   const row = seed(a)
   const patch = { seller_wallet: a, price_per_call: 0.2 }
   assert.equal((await listing.PATCH(await authorized('/api/apis/victim', 'PATCH', patch), context('victim'))).status, 200)
@@ -108,7 +147,7 @@ test('edit, verification and delete each require their own exact authorization',
   assert.equal(state.tables.api_listings.length, 0)
 })
 
-test('private buyer, seller, listing and statistics reads require owner proof and reject replay', async () => {
+test('private buyer, seller, listing and statistics reads require the owner session and allow refresh', async () => {
   seed(a)
   state.tables.api_calls.push({ id: 'call-a', api_id: 'victim', buyer_wallet: a, success: true, created_at: '2026-01-01', latency_ms: 10 })
   state.tables.purchases.push({ id: 'purchase-a', api_id: 'victim', buyer_wallet: a, amount_usdc: 1, seller_share_usdc: 0.9 })
@@ -121,9 +160,9 @@ test('private buyer, seller, listing and statistics reads require owner proof an
   for (const item of cases) {
     assert.equal((await item.run(request(item.path))).status, 401)
     assert.equal((await item.run(await authorized(item.path, 'GET', undefined, bob))).status, 403)
-    const headers = await operationHeaders(item.path)
+    const headers = sessionHeaders()
     assert.equal((await item.run(request(item.path, 'GET', undefined, headers))).status, 200)
-    assert.equal((await item.run(request(item.path, 'GET', undefined, headers))).status, 409)
+    assert.equal((await item.run(request(item.path, 'GET', undefined, headers))).status, 200)
   }
 })
 
@@ -152,7 +191,7 @@ test('repository RLS revokes direct public listing-table reads', () => {
   assert.match(migration, /REVOKE SELECT ON public\.api_listings FROM anon, authenticated/)
 })
 
-test('sensitive purchase and detailed earnings history use one-use wallet proof', async () => {
+test('sensitive purchase and detailed earnings history use the wallet session', async () => {
   seed(a)
   state.tables.purchases.push({ id: 'purchase-a', api_id: 'victim', buyer_wallet: a, amount_usdc: 1, seller_share_usdc: 0.9 })
   const purchasePath = '/api/purchases?buyer_wallet=' + a
@@ -171,11 +210,11 @@ test('Gateway balance distinguishes zero from timeout, non-2xx, and invalid JSON
   assert.equal((await gatewayBalance.GET(await authorized(path, 'GET', undefined, bob))).status, 403)
 
   globalThis.fetch = async () => Response.json({ balances: [{ balance: '0' }] })
-  const headers = await operationHeaders(path)
+  const headers = sessionHeaders()
   const zero = await gatewayBalance.GET(request(path, 'GET', undefined, headers))
   assert.equal(zero.status, 200)
   assert.equal((await zero.json()).gatewayAvailable, '0')
-  assert.equal((await gatewayBalance.GET(request(path, 'GET', undefined, headers))).status, 409)
+  assert.equal((await gatewayBalance.GET(request(path, 'GET', undefined, headers))).status, 200)
 
   globalThis.fetch = async () => Response.json({ error: 'bad gateway' }, { status: 502 })
   assert.equal((await gatewayBalance.GET(await authorized(path))).status, 502)
@@ -185,7 +224,21 @@ test('Gateway balance distinguishes zero from timeout, non-2xx, and invalid JSON
   assert.equal((await gatewayBalance.GET(await authorized(path))).status, 503)
 })
 
-test('wallet proof exchanges one exact purchase response for repeat signature-free access', async () => {
+test('Gateway balance stays available when limiter storage fails and logs the degradation', async () => {
+  state.rateLimitError = true
+  globalThis.fetch = async () => Response.json({ balances: [{ balance: '0' }] })
+  const messages: unknown[][] = []
+  const original = console.error
+  console.error = (...args: unknown[]) => { messages.push(args) }
+  try {
+    const response = await gatewayBalance.GET(await authorized('/api/gateway/balance?wallet=' + a))
+    assert.equal(response.status, 200)
+    assert.equal((await response.json()).gatewayAvailable, '0')
+  } finally { console.error = original }
+  assert.equal(messages.some(entry => entry[0] === '[rate-limit] backend unavailable'), true)
+})
+
+test('wallet session exchanges one exact purchase response for repeat capability access', async () => {
   seed(a)
   state.tables.purchases.push({ id: 'purchase-a', api_id: 'victim', buyer_wallet: a })
   state.tables.api_calls.push({ id: 'call-a', api_id: 'victim', buyer_wallet: a, purchase_id: 'purchase-a', success: true,
@@ -194,7 +247,7 @@ test('wallet proof exchanges one exact purchase response for repeat signature-fr
   assert.equal((await last.GET(request(path))).status, 401)
   const exchange = await last.GET(await authorized(path))
   assert.equal(exchange.status, 200)
-  assert.equal(state.tables.withdraw_used_nonces.length, 1)
+  assert.equal(state.tables.withdraw_used_nonces.length, 0)
   const first = await exchange.json() as { response_body: unknown; purchase_access_token: string }
   assert.equal(first.response_body, 'private A')
   assert.ok(first.purchase_access_token)
@@ -204,7 +257,7 @@ test('wallet proof exchanges one exact purchase response for repeat signature-fr
   }))
   assert.equal(reopened.status, 200)
   assert.equal((await reopened.json()).response_body, 'private A')
-  assert.equal(state.tables.withdraw_used_nonces.length, 1)
+  assert.equal(state.tables.withdraw_used_nonces.length, 0)
 })
 
 test('purchase capabilities return only their exact purchase and never a later purchase or another wallet', async () => {
@@ -241,12 +294,10 @@ test('purchase read capability cannot authorize a state-changing action', async 
   assert.equal(state.tables.api_listings.length, 0)
 })
 
-test('SIWE session architecture and login UI are absent', () => {
-  for (const path of ['src/components/MarketplaceAuthProvider.tsx', 'src/lib/marketplace/client-session.ts',
-    'src/app/api/marketplace/auth/[action]/route.ts']) assert.equal(existsSync(path), false, path)
+test('one centralized wallet session provider fronts ordinary private client requests', () => {
   const sources = ['src/app/providers.tsx', 'src/components/OnboardingForm.tsx',
     'src/app/dashboard/dashboard-workspace.tsx', 'src/components/AdminAccess.tsx']
     .map(path => readFileSync(path, 'utf8')).join('\n')
-  assert.doesNotMatch(sources, /SIWE|Sign in|Verify wallet|24 hours|requireWalletAuth|requestProtected/)
-  assert.match(sources, /useWalletAuthorization/)
+  assert.match(sources, /MarketplaceSessionProvider|useMarketplaceSession/)
+  assert.doesNotMatch(sources, /useWalletAuthorization/)
 })

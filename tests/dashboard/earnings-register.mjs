@@ -11,7 +11,10 @@ export const world = /** @type {any} */ ({
   earningsWithdrawStep: 'idle',
   earningsWithdrawError: null,
   earningsWithdrawResult: null,
+  pendingWithdrawalRecovery: null,
+  withdrawalRecoveryMessage: null,
   handleWithdrawEarnings: async () => {},
+  handleCheckWithdrawalStatus: async () => {},
   privateAccess: false,
   signingIn: false,
   signInError: null,
@@ -24,6 +27,6 @@ Module._load=function(id,parent,main){
  if(id==='../dashboard-visuals')return {DashboardCardHeader:({title})=>React.createElement('h2',null,title),DashboardIcon:()=>null}
  if(id==='../dashboard-workspace')return {MIN_WITHDRAW_USDC:1,useDashboardWorkspace:()=>world}
  if(id==='@/components/ProductPreferencesProvider')return {useProductPreferences:()=>({formatUsdc:value=>Number(value).toFixed(4)})}
- if(id==='@/hooks/useWalletAuthorization')return {useWalletAuthorization:()=>({request:async()=>Response.json({withdrawals:[]})})}
+ if(id==='@/components/MarketplaceSessionProvider')return {useMarketplaceSession:()=>({request:async()=>Response.json({withdrawals:[]}),status:'authenticated',authenticate:async()=>true,error:null,wallet:null})}
  return load.call(this,id,parent,main)
 }

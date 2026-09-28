@@ -1,9 +1,9 @@
 # Seller statistics authorization
 
 `GET /api/seller/statistics/[wallet]` is private seller/accounting data. A
-request must include a fresh one-use wallet-operation authorization whose
-wallet claim matches the normalized wallet in the route. Missing, mismatched,
-expired, or replayed proofs are rejected.
+request must include a valid wallet session whose normalized wallet matches the
+wallet in the route. Missing, mismatched, expired, revoked, or tampered sessions
+are rejected.
 
 The endpoint exposes only:
 
@@ -27,5 +27,6 @@ seller share contribute to gross revenue and paid-call counts but do not become
 withdrawable.
 
 Public marketplace catalog reads remain available through the active-listing
-catalog without a seller-wallet filter. Seller withdrawals continue to require
-their existing per-request wallet signature, timestamp, and nonce.
+catalog without a seller-wallet filter. Seller withdrawals require both the
+owner session and their existing fresh amount-bound signature, timestamp, and
+nonce.

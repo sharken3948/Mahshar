@@ -5,13 +5,13 @@ import { useEffect, useRef, useState } from 'react'
 import { MIN_WITHDRAW_USDC, useDashboardWorkspace } from '../dashboard-workspace'
 import { DashboardCardHeader, DashboardIcon } from '../dashboard-visuals'
 import { useProductPreferences } from '@/components/ProductPreferencesProvider'
-import { useWalletAuthorization } from '@/hooks/useWalletAuthorization'
+import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
 import { arcMainnet } from '@/lib/chains'
 import styles from '../dashboard.module.css'
 
 const RECENT_WITHDRAWAL_LIMIT = 6
 
-type WithdrawalStatus = 'pending_mint' | 'minted' | 'expired' | 'failed'
+type WithdrawalStatus = 'pending_mint' | 'submission_unknown' | 'mint_unknown' | 'minted' | 'expired' | 'failed'
 
 interface WithdrawalRecord {
   id: string
@@ -26,11 +26,12 @@ interface WithdrawalRecord {
 
 export default function EarningsDashboardPage() {
   const { formatUsdc } = useProductPreferences()
-  const { request: authorizedFetch } = useWalletAuthorization()
+  const { request: authorizedFetch } = useMarketplaceSession()
   const {
     address, isConnected, sellerEarnings, myApis, sellCallGroups,
     earningsWithdrawAmount, setEarningsWithdrawAmount, earningsWithdrawStep,
-    earningsWithdrawError, earningsWithdrawResult, handleWithdrawEarnings,
+    earningsWithdrawError, earningsWithdrawResult, pendingWithdrawalRecovery, withdrawalRecoveryMessage,
+    handleWithdrawEarnings, handleCheckWithdrawalStatus,
   } = useDashboardWorkspace()
   const currentAddress = useRef(address)
   currentAddress.current = address
@@ -101,7 +102,7 @@ export default function EarningsDashboardPage() {
             <section className={styles.card}>
               <p className="text-sm font-semibold text-slate-600">Reserved by Withdrawals</p>
               <div className="break-words font-mono font-bold tabular-nums">{sellerEarnings ? formatUsdc(sellerEarnings.in_flight_withdrawals) : '—'} <span className="text-sm font-normal text-slate-500">USDC</span></div>
-              <p className="text-xs text-slate-500">Includes pending_mint, minted, and failed withdrawals deducted from available earnings.</p>
+              <p className="text-xs text-slate-500">Includes pending, unknown, completed, and failed withdrawals held against available earnings.</p>
             </section>
           </div>
 
@@ -121,13 +122,13 @@ export default function EarningsDashboardPage() {
                 placeholder="0.00"
                 min="0"
                 step="0.0001"
-                disabled={!sellerEarnings || earningsWithdrawStep !== 'idle'}
+                disabled={!sellerEarnings || earningsWithdrawStep !== 'idle' || !!pendingWithdrawalRecovery}
                 className="w-full flex-1 bg-[#FAFAF8] border border-[#2775CA] rounded-lg px-3 py-2 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:outline-none focus:border-[#2775CA] disabled:opacity-50"
               />
               <span className="text-sm text-[#6B7280]">USDC</span>
               <button
                 onClick={() => { void handleWithdrawEarnings() }}
-                disabled={!sellerEarnings || earningsWithdrawStep !== 'idle' || !earningsWithdrawAmount}
+                disabled={!sellerEarnings || earningsWithdrawStep !== 'idle' || !earningsWithdrawAmount || !!pendingWithdrawalRecovery}
                 className="bg-[#00B050] hover:bg-[#008F42] text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors"
               >
                 {earningsWithdrawStep === 'idle' ? 'Withdraw Earnings' : 'Withdrawing...'}
@@ -143,6 +144,16 @@ export default function EarningsDashboardPage() {
                 Sent {formatUsdc(earningsWithdrawResult.net)} USDC to your wallet (gas: ${formatUsdc(earningsWithdrawResult.gas)}). Tx {earningsWithdrawResult.tx.slice(0, 10)}…
               </p>
             )}
+            {withdrawalRecoveryMessage && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900" role="status">
+                <p>{withdrawalRecoveryMessage}</p>
+                {pendingWithdrawalRecovery && <button type="button" className="mt-2 font-semibold text-[#2775CA]"
+                  disabled={earningsWithdrawStep !== 'idle'}
+                  onClick={() => { void handleCheckWithdrawalStatus() }}>
+                  {earningsWithdrawStep === 'checking' ? 'Checking…' : 'Check status'}
+                </button>}
+              </div>
+            )}
             {earningsWithdrawError && <p className="text-xs text-[#DC2626] mt-2">{earningsWithdrawError}</p>}
             <WithdrawalHistory
               withdrawals={withdrawalHistoryWallet === address?.toLowerCase() ? withdrawals : null}
@@ -151,6 +162,7 @@ export default function EarningsDashboardPage() {
               showAll={showAllWithdrawals}
               setShowAll={setShowAllWithdrawals}
               onLoad={() => { void loadWithdrawalHistory() }}
+              onCheck={id => { void handleCheckWithdrawalStatus(id) }}
               formatUsdc={formatUsdc}
             />
             </section>
@@ -200,13 +212,14 @@ export default function EarningsDashboardPage() {
   )
 }
 
-function WithdrawalHistory({ withdrawals, loading, error, showAll, setShowAll, onLoad, formatUsdc }: {
+function WithdrawalHistory({ withdrawals, loading, error, showAll, setShowAll, onLoad, onCheck, formatUsdc }: {
   withdrawals: WithdrawalRecord[] | null
   loading: boolean
   error: string | null
   showAll: boolean
   setShowAll: (value: boolean) => void
   onLoad: () => void
+  onCheck: (id: string) => void
   formatUsdc: (value: string | number | bigint, atomic?: boolean) => string
 }) {
   const visibleWithdrawals = showAll ? withdrawals ?? [] : (withdrawals ?? []).slice(0, RECENT_WITHDRAWAL_LIMIT)
@@ -245,6 +258,8 @@ function WithdrawalHistory({ withdrawals, loading, error, showAll, setShowAll, o
                 <span className={`${styles.withdrawalStatus} ${styles[status.className]}`}>{status.label}</span>
                 <div className={styles.withdrawalTransaction}>
                   {hash ? <><code title={hash}>{shortTransactionHash(hash)}</code><a href={`${arcMainnet.blockExplorers.default.url}/tx/${encodeURIComponent(hash)}`} target="_blank" rel="noopener noreferrer">View on Explorer</a></> : <span aria-label="No transaction hash">—</span>}
+                  {(withdrawal.status === 'submission_unknown' || withdrawal.status === 'mint_unknown') &&
+                    <button type="button" onClick={() => onCheck(withdrawal.id)}>Check status</button>}
                 </div>
               </li>
             )
@@ -258,6 +273,9 @@ function WithdrawalHistory({ withdrawals, loading, error, showAll, setShowAll, o
 function withdrawalStatus(status: WithdrawalStatus) {
   if (status === 'minted') return { label: 'Completed', className: 'withdrawalStatusCompleted' as const }
   if (status === 'pending_mint') return { label: 'Pending', className: 'withdrawalStatusPending' as const }
+  if (status === 'submission_unknown' || status === 'mint_unknown') {
+    return { label: 'Still confirming', className: 'withdrawalStatusPending' as const }
+  }
   return { label: 'Failed', className: 'withdrawalStatusFailed' as const }
 }
 

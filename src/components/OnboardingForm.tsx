@@ -1,7 +1,7 @@
 'use client';
-import { useWalletAuthorization } from '@/hooks/useWalletAuthorization'
+import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { MahsharFlowMotif } from '@/components/MahsharFlowMotif';
@@ -108,12 +108,14 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
   const [showDescHelp, setShowDescHelp] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const router = useRouter();
-  const { request: marketplaceFetch } = useWalletAuthorization()
+  const persistedSensitive = useRef<Pick<FormState, 'endpoint_url' | 'method' | 'auth_type' | 'auth_key' | 'auth_param_name'> | null>(null)
+  const { request: marketplaceFetch, sensitiveRequest } = useMarketplaceSession()
   useEffect(() => {
     setForm({ ...initialState, seller_wallet: sellerWallet ?? '' });
     setApiId(null);
     setScoreResult(null);
     setError(null);
+    persistedSensitive.current = null;
   }, [sellerWallet]);
 
   const isBodyMethod = form.method === 'POST' || form.method === 'PUT';
@@ -190,14 +192,22 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
         const created = await createRes.json() as { id: string };
         setApiId(created.id);
         currentApiId = created.id;
+        persistedSensitive.current = sensitiveSnapshot(form);
       }
 
       else {
-        const save = await marketplaceFetch(`/api/apis/${currentApiId}`, {
+        const previous = persistedSensitive.current;
+        const next = sensitiveSnapshot(form);
+        const sensitiveChanged = !previous || JSON.stringify(previous) !== JSON.stringify(next);
+        const saveBody: Record<string, unknown> = { ...form, price_per_call: parseFloat(form.price_per_call) || 0.001,
+          expected_status_codes: expectedCodes ?? [] };
+        if (previous?.auth_key === form.auth_key) delete saveBody.auth_key;
+        const save = await (sensitiveChanged ? sensitiveRequest : marketplaceFetch)(`/api/apis/${currentApiId}`, {
           method: 'PATCH', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ ...form, price_per_call: parseFloat(form.price_per_call) || 0.001, expected_status_codes: expectedCodes ?? [] }),
+          body: JSON.stringify(saveBody),
         });
         if (!save.ok) { setError((await save.json()).error ?? 'Failed to save listing'); return; }
+        persistedSensitive.current = next;
       }
 
       const scoreRes = await marketplaceFetch('/api/ai/score', {
@@ -346,6 +356,11 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
       {showDescHelp && <div className={styles.modalOverlay}><div className={styles.modalBackdrop} onClick={() => setShowDescHelp(false)} /><div className={styles.modal}><div className={styles.modalHeader}><span>Writing a Great Description</span><button type="button" onClick={() => setShowDescHelp(false)} className={styles.modalClose}>&times;</button></div><div className={styles.modalBody}><div className={styles.modalExample}>✅ Good: &apos;Returns real-time weather data (temperature, humidity, wind speed) for any city worldwide. Accepts a city name or lat/lng coordinates. Response time under 200ms. Useful for travel apps, agriculture tools, or any service needing current conditions.&apos;</div><div className={`${styles.modalExample} ${styles.modalPoor}`}>❌ Too vague: &apos;Weather API&apos;</div><p>AI agents and buyers read this description to decide if your API fits their needs. The more specific you are about inputs, outputs, and use cases, the more your API will be discovered and used.</p></div><div className={styles.modalFooter}><button type="button" onClick={() => setShowDescHelp(false)} className={styles.modalButton}>Close</button></div></div></div>}
     </form>
   );
+}
+
+function sensitiveSnapshot(form: FormState) {
+  return { endpoint_url: form.endpoint_url, method: form.method, auth_type: form.auth_type,
+    auth_key: form.auth_key, auth_param_name: form.auth_param_name };
 }
 
 function PublishingSection({ number, title, helper, tone, children }: { number: string; title: string; helper: string; tone: 'blue' | 'purple' | 'green' | 'pink'; children: React.ReactNode }) {

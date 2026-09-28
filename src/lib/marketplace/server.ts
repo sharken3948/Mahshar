@@ -1,10 +1,12 @@
 import 'server-only'
+import { createHash } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createPublicClient, http, verifyTypedData } from 'viem'
 import { arcMainnet } from '@/lib/chains'
 import { createServiceClient } from '@/lib/supabase/server'
 import { MarketplaceError, OPERATION_AUTH_DOMAIN, OPERATION_AUTH_HEADER, OPERATION_AUTH_SECONDS,
   OPERATION_AUTH_TYPES, authorizationMessage, decodeAuthorizationProof, requestPayload } from './operation-authorization'
+import { WALLET_SESSION_COOKIE } from './session-auth'
 
 export function marketplaceOrigin() {
   const configured = process.env.MARKETPLACE_ORIGIN?.trim()
@@ -18,7 +20,29 @@ export function marketplaceOrigin() {
 export function assertMarketplaceOrigin(request: NextRequest) {
   if (request.headers.get('origin') !== marketplaceOrigin()) throw new MarketplaceError('Origin rejected', 403)
 }
+export function assertSessionMutationOrigin(request: NextRequest) {
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase())) assertMarketplaceOrigin(request)
+  if (request.headers.get('sec-fetch-site') === 'cross-site') throw new MarketplaceError('Origin rejected', 403)
+}
+export function sessionTokenHash(token: string) {
+  return createHash('sha256').update(token).digest('hex')
+}
+export async function requireWalletSession(request: NextRequest) {
+  const token = request.cookies.get(WALLET_SESSION_COOKIE)?.value
+  if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new MarketplaceError('Wallet session required')
+  const { data, error } = await createServiceClient().from('wallet_sessions')
+    .select('wallet, expires_at').eq('token_hash', sessionTokenHash(token)).is('revoked_at', null)
+    .gt('expires_at', new Date().toISOString()).maybeSingle()
+  if (error) throw new MarketplaceError('Wallet session unavailable', 503)
+  if (!data) throw new MarketplaceError('Wallet session expired')
+  return String(data.wallet).toLowerCase()
+}
 export async function requireOperationAuthorization(request: NextRequest) {
+  const method = request.method.toUpperCase()
+  const bodyText = ['GET', 'HEAD'].includes(method) ? null : await request.clone().text()
+  return requireOperationAuthorizationForPayload(request, requestPayload(new URL(request.url), method, bodyText))
+}
+export async function requireOperationAuthorizationForPayload(request: NextRequest, payload: unknown) {
   const method = request.method.toUpperCase()
   if (!['GET', 'HEAD'].includes(method)) assertMarketplaceOrigin(request)
   if (request.headers.get('sec-fetch-site') === 'cross-site') throw new MarketplaceError('Origin rejected', 403)
@@ -27,8 +51,7 @@ export async function requireOperationAuthorization(request: NextRequest) {
   if (proof.issuedAt > now + 30 || proof.deadline <= now || proof.deadline <= proof.issuedAt
     || proof.deadline - proof.issuedAt > OPERATION_AUTH_SECONDS) throw new MarketplaceError('Operation authorization expired')
   const url = new URL(request.url)
-  const bodyText = ['GET', 'HEAD'].includes(method) ? null : await request.clone().text()
-  const message = authorizationMessage({ wallet: proof.wallet, method, url, payload: requestPayload(url, method, bodyText),
+  const message = authorizationMessage({ wallet: proof.wallet, method, url, payload,
     nonce: proof.nonce, issuedAt: proof.issuedAt, deadline: proof.deadline })
   const verification = { address: proof.wallet, domain: OPERATION_AUTH_DOMAIN, types: OPERATION_AUTH_TYPES,
     primaryType: 'MahsharAuthorization' as const, message, signature: proof.signature }
@@ -54,6 +77,15 @@ export function marketplaceErrors<A extends unknown[]>(handler: (request: NextRe
 export function withOperationAuthorization<A extends unknown[]>(handler: (request: NextRequest, wallet: string, ...args: A) => Promise<Response>) {
   return marketplaceErrors(async (request: NextRequest, ...args: A) => {
     const wallet = await requireOperationAuthorization(request)
+    const response = await handler(request, wallet, ...args)
+    response.headers.set('Cache-Control', 'no-store')
+    return response
+  })
+}
+export function withWalletSession<A extends unknown[]>(handler: (request: NextRequest, wallet: string, ...args: A) => Promise<Response>) {
+  return marketplaceErrors(async (request: NextRequest, ...args: A) => {
+    assertSessionMutationOrigin(request)
+    const wallet = await requireWalletSession(request)
     const response = await handler(request, wallet, ...args)
     response.headers.set('Cache-Control', 'no-store')
     return response

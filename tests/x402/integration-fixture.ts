@@ -53,4 +53,5 @@ export function withWallet(handler: (r: Request, wallet: string) => Promise<Resp
   }
 }
 export const withOperationAuthorization = withWallet
+export const withWalletSession = withWallet
 export const marketplaceOrigin = () => 'https://mahshar.xyz'

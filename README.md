@@ -23,6 +23,7 @@ AI-powered API marketplace. Sellers list APIs and earn USDC per call. Buyers dis
 - **Optional prepaid credits** — `/api/payments/credits` supports a prepaid credit balance as an alternative to per-call x402 payments.
 
 ### Platform
+- **One-signature wallet login** — Connect once, sign a five-minute Arc Mainnet/origin-bound login challenge, then use an eight-hour HttpOnly wallet session for ordinary private reads and account management. Seller withdrawal still requires its fresh amount-bound signature.
 - **Smart auto-deactivation** — Distinguishes seller-fault failures (5xx, timeouts, 401/403 from upstream) from client-fault failures (400/404/405/422 from malformed requests). Requires failures from at least 2 distinct buyer wallets before deactivating a listing. Prevents a single misconfigured client from taking down a healthy API.
 - **Agent discovery endpoint** — `/api/agent/discover` returns a machine-readable catalog with EIP-712 payment domain info, step-by-step payment instructions, and live per-API stats (`total_calls`, `success_rate`, `avg_latency_ms`) so autonomous agents can discover and pay for APIs without human interaction.
 
@@ -168,9 +169,10 @@ See `.env.example` for full descriptions. Required:
 | `PLATFORM_WALLET_ADDRESS` | Platform wallet that receives and forwards payments |
 | `PLATFORM_WALLET_PRIVATE_KEY` | Private key for the platform wallet (also used for Arc Memo writes) |
 | `INTERNAL_API_SECRET` | Shared secret for server-to-server credit operations |
-| `ADMIN_WALLETS` | Comma-separated server-only wallet allowlist for one-use admin authorization |
+| `ADMIN_WALLETS` | Comma-separated server-only wallet allowlist applied after wallet-session validation |
 | `MARKETPLACE_ORIGIN` | Canonical HTTPS production origin used in discovery, OpenAPI, proxy, and x402 execution URLs |
 | `MAHSHAR_TRUSTED_CLIENT_IP_HEADER` | Optional, non-Vercel only: edge-overwritten client-IP header used for rate-limit dimensions |
+| `CRON_SECRET` | Server-only secret used by Vercel Cron to authorize bounded expired-response pruning |
 
 ---
 
@@ -181,7 +183,7 @@ See `.env.example` for full descriptions. Required:
 | `/api/proxy` | POST | Payment gateway + request proxy (envelope body: `{api_id, buyer_wallet, body, …}`) |
 | `/api/proxy/[api_id]` | GET, POST | Matching GET/POST listings only; POST JSON is parsed and re-serialized. |
 | `/api/apis` | GET, POST | List active APIs / create listing |
-| `/api/apis/[id]` | GET, PATCH, DELETE | Owner-signed private configuration read / update / delete |
+| `/api/apis/[id]` | GET, PATCH, DELETE | Owner-session private configuration read / update / delete |
 | `/api/apis/[id]/verify` | POST | Live endpoint verification |
 | `/api/apis/latency` | GET | Average latency per API from call history |
 | `/api/ai/match` | POST | Semantic API search via Groq |
@@ -195,7 +197,7 @@ See `.env.example` for full descriptions. Required:
 | `/api/gateway/balance` | GET | Live Circle Gateway USDC balance |
 | `/api/payments/credits` | GET, POST | Prepaid credit balance management |
 | `/api/payments/x402` | POST | Retired V1 endpoint; returns 410 and points to `/api/proxy` |
-| `/api/payments/reconcile` | POST | Owner-signed accounting reconciliation; never resettles or reruns upstream |
+| `/api/payments/reconcile` | POST | Owner-session accounting reconciliation; never resettles or reruns upstream |
 | `/api/purchases` | GET | Purchase history |
 
 ---

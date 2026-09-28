@@ -25,25 +25,54 @@ export function rateLimitIdentity(request: NextRequest, scope: string, dimension
   return createHash('sha256').update(value).digest('hex')
 }
 
+function hashIdentity(scope: string, identity: string, dimensions: string[] = []) {
+  return createHash('sha256').update(['mahshar-rate-v2', scope, identity, ...dimensions].join('|')).digest('hex')
+}
+
+export function rateLimitIdentities(request: NextRequest, scope: string, wallet?: string, dimensions: string[] = []) {
+  const ip = trustedClientDimension(request)
+  const identities: Array<{ kind: 'wallet' | 'ip'; keyHash: string }> = []
+  if (wallet !== undefined) {
+    const normalized = wallet.trim().toLowerCase()
+    if (!/^0x[a-f0-9]{40}$/.test(normalized)) throw new Error('Invalid rate-limit wallet')
+    identities.push({ kind: 'wallet', keyHash: hashIdentity(scope, `wallet:${normalized}`) })
+  }
+  if (ip !== 'ip:unavailable' || wallet === undefined) {
+    identities.push({ kind: 'ip', keyHash: hashIdentity(scope, ip, dimensions) })
+  }
+  return identities
+}
+
 export async function enforceRateLimit(input: {
   request: NextRequest
   scope: string
   limit: number
   windowSeconds: number
   dimensions?: string[]
+  wallet?: string
   failClosed?: boolean
   /** Deterministic test seam; production always uses the service client. */
   database?: RateLimitDatabase
 }): Promise<NextResponse | null> {
   try {
+    const identities = rateLimitIdentities(input.request, input.scope, input.wallet, input.dimensions)
     const hasTrustedIp = trustedClientDimension(input.request) !== 'ip:unavailable'
-    const effectiveLimit = hasTrustedIp || (input.dimensions?.length ?? 0) > 0
+    const effectiveLimit = hasTrustedIp || input.wallet !== undefined || (input.dimensions?.length ?? 0) > 0
       ? input.limit : Math.min(10000, input.limit * 10)
-    const { data, error } = await (input.database ?? createServiceClient()).rpc('mahshar_take_rate_limit', {
-      p_key_hash: rateLimitIdentity(input.request, input.scope, input.dimensions),
-      p_limit: effectiveLimit,
-      p_window_seconds: input.windowSeconds,
-    })
+    const database = input.database ?? createServiceClient()
+    const { data, error } = identities.length === 1
+      ? await database.rpc('mahshar_take_rate_limit', {
+        p_key_hash: identities[0].keyHash,
+        p_limit: effectiveLimit,
+        p_window_seconds: input.windowSeconds,
+      })
+      : await database.rpc('mahshar_take_rate_limits', {
+        p_buckets: identities.map(identity => ({
+          key_hash: identity.keyHash,
+          limit: effectiveLimit,
+          window_seconds: input.windowSeconds,
+        })),
+      })
     if (error) throw error
     const result = (Array.isArray(data) ? data[0] : data) as RateLimitResult | null
     if (!result || result.allowed !== true) {
@@ -54,7 +83,12 @@ export async function enforceRateLimit(input: {
       })
     }
     return null
-  } catch {
+  } catch (error) {
+    console.error('[rate-limit] backend unavailable', {
+      scope: input.scope,
+      policy: input.failClosed ? 'fail-closed' : 'fail-open',
+      error: error instanceof Error ? error.message : String(error),
+    })
     return input.failClosed
       ? NextResponse.json({ error: 'rate_limit_unavailable' }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
       : null

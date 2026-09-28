@@ -14,12 +14,14 @@ test('historical ioscope purchases remain gross revenue and paid calls without b
     { amount_usdc: '0.000100', status: 'minted' },
     { amount_usdc: '0.000100', status: 'failed' },
     { amount_usdc: '0.000300', status: 'expired' },
+    { amount_usdc: '0.000100', status: 'submission_unknown' },
+    { amount_usdc: '0.000100', status: 'mint_unknown' },
   ], new Map([[IOSCOPE, 'ioscope']]))
 
   assert.equal(result.total_earnings, 0.0033)
   assert.equal(result.accumulated_share, 0.0009)
-  assert.equal(result.in_flight_withdrawals, 0.0004)
-  assert.equal(result.withdrawable_balance, 0.0005)
+  assert.equal(result.in_flight_withdrawals, 0.0006)
+  assert.equal(result.withdrawable_balance, 0.0003)
   assert.deepEqual(result.earnings_by_api, [{ api_id: IOSCOPE, api_name: 'ioscope', total: 0.0033, calls: 3 }])
   assert.equal(paidCallCount(result), 3)
 })

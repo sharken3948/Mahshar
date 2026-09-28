@@ -1,4 +1,4 @@
-import { withOperationAuthorization } from '@/lib/marketplace/server'
+import { withWalletSession } from '@/lib/marketplace/server'
 import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
@@ -8,7 +8,7 @@ import { readBoundedJson, RequestBodyError } from '@/lib/request-body';
 
 export const runtime = 'nodejs';
 
-export const GET = withOperationAuthorization(async (request: NextRequest, wallet: string) => {
+export const GET = withWalletSession(async (request: NextRequest, wallet: string) => {
   const { searchParams } = new URL(request.url);
   assertWalletClaim(searchParams.get('wallet'), wallet)
   const walletKey = wallet.toLowerCase();

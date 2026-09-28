@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { MahsharLogo } from './MahsharLogo'
 import { useVisibilityRefresh } from '@/hooks/useVisibilityRefresh'
 import { useProductPreferences } from './ProductPreferencesProvider'
-import { useWalletAuthorization } from '@/hooks/useWalletAuthorization'
+import { useMarketplaceSession } from './MarketplaceSessionProvider'
 import styles from './nav-bar.module.css'
 
 export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalance = true, landing = false, dashboard = false }: { balanceOverride?: string | null; balanceUnavailableOverride?: boolean; pollBalance?: boolean; landing?: boolean; dashboard?: boolean }) {
@@ -14,7 +14,7 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
   const [balance, setBalance] = useState<string | null>(null)
   const [balanceUnavailable, setBalanceUnavailable] = useState(false)
   const { formatUsdc } = useProductPreferences()
-  const { request: authorizedFetch } = useWalletAuthorization()
+  const { request: authorizedFetch, status: sessionStatus, authenticate, error: sessionError } = useMarketplaceSession()
   const currentWallet = useRef<string | null>(address?.toLowerCase() ?? null)
   currentWallet.current = address?.toLowerCase() ?? null
   const inFlight = useRef(new Map<string, { promise: Promise<void>; controller: AbortController }>())
@@ -64,7 +64,7 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
             <PrimaryNavigationLink dashboard={dashboard} />
             <ExploreMenu />
           </div>
-          <HeaderControls isConnected={isConnected} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} connectorIcon={connector?.icon} />
+          <HeaderControls isConnected={isConnected} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} connectorIcon={connector?.icon} sessionStatus={sessionStatus} authenticate={authenticate} sessionError={sessionError} />
         </div>
       </nav>
     )
@@ -84,6 +84,7 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
             </span>
           )}
           <ArcMainnetStatus />
+          <SessionControl isConnected={isConnected} status={sessionStatus} authenticate={authenticate} error={sessionError} />
           <WalletIdentityPill connectorIcon={connector?.icon} />
         </div>
       </div>
@@ -100,7 +101,7 @@ function PrimaryNavigationLink({ dashboard }: { dashboard: boolean }) {
   )
 }
 
-function HeaderControls({ isConnected, displayedBalance, balanceUnavailable, formatUsdc, connectorIcon }: { isConnected: boolean; displayedBalance: string | null; balanceUnavailable: boolean; formatUsdc: (value: string | number) => string; connectorIcon?: string }) {
+function HeaderControls({ isConnected, displayedBalance, balanceUnavailable, formatUsdc, connectorIcon, sessionStatus, authenticate, sessionError }: { isConnected: boolean; displayedBalance: string | null; balanceUnavailable: boolean; formatUsdc: (value: string | number) => string; connectorIcon?: string; sessionStatus: 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error'; authenticate: () => Promise<boolean>; sessionError: string | null }) {
   return (
     <div className={styles.landingNavRight}>
       {isConnected && (
@@ -111,9 +112,15 @@ function HeaderControls({ isConnected, displayedBalance, balanceUnavailable, for
         </span>
       )}
       <ArcMainnetStatus />
+      <SessionControl isConnected={isConnected} status={sessionStatus} authenticate={authenticate} error={sessionError} />
       <WalletIdentityPill connectorIcon={connectorIcon} />
     </div>
   )
+}
+
+function SessionControl({ isConnected, status, authenticate, error }: { isConnected: boolean; status: 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error'; authenticate: () => Promise<boolean>; error: string | null }) {
+  if (!isConnected || !['unauthenticated', 'error'].includes(status)) return null
+  return <button type="button" className={styles.walletButton} onClick={() => { void authenticate() }} title={error ?? undefined}>Sign in</button>
 }
 
 function ArcMainnetStatus() {

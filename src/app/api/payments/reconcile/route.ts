@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { withOperationAuthorization } from '@/lib/marketplace/server'
+import { withWalletSession } from '@/lib/marketplace/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { settlementStore } from '@/lib/payments/server'
 import { recoverSettlement, type Attempt } from '@/lib/payments/settlement'
 
 export const runtime = 'nodejs'
-export const POST = withOperationAuthorization(async (request: NextRequest, wallet: string) => {
+export const POST = withWalletSession(async (request: NextRequest, wallet: string) => {
   const body = await request.json().catch(() => null)
   if (!body || Object.keys(body).length !== 1 || typeof body.attemptId !== 'string' || !/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(body.attemptId)) {
     return NextResponse.json({ error: 'Invalid recovery request' }, { status: 400 })

@@ -6,7 +6,7 @@ test('withdrawal history reuses the owner-authorized earnings read and exposes o
   const route = readFileSync('src/app/api/seller/earnings/route.ts', 'utf8')
   const page = readFileSync('src/app/dashboard/earnings/page.tsx', 'utf8')
 
-  assert.match(route, /export const GET = withOperationAuthorization/)
+  assert.match(route, /export const GET = withWalletSession/)
   assert.match(route, /assertWalletClaim\(searchParams\.get\('seller_wallet'\), sellerWallet\)/)
   assert.match(route, /\.select\('id, amount_usdc, net_amount_usdc, gas_cost_usdc, status, mint_tx_hash, created_at, minted_at'\)/)
   assert.match(route, /\.ilike\('seller_wallet', sellerWallet\)/)
@@ -18,6 +18,8 @@ test('withdrawal history reuses the owner-authorized earnings read and exposes o
   for (const label of ['Withdrawal History', 'Requested', 'Gas', 'Received', 'Completed', 'Pending', 'Failed', 'View on Explorer', 'No withdrawals yet']) {
     assert.ok(page.includes(label), label)
   }
+  assert.match(page, /Still confirming/)
+  assert.match(page, /Check status/)
 })
 
 test('withdrawal history resets on wallet changes and does not authorize during render', () => {

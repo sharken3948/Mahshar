@@ -4,6 +4,7 @@ import { RainbowKitProvider, getDefaultConfig } from '@rainbow-me/rainbowkit'
 import { WagmiProvider, type State } from 'wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ProductPreferencesProvider } from '@/components/ProductPreferencesProvider'
+import { MarketplaceSessionProvider } from '@/components/MarketplaceSessionProvider'
 import { arcMainnet } from '@/lib/chains'
 import { defineChain } from 'viem'
 import { MAINNET_CHAINS } from '@/lib/circle-bridge'
@@ -31,7 +32,9 @@ export function Providers({ children, initialState }: { children: React.ReactNod
     <WagmiProvider config={wagmiConfig} initialState={initialState}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider locale="en-US" showRecentTransactions={false}>
-          <ProductPreferencesProvider>{children}</ProductPreferencesProvider>
+          <MarketplaceSessionProvider>
+            <ProductPreferencesProvider>{children}</ProductPreferencesProvider>
+          </MarketplaceSessionProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

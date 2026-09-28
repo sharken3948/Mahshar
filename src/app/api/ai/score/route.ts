@@ -1,4 +1,4 @@
-import { withOperationAuthorization, requireListingOwner } from '@/lib/marketplace/server'
+import { withWalletSession, requireListingOwner } from '@/lib/marketplace/server'
 import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
 import { matchListingConfiguration, normalizeExpectedStatusCodes } from '@/lib/marketplace/listing-security'
 import { decryptKey } from '@/lib/crypto'
@@ -7,7 +7,8 @@ import { scoreApi, type RealTestResult } from '@/lib/groq';
 import { createServiceClient } from '@/lib/supabase/server';
 import { validateEndpointUrl } from '@/lib/url-validation';
 import { OutboundPolicyError, safeOutboundFetch } from '@/lib/outbound-fetch';
-import { readResponseBytes } from '@/lib/proxy-response';
+import { assessRepresentativeResponseSize, MAX_SAFE_SERIALIZED_RESPONSE_BYTES, readResponseBytes,
+  ResponseTooLargeError } from '@/lib/proxy-response';
 import type { AuthType } from '@/types';
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { readBoundedJson, RequestBodyError } from '@/lib/request-body';
@@ -81,9 +82,9 @@ function hardBlock(
   });
 }
 
-export const POST = withOperationAuthorization(async (request: NextRequest, authenticatedWallet: string) => {
+export const POST = withWalletSession(async (request: NextRequest, authenticatedWallet: string) => {
   const limited = await enforceRateLimit({ request, scope: 'ai-score', limit: 10, windowSeconds: 60,
-    dimensions: [authenticatedWallet], failClosed: true })
+    wallet: authenticatedWallet, failClosed: true })
   if (limited) return limited
   let body: {
     api_id?: string;
@@ -209,6 +210,10 @@ export const POST = withOperationAuthorization(async (request: NextRequest, auth
   let realTestResult: RealTestResult | undefined;
   let diagnostic: EndpointTestDiagnostic | null = null;
   let endpointTestNote: string;
+  let responseSizeBytes: number | null = null;
+  let responseSizeWarning: string | null = null;
+  let responseSizeBlocked = false;
+  let rawResponseTooLarge = false;
 
   if (canTest) {
     const controller = new AbortController();
@@ -239,20 +244,29 @@ export const POST = withOperationAuthorization(async (request: NextRequest, auth
 
       // Always read body as text first (avoids double-consume of response stream)
       let rawBody = '';
-      let responseTooLarge = false;
-      try { rawBody = new TextDecoder().decode(await readResponseBytes(response.body, 5 * 1024 * 1024)); }
-      catch { responseTooLarge = true; }
+      try { rawBody = new TextDecoder().decode(await readResponseBytes(response.body, MAX_SAFE_SERIALIZED_RESPONSE_BYTES)); }
+      catch (error) {
+        if (error instanceof ResponseTooLargeError) rawResponseTooLarge = true;
+        else throw error;
+      }
       if (auth_key) rawBody = rawBody.split(auth_key).join('[redacted]');
       const snippet = rawBody ? (rawBody.length > 200 ? rawBody.slice(0, 200) + '…' : rawBody) : null;
 
-      if (responseTooLarge) {
-        realTestResult = { success: false, status: response.status, latency_ms, error: 'Response exceeds the 5MB size limit' };
+      if (rawResponseTooLarge) {
+        realTestResult = { success: false, status: response.status, latency_ms, error: 'Response exceeds Mahshar\'s delivery size limit' };
       } else if (response.status >= 300 && response.status < 400) {
         realTestResult = { success: false, status: response.status, latency_ms, error: `Redirect (${response.status})`, response_snippet: snippet ?? undefined };
       } else if (response.ok) {
         let parsedBody: unknown;
         try { parsedBody = JSON.parse(rawBody); } catch { parsedBody = rawBody; }
-        realTestResult = { success: true, status: response.status, latency_ms, body: parsedBody };
+        const size = assessRepresentativeResponseSize(parsedBody);
+        responseSizeBytes = size.serializedBytes;
+        responseSizeBlocked = size.exceedsLimit;
+        responseSizeWarning = size.warning && !size.exceedsLimit
+          ? 'Verification response is near Mahshar\'s delivery size limit; larger responses may fail.' : null;
+        realTestResult = size.exceedsLimit
+          ? { success: false, status: response.status, latency_ms, error: 'Response exceeds Mahshar\'s delivery size limit' }
+          : { success: true, status: response.status, latency_ms, body: parsedBody };
       } else {
         realTestResult = { success: false, status: response.status, latency_ms, error: `HTTP ${response.status}`, response_snippet: snippet ?? undefined };
       }
@@ -280,6 +294,18 @@ export const POST = withOperationAuthorization(async (request: NextRequest, auth
       status: realTestResult.status ?? null,
       response_snippet: realTestResult.success ? null : (realTestResult.response_snippet ?? null),
     };
+
+    if (rawResponseTooLarge || responseSizeBlocked) {
+      return NextResponse.json({
+        score: 0, suggested_price: 0, approved: false,
+        critical_issues: ['The representative endpoint response exceeds Mahshar\'s delivery size limit. Reduce or paginate the response before publishing.'],
+        warnings: [], positives: [],
+        summary: 'Listing blocked: the verification response is too large to deliver safely.',
+        endpoint_verified: false, endpoint_test_note: 'Response exceeds the delivery size limit.',
+        endpoint_test_diagnostic: diagnostic, field_errors: [],
+        response_size_bytes: responseSizeBytes, response_size_blocked: true,
+      }, { status: 422 });
+    }
 
     const testNote = realTestResult.success
       ? `${method} test passed in ${realTestResult.latency_ms}ms`
@@ -390,9 +416,13 @@ export const POST = withOperationAuthorization(async (request: NextRequest, auth
 
   return NextResponse.json({
     ...result,
+    warnings: responseSizeWarning && !result.warnings.includes(responseSizeWarning)
+      ? [...result.warnings, responseSizeWarning] : result.warnings,
     endpoint_verified: realTestResult?.success === true,
     endpoint_test_note: endpointTestNote,
     endpoint_test_diagnostic: diagnostic,
     field_errors: [] satisfies FieldError[],
+    response_size_bytes: responseSizeBytes,
+    response_size_warning: responseSizeWarning,
   });
 });

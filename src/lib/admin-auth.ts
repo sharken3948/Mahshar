@@ -1,7 +1,7 @@
 import 'server-only'
 import type { NextRequest } from 'next/server'
 import { MarketplaceError, normalizedWallet } from '@/lib/marketplace/operation-authorization'
-import { marketplaceErrors, requireOperationAuthorization } from '@/lib/marketplace/server'
+import { assertSessionMutationOrigin, marketplaceErrors, requireWalletSession } from '@/lib/marketplace/server'
 
 /** Server-only configuration. No default members and no client-supplied roles. */
 export function configuredAdminWallets(): Set<string> {
@@ -16,7 +16,8 @@ export function configuredAdminWallets(): Set<string> {
 }
 
 export async function requireAdmin(request: NextRequest) {
-  const wallet = await requireOperationAuthorization(request)
+  assertSessionMutationOrigin(request)
+  const wallet = await requireWalletSession(request)
   if (!configuredAdminWallets().has(wallet)) throw new MarketplaceError('Admin access denied', 403)
   return { wallet, role: 'admin' as const }
 }

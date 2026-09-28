@@ -48,6 +48,14 @@ test('connected wallet renders a shortened EVM identity and retains account acti
   assert.match(source, /chain\.unsupported[\s\S]*onClick=\{openChainModal\}/)
 })
 
+test('a rejected login leaves a clear manual Sign in action without hiding the connected wallet', () => {
+  walletState.sessionStatus = 'unauthenticated'
+  const html = renderNav({ landing: true })
+  assert.match(html, />Sign in<\/button>/)
+  assert.match(html, /Open account actions for 0x1111111111111111111111111111111111111111/)
+  walletState.sessionStatus = 'authenticated'
+})
+
 test('responsive header rules preserve all controls without horizontal overflow affordances', () => {
   const css = readFileSync('src/components/nav-bar.module.css', 'utf8')
   const compact = css.match(/@media \(max-width: 800px\)\s*\{[\s\S]*?\n\}/)?.[0] ?? ''

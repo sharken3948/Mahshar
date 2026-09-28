@@ -1,5 +1,5 @@
 'use client'
-import { useWalletAuthorization } from '@/hooks/useWalletAuthorization'
+import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
 import { useAccount, useSignTypedData } from 'wagmi'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useState, useEffect, useMemo } from 'react'
@@ -100,7 +100,7 @@ function ApiRow({ api, avgLatency, calling, paymentStep, onUse, purchased, onVie
 export default function BuyerPage() {
   const { address, isConnected, chainId } = useAccount()
   const { signTypedDataAsync } = useSignTypedData()
-  const { request: protectedFetch } = useWalletAuthorization()
+  const { request: protectedFetch } = useMarketplaceSession()
 
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ApiCardFields[]>([])
