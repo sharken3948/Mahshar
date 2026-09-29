@@ -6,7 +6,8 @@ process.env.GROQ_API_KEY ||= 'test-key';
 const groqModule = require('./groq') as typeof import('./groq');
 const {
   validateMatchResult, validateScoreResult, redactSecrets, redactUrlSecrets,
-  buildScorePrompt, buildMatchPrompt, GROQ_MODEL, ReviewInconclusiveError, scoreApi, matchApis, groq,
+  buildScorePrompt, buildMatchPrompt, GROQ_MODEL, ReviewInconclusiveError, GroqUnavailableError,
+  ensureGroqAvailable, scoreApi, matchApis, groq,
 } = groqModule;
 
 const validScore = { score: 8, suggested_price: 0.01, approved: true, critical_issues: [], warnings: [],
@@ -38,6 +39,27 @@ test('validateScoreResult still throws on structural violations', () => {
   assert.throws(() => validateScoreResult({ ...validScore, summary: '' }), /invalid score schema/);
   assert.throws(() => validateScoreResult({ ...validScore, critical_issues: 'nope' }), /invalid score schema/);
   assert.throws(() => validateScoreResult(null), /invalid score schema/);
+});
+
+test('validateScoreResult accepts only bounded setup suggestions and safe parameters', () => {
+  const result = validateScoreResult({ ...validScore, suggestions: {
+    name: 'Weather API', description: 'Current conditions.', category: 'Weather', method: 'post',
+    auth_type: 'bearer', auth_param_name: 'token', example_request: '{"city":"Istanbul"}',
+    example_response: 'not json', body_required: true,
+    query_parameters: [{ name: 'city', type: 'string', required: true }],
+    path_parameters: [{ name: '../unsafe' }],
+  } });
+  assert.equal(result.suggestions.method, 'POST');
+  assert.equal(result.suggestions.example_response, null);
+  assert.deepEqual(result.suggestions.query_parameters, [{ name: 'city', type: 'string', required: true }]);
+  assert.deepEqual(result.suggestions.path_parameters, []);
+});
+
+test('missing Groq configuration is a runtime availability condition, not an import failure', () => {
+  const key = process.env.GROQ_API_KEY;
+  delete process.env.GROQ_API_KEY;
+  try { assert.throws(() => ensureGroqAvailable(), GroqUnavailableError); }
+  finally { process.env.GROQ_API_KEY = key; }
 });
 
 // -------- Redaction tests --------
@@ -91,6 +113,17 @@ test('buildScorePrompt fences seller-controlled fields and redacts secrets', () 
   assert.doesNotMatch(prompt, /sk_live_ABCDEFGHIJKLMNOP12/);
   assert.match(prompt, /https:\/\/weather\.example\.com\/v1(?!\?)/);
   assert.doesNotMatch(prompt, /secret1234567890abcd/);
+});
+
+test('buildScorePrompt may receive query names but never query values', () => {
+  const prompt = buildScorePrompt({
+    name: '', category: '', description: '',
+    endpoint_url: 'https://weather.example.com/v1?city=Istanbul&api_key=super-secret-value',
+    endpoint_query_parameter_names: ['city', 'api_key'],
+  });
+  assert.match(prompt, /city/);
+  assert.match(prompt, /api_key/);
+  assert.doesNotMatch(prompt, /Istanbul|super-secret-value/);
 });
 
 test('fence neutralizes sentinel-shaped payloads in seller content', () => {

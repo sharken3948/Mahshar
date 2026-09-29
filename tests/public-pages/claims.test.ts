@@ -41,7 +41,8 @@ test('Docs provider, auth, payment, and wallet statements match current implemen
   const solana = read('src/app/dashboard/solana/page.tsx')
 
   for (const field of ['endpoint_url', 'method', 'auth_type', 'price_per_call', 'example_request', 'example_response']) assert.ok(onboarding.includes(field), field)
-  assert.match(onboarding, /Continue to AI Review/)
+  assert.match(onboarding, /'Analyze'/)
+  assert.match(onboarding, /Publish API/)
   assert.match(buyer, /probeRes = await fetch\('\/api\/proxy'/)
   assert.match(buyer, /Payment-Signature/)
   assert.match(contract, /Buyer-supplied headers are not forwarded upstream/)

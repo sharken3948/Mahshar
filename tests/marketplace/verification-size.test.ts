@@ -18,6 +18,6 @@ test('both verification paths block size before granting verified state', () => 
   const direct = readFileSync('src/app/api/apis/[id]/verify/route.ts', 'utf8')
   assert.ok(direct.indexOf('if (size.exceedsLimit)') < direct.indexOf("update({ verified_at:"))
   const score = readFileSync('src/app/api/ai/score/route.ts', 'utf8')
-  assert.ok(score.indexOf('if (rawResponseTooLarge || responseSizeBlocked)') < score.indexOf('updates.verified_at'))
-  assert.match(score, /Verification response is near Mahshar\\'s delivery size limit; larger responses may fail/)
+  assert.ok(score.indexOf('if (size.exceedsLimit)') < score.indexOf("update({ verified_at:"))
+  assert.match(score, /response is near Mahshar\\'s delivery size limit/)
 })

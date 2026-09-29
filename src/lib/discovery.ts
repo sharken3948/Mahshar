@@ -1,4 +1,4 @@
-import { groq, GROQ_MODEL, DISCOVERY_PROMPT_SYSTEM, buildDiscoveryPrompt } from '@/lib/groq';
+import { groq, GROQ_MODEL, DISCOVERY_PROMPT_SYSTEM, buildDiscoveryPrompt, ensureGroqAvailable } from '@/lib/groq';
 import { isOutboundUrlShapeAllowed } from '@/lib/outbound-fetch';
 
 // Shared by crawl and retest routes — keeps Groq model/prompt in one place.
@@ -8,6 +8,7 @@ export async function scoreForDiscovery(
   name: string,
   description: string,
 ): Promise<{ score: number; reason: string }> {
+  ensureGroqAvailable();
   const completion = await groq.chat.completions.create({
     model: GROQ_MODEL,
     messages: [

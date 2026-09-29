@@ -44,12 +44,12 @@ test('buyer request-body modal displays the configured method instead of hard-co
   assert.match(buyer, /buildBuyerRequestSuffix/)
 })
 
-test('onboarding distinguishes GET query inputs from body examples and uses progressive authoring', () => {
+test('onboarding distinguishes GET inputs from body examples and keeps compact parameter editing', () => {
   const onboarding = readFileSync('src/components/OnboardingForm.tsx', 'utf8')
-  assert.match(onboarding, /Path and query inputs/)
-  assert.match(onboarding, /This endpoint accepts variable path segments/)
-  assert.match(onboarding, /GET requests do not forward JSON bodies/)
-  assert.match(onboarding, /Example JSON Body/)
+  assert.match(onboarding, /Detected input parameters/)
+  assert.match(onboarding, /Variable path segments/)
+  assert.match(onboarding, /GET bodies are not forwarded/)
+  assert.match(onboarding, /Example Request/)
   assert.match(onboarding, /dynamic_path_supported/)
   assert.match(onboarding, /query_parameters/)
 })

@@ -1,10 +1,25 @@
 import Groq from 'groq-sdk';
+import { validateDeclaredParameterMetadata, type DeclaredParameter } from '@/lib/marketplace/proxy-target';
 
-const _groqKey = process.env.GROQ_API_KEY;
-if (!_groqKey) {
-  throw new Error('GROQ_API_KEY environment variable is required');
+// Keep module imports safe when Groq is not configured. Callers can then
+// degrade to deterministic analysis instead of making the entire route fail to load.
+const _groqKey = process.env.GROQ_API_KEY?.trim();
+export const groq = new Groq({
+  apiKey: _groqKey || 'groq-not-configured',
+  timeout: 8_000,
+  maxRetries: 0,
+});
+
+export class GroqUnavailableError extends Error {
+  constructor(message = 'AI suggestions are temporarily unavailable.') {
+    super(message);
+    this.name = 'GroqUnavailableError';
+  }
 }
-export const groq = new Groq({ apiKey: _groqKey });
+
+export function ensureGroqAvailable() {
+  if (!process.env.GROQ_API_KEY?.trim()) throw new GroqUnavailableError();
+}
 
 // Single source of truth for the Groq model name. Overridable via env for
 // forward-compat when Groq deprecates or renames models.
@@ -108,6 +123,21 @@ export interface ScoreResult {
   warnings: string[];
   positives: string[];
   summary: string;
+  suggestions: SetupSuggestions;
+}
+
+export interface SetupSuggestions {
+  name: string | null;
+  description: string | null;
+  category: string | null;
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | null;
+  auth_type: 'public' | 'apikey' | 'bearer' | 'queryparam' | null;
+  auth_param_name: string | null;
+  example_request: string | null;
+  example_response: string | null;
+  body_required: boolean | null;
+  path_parameters: DeclaredParameter[];
+  query_parameters: DeclaredParameter[];
 }
 
 // Thrown by scoreApi after two consecutive malformed responses from Groq.
@@ -129,6 +159,44 @@ function boundedStrings(value: unknown, maxItems = 50): string[] | null {
   return value as string[];
 }
 
+const CATEGORIES = new Set(['AI', 'Data', 'Finance', 'Weather', 'Geo', 'Social', 'Media', 'Utility', 'Other']);
+const METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE']);
+const AUTH_TYPES = new Set(['public', 'apikey', 'bearer', 'queryparam']);
+
+function nullableString(value: unknown, maxLength: number): string | null {
+  return typeof value === 'string' && value.trim() && value.length <= maxLength ? value.trim() : null;
+}
+
+function parameterSuggestions(value: unknown): DeclaredParameter[] {
+  if (!Array.isArray(value) || value.length > 12 || !validateDeclaredParameterMetadata(value)) return [];
+  return value as DeclaredParameter[];
+}
+
+function setupSuggestions(value: unknown): SetupSuggestions {
+  const input = record(value) ?? {};
+  const method = typeof input.method === 'string' && METHODS.has(input.method.toUpperCase())
+    ? input.method.toUpperCase() as SetupSuggestions['method'] : null;
+  const authType = typeof input.auth_type === 'string' && AUTH_TYPES.has(input.auth_type)
+    ? input.auth_type as SetupSuggestions['auth_type'] : null;
+  const exampleRequest = nullableString(input.example_request, 4_000);
+  const exampleResponse = nullableString(input.example_response, 4_000);
+  return {
+    name: nullableString(input.name, 120),
+    description: nullableString(input.description, 300),
+    category: typeof input.category === 'string' && CATEGORIES.has(input.category) ? input.category : null,
+    method,
+    auth_type: authType,
+    auth_param_name: nullableString(input.auth_param_name, 64),
+    example_request: exampleRequest && (() => { try { JSON.parse(exampleRequest); return true; } catch { return false; } })()
+      ? exampleRequest : null,
+    example_response: exampleResponse && (() => { try { JSON.parse(exampleResponse); return true; } catch { return false; } })()
+      ? exampleResponse : null,
+    body_required: typeof input.body_required === 'boolean' ? input.body_required : null,
+    path_parameters: parameterSuggestions(input.path_parameters),
+    query_parameters: parameterSuggestions(input.query_parameters),
+  };
+}
+
 export function validateScoreResult(value: unknown): ScoreResult {
   const input = record(value);
   if (!input || typeof input.approved !== 'boolean'
@@ -143,7 +211,16 @@ export function validateScoreResult(value: unknown): ScoreResult {
   // return a schema-valid pass and cannot crash the caller.
   const score = Math.round(clampNumber(input.score, 1, 10, 1));
   const suggested_price = clampNumber(input.suggested_price, 0, 1_000_000, 0);
-  return { score, suggested_price, approved: input.approved, critical_issues, warnings, positives, summary: input.summary };
+  return {
+    score,
+    suggested_price,
+    approved: input.approved,
+    critical_issues,
+    warnings,
+    positives,
+    summary: input.summary,
+    suggestions: setupSuggestions(input.suggestions),
+  };
 }
 
 export interface RealTestResult {
@@ -161,6 +238,10 @@ interface ScoreListing {
   category: string;
   description: string;
   endpoint_url?: string;
+  method?: string;
+  auth_type?: string;
+  auth_param_name?: string;
+  endpoint_query_parameter_names?: string[];
   example_request?: string;
   example_response?: string;
 }
@@ -209,8 +290,14 @@ ${fence('API Name', safeField(listing.name, 400))}
 ${fence('Category', safeField(listing.category, 200))}
 ${fence('Description', safeField(listing.description, 4000))}
 ${fence('Endpoint URL (origin+path only)', redactUrlSecrets(listing.endpoint_url ?? 'not provided'))}
+${fence('Configured HTTP Method', safeField(listing.method, 40))}
+${fence('Configured Authentication Type', safeField(listing.auth_type, 80))}
+${fence('Credential Query Parameter Name', safeField(listing.auth_param_name, 100))}
+${fence('Endpoint Query Parameter Names (values removed)', safeField(listing.endpoint_query_parameter_names, 1000))}
 ${fence('Example Request', safeField(listing.example_request, 4000))}
 ${fence('Example Response', safeField(listing.example_response, 4000))}${testSection}
+
+Suggest setup only when supported by the endpoint URL, response, status, or conventional API semantics. Use null or [] when evidence is insufficient. Never invent credentials or credential values. Categories must be one of AI, Data, Finance, Weather, Geo, Social, Media, Utility, Other. Parameter declarations may use only name, description, required, type, enum, and example. A query parameter already present in the endpoint may be suggested as buyer-controlled, but its value must never be repeated.
 
 Return ONLY valid JSON with NO markdown:
 {
@@ -220,11 +307,25 @@ Return ONLY valid JSON with NO markdown:
   "critical_issues": [<harmful/malicious/dangerous content OR content-safety violations, or []>],
   "warnings": [<minor issues to fix, or []>],
   "positives": [<what is good about this API>],
-  "summary": "<one sentence overall assessment>"
+  "summary": "<one sentence overall assessment>",
+  "suggestions": {
+    "name": <short API name or null>,
+    "description": <plain description under 300 characters or null>,
+    "category": <allowed category or null>,
+    "method": <GET, POST, PUT, DELETE, or null>,
+    "auth_type": <public, apikey, bearer, queryparam, or null>,
+    "auth_param_name": <credential query name or null>,
+    "example_request": <valid JSON string or null>,
+    "example_response": <valid JSON string or null>,
+    "body_required": <boolean or null>,
+    "path_parameters": [<safe parameter declarations>],
+    "query_parameters": [<safe parameter declarations>]
+  }
 }`;
 }
 
 export async function scoreApi(listing: ScoreListing, realTestResult?: RealTestResult): Promise<ScoreResult> {
+  ensureGroqAvailable();
   const userPrompt = buildScorePrompt(listing, realTestResult);
   for (let attempt = 0; attempt < 2; attempt++) {
     let completion;
@@ -294,6 +395,7 @@ export async function matchApis(
   query: string,
   apis: Array<{ id: string; name: string; description: string; category: string }>,
 ): Promise<MatchResult> {
+  ensureGroqAvailable();
   const userPrompt = buildMatchPrompt(query, apis);
   let completion;
   try {

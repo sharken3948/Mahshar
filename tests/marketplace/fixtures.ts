@@ -46,7 +46,9 @@ class Query {
   constructor(readonly table: string) {}
   select(columns = '*') { this.columns = columns; return this }
   eq(key: string, value: unknown) { this.predicates.push(r => {
-    if (r[key] && value && typeof r[key] === 'object' && typeof value === 'object') return JSON.stringify(r[key]) === JSON.stringify(value)
+    if (r[key] && value && typeof r[key] === 'object') {
+      return JSON.stringify(r[key]) === (typeof value === 'string' ? value : JSON.stringify(value))
+    }
     return r[key] === value
   }); return this }
   ilike(key: string, value: string) { this.predicates.push(r => String(r[key]).toLowerCase() === value.toLowerCase()); return this }

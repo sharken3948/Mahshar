@@ -33,10 +33,12 @@ export default function SellerPage() {
         <div className={styles.main}>
           <MahsharFlowMotif variant="background" tone="purple" className={styles.backgroundFlow} />
           <header className={styles.pageHeader}>
-            <BackButton href="/" label="Back to Mahshar" />
-            <h1>List Your API</h1>
-            <p>Turn an existing API endpoint into a paid service for agents and applications.</p>
-            <span className={styles.connection}>Connected {address?.slice(0, 6)}...{address?.slice(-4)}</span>
+            <div className={styles.headerMeta}>
+              <BackButton href="/" label="Back to Mahshar" />
+              <span className={styles.connection}>Connected {address?.slice(0, 6)}...{address?.slice(-4)}</span>
+            </div>
+            <h1>List your API</h1>
+            <p>Paste your endpoint. Mahshar will help with the rest.</p>
           </header>
           <OnboardingForm sellerWallet={address ?? ''} />
           <Link href="/dashboard/apis" className={styles.footerLink}>View your listed APIs →</Link>

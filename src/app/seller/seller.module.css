@@ -1,20 +1,107 @@
-.page { min-height: 100vh; overflow: hidden; background: #f5f7fb; color: #182a43; }
-.main { position: relative; isolation: isolate; width: min(100%, 1600px); margin: 0 auto; padding: clamp(120px, 10vw, 148px) clamp(20px, 3.2vw, 64px) clamp(56px, 6vw, 96px); }
-.backgroundFlow { position: absolute; z-index: -1; top: 96px; right: clamp(-330px, -15vw, -170px); width: clamp(440px, 30vw, 620px); opacity: .065; pointer-events: none; }
-.pageHeader { max-width: 760px; margin-bottom: clamp(30px, 3vw, 48px); }
-.pageHeader h1 { margin: 18px 0 8px; color: #182a43; font-size: clamp(34px, 3.15vw, 54px); font-weight: 760; letter-spacing: -.055em; line-height: 1.02; }
-.pageHeader p { max-width: 640px; color: #718198; font-size: clamp(15px, 1vw, 17px); line-height: 1.65; }
-.connection { display: inline-flex; align-items: center; gap: 8px; margin-top: 16px; padding: 8px 11px; border: 1px solid #dce9df; border-radius: 999px; background: #f4fbf6; color: #397259; font-family: var(--font-geist-mono, ui-monospace, monospace); font-size: var(--mahshar-caption-size); }
-.connection::before { width: 7px; height: 7px; border-radius: 50%; background: #35a76f; content: ''; }
-.footerLink { display: flex; align-items: center; justify-content: center; width: fit-content; min-height: 42px; margin: clamp(36px, 4vw, 56px) auto 0; padding: 0 15px; border: 1px solid #d8e5f2; border-radius: 999px; background: #ffffffb8; color: #2775ca; font-size: 13px; font-weight: 700; }
-.footerLink:hover { text-decoration: underline; }
-.connectMain { display: grid; min-height: 100vh; place-items: center; padding: 112px 24px 48px; background: #f5f7fb; }
-.connectCard { width: min(100%, 440px); padding: 32px; border: 1px solid #dfe7f0; border-radius: 22px; background: #fff; box-shadow: 0 14px 36px #203c6512; text-align: center; }
-.connectCard h1 { margin-bottom: 8px; color: #182a43; font-size: 25px; font-weight: 740; letter-spacing: -.035em; }
-.connectCard p { margin-bottom: 22px; color: #718198; font-size: 14px; line-height: 1.6; }
+.page {
+  min-height: 100vh;
+  overflow: hidden;
+  background: #f5f7fb;
+  color: #182a43;
+}
 
-@media (max-width: 767px) {
-  .main { padding-top: 106px; padding-inline: 16px; }
+.main {
+  --page-gutter: clamp(20px, 3.2vw, 64px);
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  max-width: calc(1640px + var(--page-gutter) + var(--page-gutter));
+  margin: 0 auto;
+  padding: clamp(124px, 8vw, 144px) var(--page-gutter) clamp(64px, 5vw, 88px);
+}
+
+.backgroundFlow {
+  position: absolute;
+  z-index: -1;
+  top: 92px;
+  right: clamp(-330px, -15vw, -160px);
+  width: clamp(440px, 30vw, 630px);
+  opacity: .065;
+  pointer-events: none;
+}
+
+.pageHeader { margin-bottom: clamp(24px, 1.8vw, 32px); }
+.headerMeta { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.pageHeader h1 {
+  margin: 18px 0 7px;
+  color: #182a43;
+  font-size: clamp(36px, 2.35vw, 46px);
+  font-weight: 780;
+  letter-spacing: -.052em;
+  line-height: 1.04;
+}
+.pageHeader p { margin: 0; color: #718198; font-size: clamp(15px, .9vw, 17px); line-height: 1.6; }
+
+.connection {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 12px;
+  border: 1px solid #d7e7dc;
+  border-radius: 999px;
+  background: #f4fbf6;
+  color: #397259;
+  font-family: var(--font-geist-mono, ui-monospace, monospace);
+  font-size: 13px;
+}
+.connection::before { width: 8px; height: 8px; border-radius: 50%; background: #35a76f; content: ''; }
+
+.footerLink {
+  display: flex;
+  width: fit-content;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  margin: 24px auto 0;
+  padding: 0 17px;
+  border: 1px solid #d8e5f2;
+  border-radius: 999px;
+  background: #ffffffd4;
+  color: #2775ca;
+  font-size: 14px;
+  font-weight: 700;
+}
+.footerLink:hover { border-color: #b7cfe7; background: #fff; }
+
+.connectMain {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 132px 24px 56px;
+  background: #f5f7fb;
+}
+.connectCard {
+  width: min(100%, 480px);
+  padding: 38px;
+  border: 1px solid #dfe7f0;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 14px 36px #203c6512;
+  text-align: center;
+}
+.connectCard h1 { margin-bottom: 10px; color: #182a43; font-size: 29px; font-weight: 740; letter-spacing: -.035em; }
+.connectCard p { margin-bottom: 24px; color: #718198; font-size: 15px; line-height: 1.65; }
+
+@media (max-width: 1050px) {
+  .main { padding-top: 112px; }
+}
+
+@media (max-width: 800px) {
+  .main { padding-top: 132px; }
+}
+
+@media (max-width: 620px) {
+  .main { padding: 126px 16px 48px; }
   .backgroundFlow { display: none; }
-  .pageHeader { margin-bottom: 26px; }
+  .pageHeader { margin-bottom: 22px; }
+  .headerMeta { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .pageHeader h1 { margin-top: 15px; font-size: 34px; }
+  .connectMain { padding: 122px 16px 40px; }
+  .connectCard { padding: 30px 22px; }
 }
