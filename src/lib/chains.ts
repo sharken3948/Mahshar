@@ -1,8 +1,9 @@
 import { defineChain } from 'viem'
+import { ARC_MAINNET_CHAIN_ID, ARC_MAINNET_NAME } from './arc-network'
 
 export const arcMainnet = defineChain({
-  id: 5042,
-  name: 'Arc Mainnet',
+  id: ARC_MAINNET_CHAIN_ID,
+  name: ARC_MAINNET_NAME,
   nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
   blockExplorers: { default: { name: 'Arc Explorer', url: 'https://explorer.arc.io' } },
   rpcUrls: {

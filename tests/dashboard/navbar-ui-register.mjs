@@ -11,6 +11,7 @@ export const walletState = {
   connected: true,
   unsupported: false,
   sessionStatus: 'authenticated',
+  networkStatus: 'ready',
   authenticationActions: 0,
 }
 
@@ -21,6 +22,7 @@ Module._load = function(id, parent, main) {
   if (id === 'next/link') {
     return { __esModule: true, default: 'a' }
   }
+  if (id === 'next/navigation') return { usePathname: () => '/' }
   if (id === '@rainbow-me/rainbowkit') {
     function ConnectButton() {}
     ConnectButton.Custom = ({ children }) => children({
@@ -53,6 +55,6 @@ Module._load = function(id, parent, main) {
     return { useProductPreferences: () => ({ formatUsdc: value => String(value) }) }
   }
   if (id === '@/hooks/useVisibilityRefresh') return { useVisibilityRefresh: () => {} }
-  if (id === '@/components/MarketplaceSessionProvider' || id === './MarketplaceSessionProvider') return { useMarketplaceSession: () => ({ request: async () => Response.json({ gatewayAvailable: '0' }), status: walletState.sessionStatus, authenticate: async () => { walletState.authenticationActions++; return true }, error: walletState.sessionStatus === 'unauthenticated' ? 'Wallet sign-in was cancelled.' : null, wallet: null }) }
+  if (id === '@/components/MarketplaceSessionProvider' || id === './MarketplaceSessionProvider') return { useMarketplaceSession: () => ({ request: async () => Response.json({ gatewayAvailable: '0' }), status: walletState.sessionStatus, networkStatus: walletState.networkStatus, authenticate: async () => { walletState.authenticationActions++; return true }, error: walletState.sessionStatus === 'unauthenticated' ? 'Wallet sign-in was cancelled.' : null, wallet: null }) }
   return load.call(this, id, parent, main)
 }

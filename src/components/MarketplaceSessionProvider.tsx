@@ -2,17 +2,21 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { getAccount } from '@wagmi/core'
-import { useAccount, useConfig, useSignTypedData } from 'wagmi'
-import type { Address, Hex } from 'viem'
+import { useAccount, useConfig, useSignTypedData, useSwitchChain } from 'wagmi'
+import type { Address, EIP1193Provider, Hex } from 'viem'
 import { OPERATION_AUTH_DOMAIN, OPERATION_AUTH_HEADER, OPERATION_AUTH_SECONDS, OPERATION_AUTH_TYPES,
   authorizationMessage, encodeAuthorizationProof, normalizedWallet, requestPayload } from '@/lib/marketplace/operation-authorization'
 import { LOGIN_AUTH_DOMAIN, LOGIN_AUTH_TYPES, loginMessage } from '@/lib/marketplace/session-auth'
+import { ARC_MAINNET_CHAIN_ID } from '@/lib/arc-network'
+import { numericChainId, providerChainId, waitForProviderChain, walletChainErrorMessage } from '@/lib/wallet-chain-transition'
 
 type SessionStatus = 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error'
+type NetworkStatus = 'disconnected' | 'checking' | 'switching' | 'ready' | 'required'
 type SessionCheckResult = 'authenticated' | 'unauthenticated' | 'unavailable'
 type LoginResult = { authenticated: boolean; rejected: boolean; error: string | null }
 type SessionContextValue = {
   status: SessionStatus
+  networkStatus: NetworkStatus
   wallet: string | null
   error: string | null
   request: (input: string, init?: RequestInit) => Promise<Response>
@@ -23,6 +27,8 @@ type SessionContextValue = {
 const SessionContext = createContext<SessionContextValue | null>(null)
 const loginInFlight = new Map<string, Promise<LoginResult>>()
 const checkInFlight = new Map<string, Promise<SessionCheckResult>>()
+const chainInFlight = new Map<string, Promise<{ ready: boolean; rejected: boolean; error: string | null }>>()
+const automaticChainAttempts = new Set<string>()
 // The server session belongs to the browser, not to a particular React mount.
 // Keep the successful hand-off visible across Strict Mode remounts and to every
 // consumer before the POST /api/auth/session promise is released.
@@ -34,6 +40,8 @@ let signatureQueue: Promise<void> = Promise.resolve()
 export function resetMarketplaceSessionCoordinatorForTests() {
   loginInFlight.clear()
   checkInFlight.clear()
+  chainInFlight.clear()
+  automaticChainAttempts.clear()
   establishedSessionWallet = null
   establishedSessionGeneration = 0
   signatureQueue = Promise.resolve()
@@ -47,7 +55,12 @@ function serializeSignature<T>(sign: () => Promise<T>) {
 }
 
 function userRejected(error: unknown) {
-  return !!error && typeof error === 'object' && 'code' in error && Number(error.code) === 4001
+  let candidate = error
+  for (let depth = 0; depth < 4 && candidate && typeof candidate === 'object'; depth += 1) {
+    if ('code' in candidate && Number(candidate.code) === 4001) return true
+    candidate = 'cause' in candidate ? candidate.cause : null
+  }
+  return false
 }
 
 function randomOperationNonce(): Hex {
@@ -57,9 +70,10 @@ function randomOperationNonce(): Hex {
 }
 
 export function MarketplaceSessionProvider({ children }: { children: React.ReactNode }) {
-  const { address } = useAccount()
+  const { address, connector } = useAccount()
   const config = useConfig()
   const { signTypedDataAsync } = useSignTypedData()
+  const { switchChainAsync } = useSwitchChain()
   const wallet = address?.toLowerCase() ?? null
   const currentWallet = useRef(wallet)
   currentWallet.current = wallet
@@ -68,7 +82,82 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
   const rejectedWallet = useRef<string | null>(null)
   const initializedSession = useRef<{ wallet: string; result: SessionCheckResult } | null>(null)
   const [status, setStatus] = useState<SessionStatus>(wallet ? 'checking' : 'disconnected')
+  const [networkStatus, setNetworkStatus] = useState<NetworkStatus>(wallet ? 'checking' : 'disconnected')
   const [error, setError] = useState<string | null>(null)
+
+  const ensureArcMainnet = useCallback(async (requestedWallet: string, explicit: boolean) => {
+    if (currentWallet.current !== requestedWallet || getAccount(config).address?.toLowerCase() !== requestedWallet) return false
+    const activeConnector = getAccount(config).connector ?? connector
+    const provider = await activeConnector?.getProvider().catch(() => null) as EIP1193Provider | null | undefined
+    if (!provider) {
+      if (currentWallet.current === requestedWallet) {
+        setNetworkStatus('required')
+        setStatus('error')
+        setError('Wallet network could not be checked. Reconnect your wallet and try again.')
+      }
+      return false
+    }
+
+    const activeChain = await providerChainId(provider).catch(() => null)
+    if (activeChain === ARC_MAINNET_CHAIN_ID) {
+      automaticChainAttempts.delete(requestedWallet)
+      if (currentWallet.current === requestedWallet) setNetworkStatus('ready')
+      return true
+    }
+
+    const existing = chainInFlight.get(requestedWallet)
+    if (existing) {
+      const result = await existing
+      if (currentWallet.current === requestedWallet) {
+        setNetworkStatus(result.ready ? 'ready' : 'required')
+        if (!result.ready) {
+          setStatus(result.rejected ? 'unauthenticated' : 'error')
+          setError(result.error)
+        }
+      }
+      return result.ready
+    }
+    if (!explicit && automaticChainAttempts.has(requestedWallet)) {
+      if (currentWallet.current === requestedWallet) {
+        setNetworkStatus('required')
+        setStatus('unauthenticated')
+        setError('Switch to Arc Mainnet to continue.')
+      }
+      return false
+    }
+
+    automaticChainAttempts.add(requestedWallet)
+    if (currentWallet.current === requestedWallet) {
+      setNetworkStatus('switching')
+      setStatus('checking')
+      setError(null)
+    }
+    const transition = (async () => {
+      try {
+        await switchChainAsync({ chainId: ARC_MAINNET_CHAIN_ID, connector: activeConnector })
+        const settled = await waitForProviderChain(provider, ARC_MAINNET_CHAIN_ID)
+        if (!settled.confirmed) throw new Error('Wallet provider did not confirm Arc Mainnet in time')
+        automaticChainAttempts.delete(requestedWallet)
+        return { ready: true, rejected: false, error: null }
+      } catch (chainError) {
+        const rejected = userRejected(chainError)
+        return { ready: false, rejected, error: rejected
+          ? 'Arc Mainnet switch was cancelled. Switch networks when you are ready to continue.'
+          : walletChainErrorMessage(chainError, 'Arc Mainnet') }
+      }
+    })().finally(() => {
+      if (chainInFlight.get(requestedWallet) === transition) chainInFlight.delete(requestedWallet)
+    })
+    chainInFlight.set(requestedWallet, transition)
+    const result = await transition
+    if (currentWallet.current !== requestedWallet || getAccount(config).address?.toLowerCase() !== requestedWallet) return false
+    setNetworkStatus(result.ready ? 'ready' : 'required')
+    if (!result.ready) {
+      setStatus(result.rejected ? 'unauthenticated' : 'error')
+      setError(result.error)
+    }
+    return result.ready
+  }, [config, connector, switchChainAsync])
 
   const checkSession = useCallback((requestedWallet: string) => {
     const existing = checkInFlight.get(requestedWallet)
@@ -131,6 +220,7 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     const request = (async (): Promise<LoginResult> => {
       try {
         if (getAccount(config).address?.toLowerCase() !== requestedWallet) throw new Error('Wallet changed')
+        if (!await ensureArcMainnet(requestedWallet, false)) throw new Error('Switch to Arc Mainnet to sign in.')
         const challengeResponse = await fetch('/api/auth/challenge', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ wallet: requestedWallet }),
@@ -192,9 +282,10 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     })
     loginInFlight.set(requestedWallet, request)
     return request
-  }, [config, signTypedDataAsync])
+  }, [config, ensureArcMainnet, signTypedDataAsync])
 
   const establishSession = useCallback(async (requestedWallet: string, explicit: boolean) => {
+    if (!await ensureArcMainnet(requestedWallet, explicit)) return false
     if (establishedSessionWallet === requestedWallet) {
       initializedSession.current = { wallet: requestedWallet, result: 'authenticated' }
       authenticatedWallet.current = requestedWallet
@@ -247,7 +338,7 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     setStatus(result.rejected ? 'unauthenticated' : 'error')
     setError(result.error)
     return false
-  }, [config, initializeSession, performLogin])
+  }, [config, ensureArcMainnet, initializeSession, performLogin])
   const establishSessionRef = useRef(establishSession)
   establishSessionRef.current = establishSession
 
@@ -296,6 +387,7 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     if (!connected) throw new Error('Connect your wallet first')
     const requestedWallet = normalizedWallet(connected)
     if (!await establishSession(requestedWallet, false)) throw new Error('Sign in with your wallet to continue')
+    if (!await ensureArcMainnet(requestedWallet, true)) throw new Error('Switch to Arc Mainnet to continue')
     const method = (init.method ?? 'GET').toUpperCase()
     const bodyText = typeof init.body === 'string' ? init.body : null
     if (init.body != null && bodyText === null) throw new Error('Sensitive requests must use a JSON string body')
@@ -321,7 +413,7 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     // Never automatically replay a one-use proof. A session failure or ambiguous
     // response is surfaced so the user can review and explicitly authorize again.
     return fetch(input, { ...init, headers, credentials: 'same-origin' })
-  }, [config, establishSession, signTypedDataAsync])
+  }, [config, ensureArcMainnet, establishSession, signTypedDataAsync])
 
   useEffect(() => {
     const priorWallet = previousWallet.current
@@ -333,17 +425,39 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     initializedSession.current = null
     setError(null)
     if (!wallet) {
+      if (priorWallet) automaticChainAttempts.delete(priorWallet)
       rejectedWallet.current = null
+      setNetworkStatus('disconnected')
       setStatus('disconnected')
       if (priorWallet) void fetch('/api/auth/session', { method: 'DELETE', credentials: 'same-origin' }).catch(() => undefined)
       return
     }
+    setNetworkStatus('checking')
     setStatus('checking')
     void establishSessionRef.current(wallet, false)
   }, [wallet])
 
-  const value = useMemo(() => ({ status, wallet, error, request, sensitiveRequest, authenticate }),
-    [authenticate, error, request, sensitiveRequest, status, wallet])
+  useEffect(() => {
+    if (!wallet || !connector) return
+    let disposed = false
+    let provider: EIP1193Provider | null = null
+    const onChainChanged = (value: unknown) => {
+      if (disposed || currentWallet.current !== wallet) return
+      setNetworkStatus(numericChainId(value) === ARC_MAINNET_CHAIN_ID ? 'ready' : 'required')
+    }
+    void connector.getProvider().then(candidate => {
+      if (disposed || !candidate) return
+      provider = candidate as EIP1193Provider
+      provider.on?.('chainChanged', onChainChanged)
+    }).catch(() => undefined)
+    return () => {
+      disposed = true
+      provider?.removeListener?.('chainChanged', onChainChanged)
+    }
+  }, [connector, wallet])
+
+  const value = useMemo(() => ({ status, networkStatus, wallet, error, request, sensitiveRequest, authenticate }),
+    [authenticate, error, networkStatus, request, sensitiveRequest, status, wallet])
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
 }
 

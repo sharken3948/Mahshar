@@ -22,10 +22,38 @@ export class WalletChainTransitionError extends Error {
   }
 }
 
-function numericChainId(value: unknown): number | null {
+export function numericChainId(value: unknown): number | null {
   if (typeof value !== 'string' && typeof value !== 'number') return null
   const parsed = typeof value === 'number' ? value : Number.parseInt(value, value.startsWith('0x') ? 16 : 10)
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+export async function providerChainId(provider: EIP1193Provider) {
+  return numericChainId(await provider.request({ method: 'eth_chainId' }))
+}
+
+/**
+ * Waits for the wallet provider itself to report the target chain. React and
+ * connector state are intentionally not accepted as proof of a completed
+ * switch because mobile wallets can publish those values before their active
+ * JSON-RPC provider has changed networks.
+ */
+export async function waitForProviderChain(
+  provider: EIP1193Provider,
+  targetChainId: number,
+  options: WaitOptions = {},
+) {
+  const timeoutMs = options.timeoutMs ?? WALLET_CHAIN_SYNC_TIMEOUT_MS
+  const pollMs = options.pollMs ?? WALLET_CHAIN_SYNC_POLL_MS
+  const sleep = options.sleep ?? (milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)))
+  const deadline = Date.now() + timeoutMs
+  let activeChainId = await providerChainId(provider)
+  while (activeChainId !== targetChainId) {
+    if (Date.now() >= deadline) return { confirmed: false as const, providerChainId: activeChainId }
+    await sleep(pollMs)
+    activeChainId = await providerChainId(provider)
+  }
+  return { confirmed: true as const, providerChainId: activeChainId }
 }
 
 export function isRawChainMismatch(error: unknown) {

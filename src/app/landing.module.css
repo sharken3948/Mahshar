@@ -368,7 +368,7 @@
 }
 
 @media (max-width: 760px) {
-  .hero { padding: 108px 20px 42px; }
+  .hero { padding: 128px 20px 42px; }
   .heroTitle { margin-top: 16px; font-size: clamp(48px, 15vw, 68px); line-height: .98; }
   .heroDescription { font-size: 17px; line-height: 1.5; }
   .heroActions { flex-direction: column; }

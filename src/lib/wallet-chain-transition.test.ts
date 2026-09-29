@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { EIP1193Provider } from 'viem'
-import { chainSynchronizedProvider, switchWalletChainAndWait, waitForWalletChain, walletChainErrorMessage } from './wallet-chain-transition'
+import { chainSynchronizedProvider, providerChainId, switchWalletChainAndWait, waitForProviderChain, waitForWalletChain, walletChainErrorMessage } from './wallet-chain-transition'
 
 function providerState(initial: number) {
   let chainId = initial
@@ -43,6 +43,21 @@ test('resolved switch waits for delayed provider and connector convergence', asy
     } },
   })
   assert.equal(result.confirmed, true)
+  assert.ok(polls >= 2)
+})
+
+test('provider-only confirmation never treats a cached connector value as proof', async () => {
+  const state = providerState(5042002)
+  let polls = 0
+  assert.equal(await providerChainId(state.provider), 5042002)
+  const result = await waitForProviderChain(state.provider, 5042, {
+    timeoutMs: 1_000, pollMs: 0, sleep: async () => {
+      polls += 1
+      if (polls === 2) state.setChainId(5042)
+    },
+  })
+  assert.equal(result.confirmed, true)
+  assert.equal(result.providerChainId, 5042)
   assert.ok(polls >= 2)
 })
 

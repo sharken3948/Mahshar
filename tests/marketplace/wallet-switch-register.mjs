@@ -9,6 +9,9 @@ export const state = globalThis.__mahsharWalletSwitchState ??= {
   signatures: 0, fetches: [], protectedFetches: [], rejectNextSignature: false, protectedError: null,
   deferSignatures: false, pendingSignatures: [], sessionExpired: false,
   deferSessionBodies: false, pendingSessionBodies: [],
+  providerChainId: 5042, providerConfirmationReady: true, pendingProviderChainId: null,
+  switchRequests: 0, rejectNextSwitch: false, providerReads: 0, chainEvents: [],
+  chainListeners: new Set(),
 }
 
 export function reset() {
@@ -19,6 +22,14 @@ export function reset() {
   state.protectedFetches = []; state.rejectNextSignature = false; state.protectedError = null
   state.deferSignatures = false; state.pendingSignatures = []; state.sessionExpired = false
   state.deferSessionBodies = false; state.pendingSessionBodies = []
+  state.providerChainId = 5042; state.providerConfirmationReady = true; state.pendingProviderChainId = null
+  state.switchRequests = 0; state.rejectNextSwitch = false; state.providerReads = 0; state.chainEvents = []
+  state.chainListeners = new Set()
+}
+
+export function emitChainChanged(chainId) {
+  state.providerChainId = chainId
+  for (const listener of state.chainListeners) listener(`0x${chainId.toString(16)}`)
 }
 
 function useState(initial) {
@@ -85,6 +96,7 @@ globalThis.window = { location: { origin: 'https://mahshar.xyz' } }
 globalThis.fetch = async (input, init = {}) => {
   const url = String(input)
   state.fetches.push({ input: url, init })
+  state.chainEvents.push(`fetch:${url}`)
   if (url.startsWith('/api/auth/session?')) {
     const requested = new URL(url, globalThis.window.location.origin).searchParams.get('wallet')
     const valid = state.serverWallet === requested && !state.sessionExpired
@@ -125,19 +137,49 @@ globalThis.fetch = async (input, init = {}) => {
   return Response.json({ ok: true })
 }
 
+const provider = {
+  request: async ({ method }) => {
+    if (method !== 'eth_chainId') return null
+    state.providerReads += 1
+    if (state.providerConfirmationReady && state.pendingProviderChainId !== null) {
+      state.providerChainId = state.pendingProviderChainId
+      state.pendingProviderChainId = null
+    }
+    return `0x${state.providerChainId.toString(16)}`
+  },
+  on: (event, listener) => { if (event === 'chainChanged') state.chainListeners.add(listener) },
+  removeListener: (event, listener) => { if (event === 'chainChanged') state.chainListeners.delete(listener) },
+}
+const connector = { getProvider: async () => provider }
+
 Module._load = function (id, parent, main) {
   if (id === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) }
   if (id === 'react') return { createContext: () => contextObject, useContext: () => state.context,
     useState, useRef, useMemo: memo, useCallback: (fn, deps) => memo(() => fn, deps), useEffect }
   if (id === 'wagmi') return {
-    useAccount: () => ({ address: state.address }), useConfig: () => state,
+    useAccount: () => ({ address: state.address, connector }), useConfig: () => state,
+    useSwitchChain: () => ({ switchChainAsync: async ({ chainId }) => {
+      state.switchRequests += 1
+      state.chainEvents.push(`switch:${chainId}`)
+      if (state.rejectNextSwitch) {
+        state.rejectNextSwitch = false
+        throw Object.assign(new Error('User rejected the request'), { code: 4001 })
+      }
+      state.pendingProviderChainId = chainId
+      if (state.providerConfirmationReady) {
+        state.providerChainId = chainId
+        state.pendingProviderChainId = null
+      }
+      return { id: chainId }
+    } }),
     useSignTypedData: () => ({ signTypedDataAsync: async () => {
       state.signatures++
+      state.chainEvents.push('signature')
       if (state.rejectNextSignature) { state.rejectNextSignature = false; throw Object.assign(new Error('rejected'), { code: 4001 }) }
       if (state.deferSignatures) return new Promise((resolve, reject) => state.pendingSignatures.push({ resolve, reject }))
       return signature
     } }),
   }
-  if (id === '@wagmi/core') return { getAccount: config => ({ address: config.address }) }
+  if (id === '@wagmi/core') return { getAccount: config => ({ address: config.address, connector }) }
   return load.call(this, id, parent, main)
 }

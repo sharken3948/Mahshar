@@ -14,6 +14,7 @@ beforeEach(() => {
   walletState.connected = true
   walletState.unsupported = false
   walletState.sessionStatus = 'authenticated'
+  walletState.networkStatus = 'ready'
   walletState.authenticationActions = 0
 })
 
@@ -66,7 +67,7 @@ test('connected wallet renders a shortened EVM identity and retains account acti
   assert.doesNotMatch(html, /display-name-must-not-render|chain-should-not-render/)
 
   const source = readFileSync('src/components/NavBar.tsx', 'utf8')
-  assert.match(source, /className=\{`\$\{styles\.walletButton\} \$\{styles\.walletIdentityButton\}`\} onClick=\{openAccountModal\}/)
+  assert.match(source, /className=\{`\$\{styles\.walletButton\} \$\{styles\.walletIdentityButton\} \$\{compact \? styles\.mobileWalletButton : ''\}`\} onClick=\{openAccountModal\}/)
   assert.match(source, /chain\.unsupported[\s\S]*onClick=\{openChainModal\}/)
 })
 
@@ -103,39 +104,56 @@ test('Signing in is transient, keeps Dashboard visible, and clears on every term
   }
 })
 
-test('disconnected mobile header offers wallet connection without an authenticated Dashboard action', () => {
+test('disconnected mobile header offers wallet connection and keeps Dashboard in the mobile menu', () => {
   walletState.connected = false
   walletState.sessionStatus = 'disconnected'
   const html = renderNav({ landing: true })
-  assert.match(html, />Connect wallet<\/button>/)
+  assert.match(html, />Connect Wallet<\/button>/)
   assert.doesNotMatch(html, /href="\/dashboard"|>Sign in<\/button>/)
+  const source = readFileSync('src/components/NavBar.tsx', 'utf8')
+  assert.match(source, /<MobileMenuLink href="\/dashboard"[^>]*>Dashboard<\/MobileMenuLink>/)
 })
 
-test('responsive header rules preserve all controls without horizontal overflow affordances', () => {
+test('approved mobile header is isolated below 768px and uses bounded two-row geometry', () => {
   const css = readFileSync('src/components/nav-bar.module.css', 'utf8')
-  const compact = css.match(/@media \(max-width: 800px\)\s*\{[\s\S]*?\n\}/)?.[0] ?? ''
-  assert.match(compact, /flex-wrap:\s*wrap/)
-  assert.match(compact, /\.landingNavLeft[^}]*width:\s*100%[^}]*flex:\s*1 1 100%/)
-  assert.match(compact, /\.landingNavRight, \.appNavRight[^}]*width:\s*100%[^}]*flex-wrap:\s*nowrap/)
-  assert.match(compact, /\.walletButton[^}]*max-width:\s*132px[^}]*overflow:\s*hidden/)
-  assert.match(compact, /\.dashboardLink[^}]*min-width:\s*100px[^}]*font-size:\s*13px/)
-  assert.match(compact, /\.primaryLabel[^}]*position:\s*static/)
-  assert.doesNotMatch(compact, /\.primaryLabel[^}]*clip-path:\s*inset/)
-  assert.match(compact, /\.networkPill[^}]*min-width:\s*112px/)
-  assert.match(compact, /\.sessionButton[^}]*max-width:\s*112px/)
-  assert.match(compact, /\.walletIdentityButton[^}]*max-width:\s*126px/)
-  assert.doesNotMatch(css, /\.networkPill\s*\{[^}]*display:\s*none/)
-  assert.doesNotMatch(css, /\.exploreGroup\s*\{[^}]*display:\s*none/)
+  const mobile = css.slice(css.indexOf('@media (max-width: 767px)'), css.indexOf('@media (max-width: 430px)'))
+  assert.match(mobile, /\.desktopHeader\s*\{\s*display:\s*none/)
+  assert.match(mobile, /\.mobileHeader[^}]*display:\s*grid[^}]*width:\s*100%[^}]*min-width:\s*0/)
+  assert.match(mobile, /\.mobileTopRow,\s*\.mobileStatusRow[^}]*min-width:\s*0/)
+  assert.match(mobile, /\.mobileStatusRow[^}]*gap:\s*8px[^}]*min-height:\s*40px/)
+  assert.match(mobile, /\.mobileNetworkStatus[^}]*min-width:\s*0[^}]*overflow:\s*hidden/)
+  assert.match(mobile, /\.walletButton\.mobileWalletButton[^}]*max-width:\s*min\(172px, 58vw\)[^}]*overflow:\s*hidden/)
+  assert.match(mobile, /\.mobileMenuPanel[^}]*right:\s*0[^}]*left:\s*0[^}]*overflow-y:\s*auto/)
+  assert.doesNotMatch(css, /(?:html|body|\*)[^{}]*\{[^}]*overflow-x:\s*hidden/)
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*animation:\s*none/)
-  const narrow = css.match(/@media \(max-width: 430px\)\s*\{[\s\S]*?\n\}/)?.[0] ?? ''
-  assert.match(narrow, /\.dashboardLink[^}]*min-width:\s*76px[^}]*font-size:\s*13px/)
-  assert.match(narrow, /\.dashboardLink svg[^}]*display:\s*none/)
-  assert.match(narrow, /\.networkPill[^}]*width:\s*36px[^}]*min-width:\s*36px/)
-  assert.match(narrow, /\.sessionButton[^}]*max-width:\s*82px/)
-  assert.match(narrow, /\.walletIdentityButton[^}]*width:\s*88px[^}]*max-width:\s*88px/)
-  assert.match(narrow, /\.landingNav \.landingNavRight[^}]*flex-wrap:\s*wrap/)
-  assert.doesNotMatch(narrow, /\.primaryLabel[^}]*display:\s*none/)
-  assert.ok(76 + 36 + 82 + 88 + (3 * 4) <= 320 - 24, 'narrow connected/signing controls must fit at 320px')
+  for (const width of [320, 360, 375, 390, 412, 430, 480]) {
+    const walletCap = width <= 430 ? 158 : Math.min(172, width * .58)
+    assert.ok(116 + 8 + walletCap <= width - 24, `${width}px compact row`)
+  }
+})
+
+test('mobile menu maps every available approved item to a real route without placeholders', () => {
+  const source = readFileSync('src/components/NavBar.tsx', 'utf8')
+  const menu = source.slice(source.indexOf('id="mahshar-mobile-menu"'), source.indexOf('</div>\n      </>}', source.indexOf('id="mahshar-mobile-menu"')))
+  for (const [label, href] of [
+    ['Marketplace', '/buyer'], ['Build', '/seller'], ['Agents', '/agents'], ['Docs', '/docs'],
+    ['Dashboard', '/dashboard'], ['Mahshar Balance', '/dashboard/wallet'], ['Wallet', '/dashboard/wallet'],
+    ['Settings', '/dashboard/settings'], ['Support', '/support'],
+  ]) assert.match(menu, new RegExp(`href="${href.replaceAll('/', '\\/')}"[^>]*>${label}`), label)
+  assert.doesNotMatch(menu, /href="(?:#|javascript:)|Community/)
+  assert.match(menu, /mobileMenuStatus[^>]*><span>Arc Mainnet<\/span>/)
+})
+
+test('every approved mobile page renders the same shared NavBar and Dashboard keeps it first', () => {
+  for (const path of ['src/app/page.tsx', 'src/app/seller/page.tsx', 'src/app/buyer/page.tsx']) {
+    assert.match(readFileSync(path, 'utf8'), /<NavBar(?:\s|\/|>)/, path)
+  }
+  const dashboardVisuals = readFileSync('src/app/dashboard/dashboard-visuals.tsx', 'utf8')
+  const dashboardLayout = readFileSync('src/app/dashboard/layout.tsx', 'utf8')
+  const dashboardCss = readFileSync('src/app/dashboard/dashboard.module.css', 'utf8')
+  assert.match(dashboardVisuals, /return <NavBar dashboard/)
+  assert.match(dashboardLayout, /<div className=\{styles\.topbar\}><DashboardNavBar \/><\/div>/)
+  assert.match(dashboardCss, /@media \(max-width: 767px\)[\s\S]*\.topbar \{ order: 0; \}[\s\S]*\.sidebar \{ order: 1; \}[\s\S]*\.main \{ order: 2; \}/)
 })
 
 test('Explore exposes only the three human-facing public destinations', () => {

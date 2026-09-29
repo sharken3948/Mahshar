@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount } from 'wagmi'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -14,7 +15,7 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
   const [balance, setBalance] = useState<string | null>(null)
   const [balanceUnavailable, setBalanceUnavailable] = useState(false)
   const { formatUsdc } = useProductPreferences()
-  const { request: authorizedFetch, status: sessionStatus, authenticate, error: sessionError } = useMarketplaceSession()
+  const { request: authorizedFetch, status: sessionStatus, networkStatus, authenticate, error: sessionError } = useMarketplaceSession()
   const currentWallet = useRef<string | null>(address?.toLowerCase() ?? null)
   currentWallet.current = address?.toLowerCase() ?? null
   const inFlight = useRef(new Map<string, { promise: Promise<void>; controller: AbortController }>())
@@ -59,11 +60,14 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
     return (
       <nav className={landing ? styles.landingNav : styles.dashboardNav} aria-label="Primary navigation">
         <div className={landing ? styles.landingNavInner : styles.dashboardNavInner}>
-          <div className={styles.landingNavLeft}>
-            {landing && <MahsharLogo variant="landing" />}
-            {!landing && <><PrimaryNavigationLink dashboard={dashboard} isConnected={isConnected} sessionStatus={sessionStatus} /><ExploreMenu /></>}
+          <div className={styles.desktopHeader}>
+            <div className={styles.landingNavLeft}>
+              {landing && <MahsharLogo variant="landing" />}
+              {!landing && <><PrimaryNavigationLink dashboard={dashboard} isConnected={isConnected} sessionStatus={sessionStatus} /><ExploreMenu /></>}
+            </div>
+            <HeaderControls leading={landing ? <><ExploreMenu /><PrimaryNavigationLink dashboard={false} isConnected={isConnected} sessionStatus={sessionStatus} /></> : undefined} isConnected={isConnected} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} connectorIcon={connector?.icon} sessionStatus={sessionStatus} authenticate={authenticate} sessionError={sessionError} />
           </div>
-          <HeaderControls leading={landing ? <><ExploreMenu /><PrimaryNavigationLink dashboard={false} isConnected={isConnected} sessionStatus={sessionStatus} /></> : undefined} isConnected={isConnected} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} connectorIcon={connector?.icon} sessionStatus={sessionStatus} authenticate={authenticate} sessionError={sessionError} />
+          <MobileHeader isConnected={isConnected} connectorIcon={connector?.icon} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} sessionStatus={sessionStatus} networkStatus={networkStatus} authenticate={authenticate} sessionError={sessionError} />
         </div>
       </nav>
     )
@@ -72,20 +76,23 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
   return (
     <nav className={styles.appNav} aria-label="Primary navigation">
       <div className={styles.appNavInner}>
-        <MahsharLogo variant="landing" />
-        <div className={styles.appNavRight}>
-          <PrimaryNavigationLink dashboard={false} isConnected={isConnected} sessionStatus={sessionStatus} />
-          {isConnected && (
-            <span className={styles.balancePill}>
-              <span>Mahshar Balance:</span>
-              <strong>${displayedBalance === null ? '—' : formatUsdc(displayedBalance)} USDC</strong>
-              {displayedUnavailable && <small role="status">Balance unavailable</small>}
-            </span>
-          )}
-          <ArcMainnetStatus />
-          <SessionControl isConnected={isConnected} status={sessionStatus} authenticate={authenticate} error={sessionError} />
-          <WalletIdentityPill connectorIcon={connector?.icon} />
+        <div className={styles.desktopHeader}>
+          <MahsharLogo variant="landing" />
+          <div className={styles.appNavRight}>
+            <PrimaryNavigationLink dashboard={false} isConnected={isConnected} sessionStatus={sessionStatus} />
+            {isConnected && (
+              <span className={styles.balancePill}>
+                <span>Mahshar Balance:</span>
+                <strong>${displayedBalance === null ? '—' : formatUsdc(displayedBalance)} USDC</strong>
+                {displayedUnavailable && <small role="status">Balance unavailable</small>}
+              </span>
+            )}
+            <ArcMainnetStatus />
+            <SessionControl isConnected={isConnected} status={sessionStatus} authenticate={authenticate} error={sessionError} />
+            <WalletIdentityPill connectorIcon={connector?.icon} />
+          </div>
         </div>
+        <MobileHeader isConnected={isConnected} connectorIcon={connector?.icon} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} sessionStatus={sessionStatus} networkStatus={networkStatus} authenticate={authenticate} sessionError={sessionError} />
       </div>
     </nav>
   )
@@ -134,20 +141,20 @@ function ArcMainnetStatus() {
   return <span className={styles.networkPill} role="status" aria-label="Arc Mainnet is live"><i aria-hidden="true" />Arc Mainnet</span>
 }
 
-function WalletIdentityPill({ connectorIcon }: { connectorIcon?: string }) {
+function WalletIdentityPill({ connectorIcon, compact = false }: { connectorIcon?: string; compact?: boolean }) {
   return (
     <ConnectButton.Custom>
       {({ account, chain, mounted, openAccountModal, openChainModal, openConnectModal }) => {
         const ready = mounted
         const connected = ready && account && chain
         if (!connected) {
-          return <button type="button" className={`${styles.walletButton} ${styles.walletIdentityButton}`} onClick={openConnectModal} disabled={!ready}>Connect wallet</button>
+          return <button type="button" className={`${styles.walletButton} ${styles.walletIdentityButton} ${compact ? styles.mobileWalletButton : ''}`} onClick={openConnectModal} disabled={!ready}>{compact ? 'Connect Wallet' : 'Connect wallet'}</button>
         }
         if (chain.unsupported) {
-          return <button type="button" className={`${styles.walletButton} ${styles.walletIdentityButton} ${styles.wrongNetwork}`} onClick={openChainModal}><span className={styles.walletMark} aria-hidden="true" />Wrong network</button>
+          return <button type="button" className={`${styles.walletButton} ${styles.walletIdentityButton} ${styles.wrongNetwork} ${compact ? styles.mobileWalletButton : ''}`} onClick={openChainModal}><span className={styles.walletMark} aria-hidden="true" />Wrong network</button>
         }
         return (
-          <button type="button" className={`${styles.walletButton} ${styles.walletIdentityButton}`} onClick={openAccountModal} aria-label={`Open account actions for ${account.address}`} title={account.address}>
+          <button type="button" className={`${styles.walletButton} ${styles.walletIdentityButton} ${compact ? styles.mobileWalletButton : ''}`} onClick={openAccountModal} aria-label={`Open account actions for ${account.address}`} title={account.address}>
             {account.ensAvatar || connectorIcon
               ? <span className={styles.walletAvatar}><img src={account.ensAvatar || connectorIcon} alt="" /></span>
               : <span className={styles.walletMark} aria-hidden="true" />}
@@ -157,6 +164,102 @@ function WalletIdentityPill({ connectorIcon }: { connectorIcon?: string }) {
       }}
     </ConnectButton.Custom>
   )
+}
+
+type SessionStatus = 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error'
+type NetworkStatus = 'disconnected' | 'checking' | 'switching' | 'ready' | 'required'
+
+function MobileHeader({ isConnected, connectorIcon, displayedBalance, balanceUnavailable, formatUsdc, sessionStatus, networkStatus, authenticate, sessionError }: {
+  isConnected: boolean
+  connectorIcon?: string
+  displayedBalance: string | null
+  balanceUnavailable: boolean
+  formatUsdc: (value: string | number) => string
+  sessionStatus: SessionStatus
+  networkStatus: NetworkStatus
+  authenticate: () => Promise<boolean>
+  sessionError: string | null
+}) {
+  const pathname = usePathname()
+  const [isOpen, setIsOpen] = useState(false)
+  const [exploreOpen, setExploreOpen] = useState(false)
+  const groupRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    setIsOpen(false)
+    setExploreOpen(false)
+  }, [pathname])
+
+  useEffect(() => {
+    if (!isOpen) return
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!groupRef.current?.contains(event.target as Node)) setIsOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setIsOpen(false)
+      buttonRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [isOpen])
+
+  const close = () => {
+    setIsOpen(false)
+    setExploreOpen(false)
+  }
+  const networkCopy = networkStatus === 'switching' ? 'Switching to Arc Mainnet…'
+    : networkStatus === 'required' ? 'Arc Mainnet required'
+      : networkStatus === 'checking' ? 'Checking Arc Mainnet…' : 'Arc Mainnet'
+
+  return (
+    <div ref={groupRef} className={styles.mobileHeader}>
+      <div className={styles.mobileTopRow}>
+        <MahsharLogo variant="landing" />
+        <button ref={buttonRef} type="button" className={styles.mobileMenuButton} aria-label={isOpen ? 'Close navigation menu' : 'Open navigation menu'} aria-controls="mahshar-mobile-menu" aria-expanded={isOpen} onClick={() => setIsOpen(open => !open)}>
+          <span /><span /><span />
+        </button>
+      </div>
+      <div className={styles.mobileStatusRow}>
+        <span className={`${styles.mobileNetworkStatus} ${styles[`mobileNetwork_${networkStatus}`]}`} role="status" aria-label={networkCopy} title={networkCopy}><i aria-hidden="true" /><span>Arc Mainnet</span></span>
+        <WalletIdentityPill connectorIcon={connectorIcon} compact />
+      </div>
+      {isOpen && <>
+        <button type="button" className={styles.mobileMenuScrim} aria-label="Close navigation menu" onClick={close} />
+        <div id="mahshar-mobile-menu" className={styles.mobileMenuPanel} aria-label="Mobile navigation">
+          <div className={styles.mobileMenuSection}>
+            <button type="button" className={styles.mobileExploreToggle} aria-expanded={exploreOpen} aria-controls="mahshar-mobile-explore" onClick={() => setExploreOpen(open => !open)}><span>Explore</span><ChevronIcon /></button>
+            {exploreOpen && <div id="mahshar-mobile-explore" className={styles.mobileExploreLinks}>
+              <MobileMenuLink href="/buyer" onSelect={close}>Marketplace</MobileMenuLink>
+              <MobileMenuLink href="/seller" onSelect={close}>Build</MobileMenuLink>
+              <MobileMenuLink href="/agents" onSelect={close}>Agents</MobileMenuLink>
+              <MobileMenuLink href="/docs" onSelect={close}>Docs</MobileMenuLink>
+            </div>}
+          </div>
+          <MobileMenuLink href="/dashboard" onSelect={close}>Dashboard</MobileMenuLink>
+          <div className={styles.mobileMenuStatus}><span>Arc Mainnet</span><strong className={styles[`mobileMenuNetwork_${networkStatus}`]}>{networkCopy}</strong></div>
+          <MobileMenuLink href="/dashboard/wallet" onSelect={close} detail={isConnected ? balanceUnavailable ? 'Balance unavailable' : `${displayedBalance === null ? '—' : formatUsdc(displayedBalance)} USDC` : 'Connect to view'}>Mahshar Balance</MobileMenuLink>
+          <MobileMenuLink href="/dashboard/wallet" onSelect={close}>Wallet</MobileMenuLink>
+          <MobileMenuLink href="/dashboard/settings" onSelect={close}>Settings</MobileMenuLink>
+          <MobileMenuLink href="/support" onSelect={close}>Support</MobileMenuLink>
+          {isConnected && sessionStatus !== 'authenticated' && sessionStatus !== 'disconnected' && <div className={styles.mobileSessionState}>
+            <p aria-live="polite">{sessionStatus === 'signing' ? 'Signing in…' : sessionStatus === 'checking' ? 'Checking session…' : sessionError ?? 'Sign in to use private features.'}</p>
+            {['unauthenticated', 'error'].includes(sessionStatus) && <button type="button" onClick={() => { void authenticate() }}>Sign in</button>}
+          </div>}
+        </div>
+      </>}
+    </div>
+  )
+}
+
+function MobileMenuLink({ href, children, detail, onSelect }: { href: string; children: ReactNode; detail?: string; onSelect: () => void }) {
+  return <Link href={href} className={styles.mobileMenuLink} onClick={onSelect}><span>{children}</span>{detail && <small>{detail}</small>}<NavArrowIcon /></Link>
 }
 
 function shortEvmAddress(address: string) {

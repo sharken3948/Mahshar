@@ -23,6 +23,17 @@
   margin: 0 auto;
 }
 
+.desktopHeader {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.mobileHeader { display: none; }
+
 .landingNavInner,
 .appNavInner { width: calc(100% - 124px); max-width: 1560px; height: 100%; }
 .dashboardNavInner { width: 100%; }
@@ -193,6 +204,7 @@
 @media (max-width: 800px) {
   .landingNav, .dashboardNav, .appNav { min-height: 102px; height: auto; }
   .landingNavInner, .dashboardNavInner, .appNavInner { width: calc(100% - 32px); min-height: 102px; flex-wrap: wrap; align-content: center; gap: 6px 10px; padding-block: 8px; }
+  .desktopHeader { min-height: 86px; flex-wrap: wrap; align-content: center; gap: 6px 10px; }
   .landingNavLeft { width: 100%; min-width: 0; flex: 1 1 100%; }
   .landingNavRight, .appNavRight { width: 100%; min-width: 0; flex-wrap: nowrap; justify-content: flex-end; gap: 8px; }
   .exploreButton { min-width: 40px; width: 40px; min-height: 40px; }
@@ -203,6 +215,211 @@
   .walletButton { min-width: 0; max-width: 132px; flex: 0 1 auto; padding-inline: 10px; overflow: hidden; text-overflow: ellipsis; }
   .sessionButton { max-width: 112px; }
   .walletIdentityButton { max-width: 126px; }
+}
+
+@media (max-width: 767px) {
+  .landingNav,
+  .dashboardNav,
+  .appNav {
+    min-height: 112px;
+    height: auto;
+  }
+
+  .landingNavInner,
+  .dashboardNavInner,
+  .appNavInner {
+    display: block;
+    width: calc(100% - 24px);
+    min-height: 112px;
+    padding: 9px 0 10px;
+  }
+
+  .desktopHeader { display: none; }
+
+  .mobileHeader {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .mobileTopRow,
+  .mobileStatusRow {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .mobileTopRow { min-height: 39px; }
+  .mobileTopRow > :first-child { min-width: 0; }
+
+  .mobileMenuButton {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 40px;
+    place-content: center;
+    gap: 5px;
+    border: 1px solid #d9e4f1;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .9);
+    box-shadow: 0 6px 18px rgba(48, 85, 132, .06);
+  }
+
+  .mobileMenuButton span {
+    display: block;
+    width: 18px;
+    height: 2px;
+    border-radius: 99px;
+    background: #173657;
+  }
+
+  .mobileMenuButton:focus-visible,
+  .mobileExploreToggle:focus-visible,
+  .mobileMenuLink:focus-visible {
+    outline: 3px solid rgba(8, 103, 237, .25);
+    outline-offset: 2px;
+  }
+
+  .mobileStatusRow { gap: 8px; min-height: 40px; }
+
+  .mobileNetworkStatus {
+    display: inline-flex;
+    min-width: 0;
+    min-height: 40px;
+    flex: 0 1 116px;
+    align-items: center;
+    gap: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(226, 234, 244, .94);
+    border-radius: 12px;
+    padding: 0 10px;
+    background: rgba(255, 255, 255, .82);
+    color: #173657;
+    font-size: 13px;
+    font-weight: 680;
+    white-space: nowrap;
+  }
+
+  .mobileNetworkStatus > span { overflow: hidden; text-overflow: ellipsis; }
+  .mobileNetworkStatus i { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #0ab176; box-shadow: 0 0 0 3px rgba(10, 177, 118, .09); }
+  .mobileNetwork_checking i, .mobileNetwork_switching i { background: #e2a62d; box-shadow: 0 0 0 3px rgba(226, 166, 45, .1); }
+  .mobileNetwork_required i { background: #c64b5b; box-shadow: 0 0 0 3px rgba(198, 75, 91, .1); }
+  .mobileNetwork_disconnected i { background: #93a0af; box-shadow: 0 0 0 3px rgba(147, 160, 175, .1); }
+
+  .walletButton.mobileWalletButton {
+    width: auto;
+    min-width: 0;
+    max-width: min(172px, 58vw);
+    min-height: 40px;
+    flex: 0 1 auto;
+    overflow: hidden;
+    padding: 0 10px;
+    border-radius: 12px;
+    font-size: 13px;
+    text-overflow: ellipsis;
+  }
+
+  .mobileWalletButton .walletAvatar { width: 24px; height: 24px; flex-basis: 24px; }
+  .mobileWalletButton .walletAddress { display: block; max-width: 100px; }
+  .mobileWalletButton > svg { width: 15px; height: 15px; flex: 0 0 15px; }
+
+  .mobileMenuScrim {
+    position: fixed;
+    z-index: -1;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+    border: 0;
+    background: rgba(22, 40, 65, .16);
+  }
+
+  .mobileMenuPanel {
+    position: absolute;
+    z-index: 2;
+    top: calc(100% + 10px);
+    right: 0;
+    left: 0;
+    display: grid;
+    max-height: calc(100dvh - 126px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    gap: 3px;
+    border: 1px solid #dce5ef;
+    border-radius: 18px;
+    padding: 9px;
+    background: rgba(255, 255, 255, .98);
+    box-shadow: 0 22px 56px rgba(32, 60, 101, .2);
+    backdrop-filter: blur(22px);
+  }
+
+  .mobileMenuSection { display: grid; gap: 3px; }
+
+  .mobileExploreToggle,
+  .mobileMenuLink,
+  .mobileMenuStatus {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: 45px;
+    align-items: center;
+    border-radius: 11px;
+    padding: 9px 12px;
+    color: #1c3857;
+    font-size: 14px;
+    font-weight: 680;
+    text-decoration: none;
+  }
+
+  .mobileExploreToggle { justify-content: space-between; background: transparent; }
+  .mobileExploreToggle svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; transition: transform .16s ease; }
+  .mobileExploreToggle[aria-expanded='true'] svg { transform: rotate(180deg); }
+  .mobileExploreToggle:hover, .mobileMenuLink:hover { background: #f1f6fc; }
+
+  .mobileExploreLinks {
+    display: grid;
+    gap: 2px;
+    margin: 0 0 4px 10px;
+    padding: 4px 0 4px 10px;
+    border-left: 2px solid #d8e6f4;
+  }
+
+  .mobileExploreLinks .mobileMenuLink { min-height: 40px; color: #55708d; font-weight: 620; }
+  .mobileMenuLink > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mobileMenuLink small { min-width: 0; margin-left: auto; overflow: hidden; color: #6f8399; font-family: var(--font-geist-mono, ui-monospace, monospace); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+  .mobileMenuLink > svg { width: 16px; height: 16px; flex: 0 0 16px; margin-left: 9px; fill: none; stroke: #91a1b2; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+
+  .mobileMenuStatus {
+    justify-content: space-between;
+    gap: 12px;
+    border-top: 1px solid #edf1f5;
+    border-bottom: 1px solid #edf1f5;
+    border-radius: 0;
+    color: #526b86;
+    font-weight: 620;
+  }
+
+  .mobileMenuStatus strong { overflow: hidden; font-size: 13px; font-weight: 720; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+  .mobileMenuNetwork_ready { color: #188359; }
+  .mobileMenuNetwork_checking, .mobileMenuNetwork_switching { color: #9a6d10; }
+  .mobileMenuNetwork_required { color: #b34252; }
+  .mobileMenuNetwork_disconnected { color: #768697; }
+
+  .mobileSessionState {
+    display: grid;
+    gap: 8px;
+    margin-top: 4px;
+    border-radius: 11px;
+    padding: 10px 12px;
+    background: #f5f8fc;
+  }
+
+  .mobileSessionState p { overflow-wrap: anywhere; color: #687d94; font-size: 13px; line-height: 1.45; }
+  .mobileSessionState button { min-height: 38px; border-radius: 9px; background: #2775ca; color: #fff; font-size: 13px; font-weight: 720; }
 }
 
 @media (max-width: 430px) {
@@ -216,6 +433,7 @@
   .walletButton { padding-inline: 7px; font-size: 13px; }
   .sessionButton { max-width: 82px; }
   .walletIdentityButton { width: 88px; max-width: 88px; }
+  .walletIdentityButton.mobileWalletButton { width: auto; max-width: 158px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

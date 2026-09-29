@@ -74,9 +74,10 @@ Module._load = function(id, parent, main) {
     useState,
   }
   if (id === 'next/link') return function Link() {}
+  if (id === 'next/navigation') return { usePathname: () => '/' }
   if (id === '@rainbow-me/rainbowkit') return { ConnectButton: function ConnectButton() {} }
   if (id === 'wagmi') return { useAccount: () => ({ address: state.address, isConnected: true }) }
-  if (id === '@/components/MarketplaceSessionProvider' || id === './MarketplaceSessionProvider') return { useMarketplaceSession: () => ({ request: globalThis.fetch, status: state.sessionStatus, authenticate: async () => true, error: null, wallet: null }) }
+  if (id === '@/components/MarketplaceSessionProvider' || id === './MarketplaceSessionProvider') return { useMarketplaceSession: () => ({ request: globalThis.fetch, status: state.sessionStatus, networkStatus: state.address ? 'ready' : 'disconnected', authenticate: async () => true, error: null, wallet: null }) }
   if (id === './MahsharLogo') return { MahsharLogo: function MahsharLogo() {} }
   if (id === './ProductPreferencesProvider') return { useProductPreferences: () => ({ formatUsdc: value => String(value) }) }
   return load.call(this, id, parent, main)

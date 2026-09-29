@@ -234,8 +234,12 @@
 
 @media (max-width: 767px) {
   .shell { --page-gutter: 16px; --card-gap: 16px; --card-padding: 20px; --header-height: 104px; }
+  .shell { display: flex; flex-direction: column; }
+  .topbar { order: 0; }
+  .sidebar { order: 1; }
+  .main { order: 2; }
   .sidebar { position: relative; width: 100%; padding: 8px 16px 12px; border-right: 0; border-bottom: 1px solid #e7edf3; }
-  .wordmark { margin: 0 auto 10px; }
+  .wordmark { display: none; }
   .navLabel, .sidebarFooter { display: none; }
   .sectionNav { flex-direction: row; overflow-x: auto; gap: 5px; scrollbar-width: thin; }
   .sectionNav a, .sectionNav button { min-height: 40px; padding: 10px 12px; font-size: 15px; flex-shrink: 0; gap: 8px; }

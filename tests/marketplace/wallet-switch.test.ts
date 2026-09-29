@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test } from 'node:test'
 import { MarketplaceSessionProvider, resetMarketplaceSessionCoordinatorForTests } from '../../src/components/MarketplaceSessionProvider'
-import { alice, bob, flush, releaseSessionBodies, remount, render, replayEffects, reset, runEffects,
+import { alice, bob, emitChainChanged, flush, releaseSessionBodies, remount, render, replayEffects, reset, runEffects,
   signature, state } from './wallet-switch-register.mjs'
 
 beforeEach(() => {
@@ -16,6 +16,98 @@ async function connect() {
   context = render(MarketplaceSessionProvider)
   return context
 }
+
+async function wait(milliseconds: number) {
+  await new Promise(resolve => setTimeout(resolve, milliseconds))
+  await flush()
+}
+
+for (const [label, chainId] of [['Arc Testnet', 5042002], ['BNB', 56], ['Ethereum', 1]] as const) {
+  test(`${label} reconnect switches once to provider-confirmed Arc Mainnet before session restoration`, async () => {
+    state.providerChainId = chainId
+    state.serverWallet = alice
+    render(MarketplaceSessionProvider)
+    runEffects()
+    await flush()
+    const context = render(MarketplaceSessionProvider)
+    assert.equal(state.switchRequests, 1)
+    assert.equal(state.providerChainId, 5042)
+    assert.equal(context.status, 'authenticated')
+    assert.equal(context.networkStatus, 'ready')
+    assert.equal(state.signatures, 0)
+    assert.ok(state.chainEvents.indexOf('switch:5042') < state.chainEvents.findIndex((value: string) => value.startsWith('fetch:/api/auth/session?')))
+  })
+}
+
+test('delayed provider confirmation blocks session checks and signatures until eth_chainId is 5042', async () => {
+  state.providerChainId = 5042002
+  state.providerConfirmationReady = false
+  state.serverWallet = alice
+  const context = render(MarketplaceSessionProvider)
+  runEffects()
+  const request = context.request('/api/calls')
+  await flush()
+  assert.equal(state.switchRequests, 1)
+  assert.equal(state.signatures, 0)
+  assert.equal(state.fetches.length, 0)
+  state.providerConfirmationReady = true
+  await wait(180)
+  assert.equal((await request).ok, true)
+  assert.equal(state.providerChainId, 5042)
+  assert.equal(state.signatures, 0)
+})
+
+test('a rejected Arc Mainnet switch stops without a retry loop or login signature', async () => {
+  state.providerChainId = 1
+  state.rejectNextSwitch = true
+  render(MarketplaceSessionProvider)
+  runEffects()
+  await flush()
+  let context = render(MarketplaceSessionProvider)
+  assert.equal(state.switchRequests, 1)
+  assert.equal(state.signatures, 0)
+  assert.equal(state.fetches.length, 0)
+  assert.equal(context.networkStatus, 'required')
+  assert.equal(context.status, 'unauthenticated')
+  replayEffects()
+  await flush()
+  context = render(MarketplaceSessionProvider)
+  assert.equal(state.switchRequests, 1)
+  assert.equal(context.status, 'unauthenticated')
+})
+
+test('simultaneous consumers share one Arc Mainnet switch and cannot sign early', async () => {
+  state.providerChainId = 56
+  state.providerConfirmationReady = false
+  const context = render(MarketplaceSessionProvider)
+  runEffects()
+  const reads = [context.request('/api/calls'), context.request('/api/seller/calls')]
+  await flush()
+  assert.equal(state.switchRequests, 1)
+  assert.equal(state.signatures, 0)
+  assert.equal(state.fetches.length, 0)
+  state.providerConfirmationReady = true
+  await wait(180)
+  await Promise.all(reads)
+  assert.equal(state.switchRequests, 1)
+  assert.equal(state.signatures, 1)
+})
+
+test('external chain changes update network state without invalidating the valid browser session', async () => {
+  state.serverWallet = alice
+  render(MarketplaceSessionProvider)
+  runEffects()
+  await flush()
+  assert.equal(render(MarketplaceSessionProvider).status, 'authenticated')
+  emitChainChanged(1)
+  let context = render(MarketplaceSessionProvider)
+  assert.equal(context.networkStatus, 'required')
+  assert.equal(context.status, 'authenticated')
+  emitChainChanged(5042)
+  context = render(MarketplaceSessionProvider)
+  assert.equal(context.networkStatus, 'ready')
+  assert.equal(context.status, 'authenticated')
+})
 
 test('initial connection and simultaneous private requests share one login signature', async () => {
   const context = render(MarketplaceSessionProvider)
