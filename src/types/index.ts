@@ -21,6 +21,7 @@ export interface ApiListing {
   created_at: string;
   is_active: boolean;
   verified_at: string | null;
+  credential_configured?: boolean;
   expected_status_codes: number[] | null;
   request_schema?: Record<string, unknown> | null;
   response_schema?: Record<string, unknown> | null;

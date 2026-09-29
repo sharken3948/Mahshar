@@ -1,5 +1,22 @@
 .form { width: 100%; }
 
+.editPageHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 26px;
+}
+.editPageHeader h1 { margin: 5px 0 0; color: #172b45; font-size: clamp(30px, 2.2vw, 40px); font-weight: 780; letter-spacing: -.045em; line-height: 1.08; }
+.editPageHeader p { margin: 9px 0 0; color: #6f8197; font-size: 15px; line-height: 1.55; }
+.editEyebrow { display: block; margin-top: 15px; color: #2775ca; font-size: 13px; font-weight: 800; letter-spacing: .09em; }
+.backButton { padding: 0; border: 0; background: transparent; color: #4e6f94; font-size: 14px; font-weight: 700; cursor: pointer; }
+.backButton:hover { color: #2775ca; }
+.listingState { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-bottom: 5px; }
+.listingState span { padding: 7px 10px; border-radius: 999px; font-size: 13px; font-weight: 750; white-space: nowrap; }
+.stateActive, .stateVerified { border: 1px solid #b9e3cb; background: #eefaf3; color: #247b54; }
+.stateInactive, .stateUnverified { border: 1px solid #ead8b5; background: #fff9ed; color: #8a662d; }
+
 .alert,
 .notice {
   margin-bottom: 18px;
@@ -10,6 +27,9 @@
 }
 .alert { border: 1px solid #f1c9c5; background: #fff5f4; color: #a43a31; }
 .notice { border: 1px solid #bcdcc9; background: #f2fbf6; color: #26704e; }
+.legacyNotice { display: grid; gap: 4px; margin-bottom: 18px; padding: 14px 16px; border: 1px solid #ead3a9; border-radius: 12px; background: #fff9ed; color: #795b2a; font-size: 14px; line-height: 1.45; }
+.legacyNotice strong { color: #78501d; }
+.legacyNotice small { color: #937749; font-size: 13px; }
 
 .workspace {
   display: grid;
@@ -76,6 +96,7 @@
 textarea.input { resize: vertical; }
 .inputError { border-color: #d66b61; background: #fffafa; }
 .fieldError { color: #b4483f; font-size: 13px; line-height: 1.4; }
+.credentialHint { color: #7a8ba0; font-size: 13px; font-weight: 500; line-height: 1.45; }
 
 .endpointRow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 13px; align-items: end; }
 .endpointField { min-width: 0; }
@@ -154,6 +175,16 @@ textarea.input { resize: vertical; }
 .previewButton { min-width: 92px; padding: 0 16px; border: 1px solid #bfd2e8; background: #fff; color: #2775ca; }
 .previewButton:hover { border-color: #8fb4da; background: #f8fbff; }
 .publishButton { min-width: 136px; padding: 0 20px; border: 0; background: #19a765; color: #fff; box-shadow: 0 7px 16px #19a76524; }
+.saveButton { display: inline-flex; min-width: 136px; min-height: 48px; align-items: center; justify-content: center; gap: 8px; padding: 0 20px; border: 0; border-radius: 11px; background: #2775ca; color: #fff; font-size: 14px; font-weight: 750; box-shadow: 0 7px 16px #2775ca24; cursor: pointer; }
+.saveButton:disabled { cursor: not-allowed; opacity: .5; }
+.lifecycleNotice { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid #ead3a9; border-radius: 11px; background: #fff9ed; color: #795b2a; font-size: 13px; line-height: 1.45; }
+.lifecycleNotice strong { flex: 0 0 auto; color: #7d541f; }
+.lifecycleActions { display: flex; align-items: center; gap: 10px; padding-top: 1px; }
+.lifecycleActions button { min-height: 40px; flex: 0 0 auto; padding: 8px 14px; border: 1px solid #b9cde3; border-radius: 10px; background: #fff; color: #2775ca; font-size: 13px; font-weight: 750; cursor: pointer; }
+.lifecycleActions button:disabled { cursor: not-allowed; opacity: .48; }
+.lifecycleActions .activateButton { border-color: #95d3b1; background: #effaf4; color: #207b52; }
+.lifecycleActions .deactivateButton { border-color: #e8c8c2; background: #fff6f5; color: #a34940; }
+.lifecycleActions p { margin: 0 0 0 auto; color: #74869a; font-size: 13px; line-height: 1.45; text-align: right; }
 
 .assistant {
   position: sticky;
@@ -244,6 +275,8 @@ textarea.input { resize: vertical; }
 }
 
 @media (max-width: 700px) {
+  .editPageHeader { align-items: flex-start; flex-direction: column; }
+  .listingState { justify-content: flex-start; }
   .endpointRow,
   .credentialGrid,
   .exampleGrid { grid-template-columns: minmax(0, 1fr); }
@@ -266,6 +299,10 @@ textarea.input { resize: vertical; }
   .parameterEditor > summary { width: 100%; text-align: center; }
   .assistantHeader,
   .assistantSection { padding-inline: 18px; }
+  .lifecycleNotice,
+  .lifecycleActions { align-items: stretch; flex-direction: column; }
+  .lifecycleActions p { margin-left: 0; text-align: left; }
+  .lifecycleActions button { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

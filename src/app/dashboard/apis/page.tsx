@@ -3,17 +3,14 @@
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
-import type { AuthType } from '@/types'
 import { buildViewCodeSnippet, renderHighlightedSnippet } from '@/lib/snippets'
 import { DashboardCardHeader, DashboardIcon } from '../dashboard-visuals'
 import { useDashboardWorkspace } from '../dashboard-workspace'
-import type { ListingEditForm } from '../dashboard-workspace'
-import { RequestParameterEditor } from '@/components/RequestParameterEditor'
+import { EditListingForm } from '@/components/EditListingForm'
 import { useProductPreferences } from '@/components/ProductPreferencesProvider'
 import { paidCallCount } from '@/lib/marketplace/seller-statistics'
 import styles from '../dashboard.module.css'
 
-const CATEGORIES = ['AI', 'Data', 'Finance', 'Weather', 'Geo', 'Social', 'Media', 'Utility', 'Other']
 const inputCls = 'w-full rounded-lg border border-[#2775CA] bg-[#FAFAF8] px-3 py-2.5 text-sm text-[#0D0D0D] placeholder-[#6B7280] focus:border-[#2775CA] focus:outline-none focus:ring-1 focus:ring-[#2775CA] transition-colors'
 
 function successTone(rate: number) {
@@ -37,8 +34,6 @@ export default function ApisDashboardPage() {
     setEditingApi,
     showEditModal,
     setShowEditModal,
-    editForm,
-    setEditForm,
     deletingApiId,
     setDeletingApiId,
     deleteConfirmText,
@@ -51,7 +46,7 @@ export default function ApisDashboardPage() {
     viewApiLoading,
     viewApiCopied,
     setViewApiCopied,
-    handleEditSave,
+    updateEditedListing,
     handleDeleteConfirm,
     toggleActive,
     handleViewApi,
@@ -67,6 +62,11 @@ export default function ApisDashboardPage() {
         <ConnectButton />
       </div>
     )
+  }
+
+  if (showEditModal && editingApi) {
+    return <div className={styles.content}><EditListingForm listing={editingApi}
+      onClose={() => { setShowEditModal(false); setEditingApi(null) }} onListingChange={updateEditedListing} /></div>
   }
 
   const totalCalls = paidCallCount(sellerEarnings)
@@ -134,7 +134,6 @@ export default function ApisDashboardPage() {
         </div>
       )}
 
-      {showEditModal && editingApi && <EditModal editForm={editForm} setEditForm={setEditForm} apiActionError={apiActionError} onClose={() => { setShowEditModal(false); setEditingApi(null) }} onSave={handleEditSave} />}
       {deletingApiId !== null && (() => { const api = myApis.find(item => item.id === deletingApiId); return api ? <DeleteModal apiName={api.name} value={deleteConfirmText} setValue={setDeleteConfirmText} apiActionError={apiActionError} onClose={() => { setDeletingApiId(null); setDeleteConfirmText(''); setApiActionError(null) }} onDelete={handleDeleteConfirm} /> : null })()}
       {detailsApi !== null && (() => { const group = callGroups.find(item => item.apiId === detailsApi); return group ? <BuyDetailsModal group={group} onClose={() => setDetailsApi(null)} /> : null })()}
       {detailsSellApi !== null && (() => { const group = sellCallGroups.find(item => item.api_id === detailsSellApi); return group ? <SellDetailsModal group={group} onClose={() => setDetailsSellApi(null)} /> : null })()}
@@ -189,25 +188,6 @@ function ApiRowActions({ active, onToggle, onEdit, onDelete }: { active: boolean
 function ActivityTable({ title, empty, groups, buyer, onDetails, onView }: { title: string; empty: string; groups: Array<{ apiId?: string; api_id?: string; name?: string; api_name?: string; count: number; avgLatency: number; successRate: number; lastCalled: string; spent?: number; method?: string }>; buyer?: boolean; onDetails: (id: string) => void; onView?: (id: string, name: string, method: string) => Promise<void> }) {
   const { formatUsdc } = useProductPreferences()
   return <section><h2 className="mb-4 text-lg font-bold text-[#0D0D0D]">{title}</h2>{groups.length === 0 ? <div className="bg-white border border-[#2775CA] rounded-xl p-8 text-center"><p className="text-[#6B7280] text-sm">{empty}</p></div> : <div className="bg-[#FAFAF8] border border-[#2775CA] rounded-xl overflow-x-auto"><table className="w-full whitespace-nowrap text-sm"><thead className="border-b border-[#2775CA]"><tr className="text-left text-[#6B7280]"><th className="px-6 py-4 font-medium">API</th><th className="px-6 py-4 font-medium">Calls</th><th className="px-6 py-4 font-medium">Avg Latency</th><th className="px-6 py-4 font-medium">Success</th>{buyer && <th className="px-6 py-4 font-medium">Spent</th>}<th className="px-6 py-4 font-medium">Last Called</th><th className="px-6 py-4 font-medium"></th></tr></thead><tbody>{groups.map(group => { const id = group.apiId ?? group.api_id ?? ''; const name = group.name ?? group.api_name ?? 'Unknown'; return <tr key={id} className="border-b border-[#2775CA] hover:bg-[#F5F5F0]"><td className="px-6 py-4 font-medium text-[#0D0D0D]">{name}</td><td className="px-6 py-4 text-[#0D0D0D]">{group.count}</td><td className="px-6 py-4 text-[#0D0D0D]">{group.avgLatency}ms</td><td className="px-6 py-4"><span className={`px-2 py-1 rounded-full text-xs font-medium ${successTone(group.successRate)}`}>{group.successRate}%</span></td>{buyer && <td className="px-6 py-4 text-[#0D0D0D]">${formatUsdc(group.spent ?? 0)}</td>}<td className="px-6 py-4 text-[#6B7280]">{new Date(group.lastCalled).toLocaleString()}</td><td className="px-6 py-4"><div className="flex gap-2"><button onClick={() => onDetails(id)} className="bg-[#00B050] hover:bg-[#008F42] text-white px-3 py-1 rounded-lg text-xs font-medium transition-colors">Details</button>{buyer && onView && <button onClick={() => void onView(id, name, group.method ?? 'GET')} className="bg-[#2775CA] hover:bg-[#1E63B5] text-white px-3 py-1 rounded-lg text-xs font-medium transition-colors">View API</button>}</div></td></tr> })}</tbody></table></div>}</section>
-}
-
-function EditModal({ editForm, setEditForm, apiActionError, onClose, onSave }: { editForm: ListingEditForm; setEditForm: React.Dispatch<React.SetStateAction<ListingEditForm>>; apiActionError: string | null; onClose: () => void; onSave: () => Promise<void> }) {
-  return <Modal onClose={onClose}>
-    <div className="px-6 py-4 border-b border-[#2775CA] flex items-center justify-between"><span className="font-bold text-[#0D0D0D]">Edit API</span><button onClick={onClose} className="text-[#6B7280] text-xl leading-none">&times;</button></div>
-    <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
-      <Field label="Name"><input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} className={inputCls} /></Field>
-      <div className="grid grid-cols-2 gap-4"><Field label="Category"><select value={editForm.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))} className={inputCls}>{CATEGORIES.map(category => <option key={category} value={category}>{category}</option>)}</select></Field><Field label="HTTP Method"><select value={editForm.method} onChange={e => setEditForm(f => ({ ...f, method: e.target.value, body_required: e.target.value === 'POST' || e.target.value === 'PUT', ...(e.target.value === 'GET' ? { example_request: '' } : {}) }))} className={inputCls}>{['GET', 'POST', 'PUT', 'DELETE'].map(method => <option key={method}>{method}</option>)}</select></Field></div>
-      <div className="grid grid-cols-2 gap-4"><Field label="Auth Type"><select value={editForm.auth_type} onChange={e => setEditForm(f => ({ ...f, auth_type: e.target.value as AuthType }))} className={inputCls}><option value="public">Public (no auth)</option><option value="apikey">API Key (x-api-key)</option><option value="bearer">Bearer Token</option><option value="queryparam">Query Parameter</option></select></Field><Field label="Price per call (USDC)"><input type="number" step="0.0001" min="0.0001" value={editForm.price_per_call} onChange={e => setEditForm(f => ({ ...f, price_per_call: e.target.value }))} className={inputCls} /></Field></div>
-      {editForm.auth_type === 'queryparam' && <Field label="Credential query parameter"><input value={editForm.auth_param_name} onChange={e => setEditForm(f => ({ ...f, auth_param_name: e.target.value }))} placeholder="e.g. api_key" className={inputCls} /><p className="mt-1 text-xs text-[#6B7280]">Mahshar injects its encrypted value. Buyers cannot set this parameter.</p></Field>}
-      <Field label="Description"><textarea rows={3} value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} className={inputCls} /></Field>
-      <Field label="Endpoint URL"><input value={editForm.endpoint_url} onChange={e => setEditForm(f => ({ ...f, endpoint_url: e.target.value }))} className={inputCls} /></Field>
-      <details className="rounded-xl border border-[#D8E3F2] p-4"><summary className="cursor-pointer text-sm font-semibold">Path and query inputs</summary><div className="mt-4 space-y-4"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={editForm.dynamic_path_supported} onChange={e => setEditForm(f => ({ ...f, dynamic_path_supported: e.target.checked }))} />This endpoint accepts variable path segments</label>{editForm.dynamic_path_supported && <RequestParameterEditor location="path" value={editForm.path_parameters} onChange={value => setEditForm(f => ({ ...f, path_parameters: value }))} />}<RequestParameterEditor location="query" value={editForm.query_parameters} onChange={value => setEditForm(f => ({ ...f, query_parameters: value }))} /></div></details>
-      {editForm.method !== 'GET' && <Field label="Example JSON body"><label className="mb-2 flex items-center gap-2 text-xs"><input type="checkbox" checked={editForm.body_required} onChange={e => setEditForm(f => ({ ...f, body_required: e.target.checked }))} />Body required</label><textarea rows={6} value={editForm.example_request} onChange={e => setEditForm(f => ({ ...f, example_request: e.target.value }))} className={inputCls} spellCheck={false} /></Field>}
-      {editForm.method === 'GET' && <p className="rounded-lg bg-[#EEF6FF] p-3 text-xs text-[#31557D]">GET requests do not forward JSON bodies. Define buyer input as path or query parameters above.</p>}
-      {apiActionError && <p className="text-xs text-[#DC2626]">{apiActionError}</p>}
-    </div>
-    <div className="px-6 py-4 border-t border-[#2775CA] flex gap-3 justify-end"><button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium border border-[#2775CA] text-[#6B7280]">Cancel</button><button onClick={() => { void onSave() }} className="px-4 py-2 rounded-lg text-sm font-medium bg-[#2775CA] text-white">Save</button></div>
-  </Modal>
 }
 
 function DeleteModal({ apiName, value, setValue, apiActionError, onClose, onDelete }: { apiName: string; value: string; setValue: (value: string) => void; apiActionError: string | null; onClose: () => void; onDelete: () => Promise<void> }) {

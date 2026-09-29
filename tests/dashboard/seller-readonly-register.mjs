@@ -41,7 +41,6 @@ export const world = /** @type {any} */ ({
   detailsSellApi: null,
   editingApi: null,
   showEditModal: false,
-  editForm: { name: '', category: '', description: '', endpoint_url: '', auth_type: 'public', price_per_call: '' },
   deletingApiId: null,
   deleteConfirmText: '',
   apiActionError: null,
@@ -50,8 +49,8 @@ export const world = /** @type {any} */ ({
   viewApiLoading: false,
   viewApiCopied: false,
   setDetailsApi: () => {}, setDetailsSellApi: () => {}, setEditingApi: () => {}, setShowEditModal: () => {},
-  setEditForm: () => {}, setDeletingApiId: () => {}, setDeleteConfirmText: () => {}, setApiActionError: () => {},
-  setViewApiModal: () => {}, setViewApiCopied: () => {}, handleEditSave: async () => {}, handleDeleteConfirm: async () => {},
+  setDeletingApiId: () => {}, setDeleteConfirmText: () => {}, setApiActionError: () => {},
+  setViewApiModal: () => {}, setViewApiCopied: () => {}, updateEditedListing: () => {}, handleDeleteConfirm: async () => {},
   toggleActive: async () => {}, handleViewApi: async () => {}, beginEditApi: async () => {},
   gatewayStats: { gatewayAvailable: '0' },
   walletUsdcRaw: 0n,
@@ -71,5 +70,6 @@ Module._load = function (id, parent, main) {
     UsdcUnit: () => React.createElement('span', null, 'USDC'),
   }
   if (id === '@/components/ProductPreferencesProvider') return { useProductPreferences: () => ({ formatUsdc: value => Number(value).toFixed(4) }) }
+  if (id === '@/components/EditListingForm') return { EditListingForm: () => React.createElement('div', null, 'Edit listing') }
   return load.call(this, id, parent, main)
 }

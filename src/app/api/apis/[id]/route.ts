@@ -52,6 +52,7 @@ export const GET = withWalletSession(async (_request: NextRequest, wallet: strin
       created_at: listing.created_at,
       is_active: listing.is_active,
       verified_at: listing.verified_at,
+      credential_configured: Boolean(listing.encrypted_key),
       request_contract_error: requestContract.ok ? null : requestContract.error,
     },
   })

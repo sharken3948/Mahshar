@@ -1,5 +1,5 @@
 import { withWalletSession, requireListingOwner } from '@/lib/marketplace/server'
-import { matchListingConfiguration } from '@/lib/marketplace/listing-security'
+import { matchListingVerificationConfiguration } from '@/lib/marketplace/listing-security'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { decryptKey } from '@/lib/crypto'
@@ -92,7 +92,7 @@ export const POST = withWalletSession(async (
         error: 'Verification response exceeds Mahshar\'s delivery size limit', success: false, verified: false,
         response_size_bytes: size.serializedBytes, response_size_blocked: true,
       }, { status: 413 })
-      const { data, error } = await matchListingConfiguration(supabase
+      const { data, error } = await matchListingVerificationConfiguration(supabase
         .from('api_listings').update({ verified_at: new Date().toISOString() })
         .eq('id', id).ilike('seller_wallet', wallet), listing).select('id')
       if (error) return NextResponse.json({ error: 'Verification persistence failed' }, { status: 500 })

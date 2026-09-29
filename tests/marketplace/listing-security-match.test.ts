@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { matchListingConfiguration, SENSITIVE_CONFIGURATION } from '../../src/lib/marketplace/listing-security'
+import { matchListingConfiguration, matchListingVerificationConfiguration, SENSITIVE_CONFIGURATION,
+  VERIFICATION_CONFIGURATION } from '../../src/lib/marketplace/listing-security'
 
 type Call = { column: string; operator: string; value: unknown }
 function recorder() {
@@ -62,4 +63,19 @@ test('matchListingConfiguration passes text and boolean columns through unchange
   assert.deepEqual(findCall(calls, 'body_required'), { column: 'body_required', operator: 'eq', value: true })
   assert.deepEqual(findCall(calls, 'dynamic_path_supported'),
     { column: 'dynamic_path_supported', operator: 'eq', value: true })
+})
+
+test('verification compare-and-set also binds the representative request and expected status array', () => {
+  const { calls, builder } = recorder()
+  matchListingVerificationConfiguration(builder, {
+    endpoint_url: 'https://seller.example/data', auth_type: 'public', encrypted_key: null,
+    auth_param_name: null, method: 'POST', body_required: true, dynamic_path_supported: false,
+    path_parameters: [], query_parameters: [], example_request: '{"value":1}', expected_status_codes: [400, 422],
+  })
+
+  assert.equal(calls.length, VERIFICATION_CONFIGURATION.length)
+  assert.deepEqual(findCall(calls, 'example_request'),
+    { column: 'example_request', operator: 'eq', value: '{"value":1}' })
+  assert.deepEqual(findCall(calls, 'expected_status_codes'),
+    { column: 'expected_status_codes', operator: 'eq', value: '{400,422}' })
 })

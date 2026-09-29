@@ -35,8 +35,9 @@ test('sensitive listing authorization is explicit and never automatically replay
   assert.match(sensitive, /OPERATION_AUTH_HEADER/)
   assert.match(sensitive, /serializeSignature/)
   assert.doesNotMatch(sensitive, /response\.status !== 401|return fetch\(input[\s\S]*return fetch\(input/)
-  const dashboard = readFileSync('src/app/dashboard/dashboard-workspace.tsx', 'utf8')
-  assert.match(dashboard, /sensitiveChanged \? sensitiveRequest : authorizedFetch/)
+  const editor = readFileSync('src/components/EditListingForm.tsx', 'utf8')
+  assert.match(editor, /requiresFreshAuthorization \? sensitiveRequest : marketplaceFetch/)
+  assert.match(editor, /FRESH_AUTHORIZATION_FIELDS/)
 })
 test('dashboard private accounting refreshes require wallet authorization', () => {
   const source = readFileSync('src/app/dashboard/dashboard-workspace.tsx', 'utf8')

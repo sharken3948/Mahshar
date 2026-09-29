@@ -8,7 +8,6 @@ import { usdcAmount } from '@/lib/circle-bridge'
 import { AppKit, UnifiedBalanceChain } from '@circle-fin/app-kit'
 import { createViemAdapterFromProvider } from '@circle-fin/adapter-viem-v2'
 import type { ApiListing, AuthType } from '@/types'
-import type { DeclaredParameter } from '@/lib/marketplace/proxy-target'
 import { useBridgeBalances } from '@/hooks/useBridgeBalances'
 import { useBridge } from '@/hooks/useBridge'
 import { ARC, ARC_MAINNET } from '@/lib/arc'
@@ -79,22 +78,6 @@ interface ReadOnlySellerListing {
 interface ReadOnlySellerStatistics extends SellerEarnings {
   total_calls: number
   listings: ReadOnlySellerListing[]
-}
-
-export interface ListingEditForm {
-  name: string
-  category: string
-  description: string
-  endpoint_url: string
-  auth_type: AuthType
-  auth_param_name: string
-  price_per_call: string
-  method: string
-  example_request: string
-  body_required: boolean
-  dynamic_path_supported: boolean
-  path_parameters: DeclaredParameter[]
-  query_parameters: DeclaredParameter[]
 }
 
 interface SellCallEntry {
@@ -178,7 +161,6 @@ function useDashboardWorkspaceState() {
   const [detailsSellApi, setDetailsSellApi] = useState<string | null>(null)
   const [editingApi, setEditingApi] = useState<ApiListing | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
-  const [editForm, setEditForm] = useState<ListingEditForm>({ name: '', category: '', description: '', endpoint_url: '', auth_type: 'public', auth_param_name: '', price_per_call: '', method: 'GET', example_request: '', body_required: false, dynamic_path_supported: false, path_parameters: [], query_parameters: [] })
   const [deletingApiId, setDeletingApiId] = useState<string | null>(null)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [apiActionError, setApiActionError] = useState<string | null>(null)
@@ -538,21 +520,6 @@ function useDashboardWorkspaceState() {
       if (!response.ok || !payload.api) throw new Error(payload.error ?? 'The listing could not be loaded for editing.')
       const api = payload.api
       setEditingApi(api)
-      setEditForm({
-        name: api.name,
-        category: api.category,
-        description: api.description,
-        endpoint_url: api.endpoint_url,
-        auth_type: api.auth_type,
-        auth_param_name: api.auth_param_name ?? '',
-        price_per_call: String(api.price_per_call),
-        method: api.method ?? 'GET',
-        example_request: api.example_request ?? '',
-        body_required: api.body_required === true,
-        dynamic_path_supported: api.dynamic_path_supported === true,
-        path_parameters: Array.isArray(api.path_parameters) ? api.path_parameters as DeclaredParameter[] : [],
-        query_parameters: Array.isArray(api.query_parameters) ? api.query_parameters as DeclaredParameter[] : [],
-      })
       setShowEditModal(true)
     } catch (error) {
       if (!isCurrentWallet(wallet)) return
@@ -843,71 +810,9 @@ function useDashboardWorkspaceState() {
     }
   }
 
-  async function handleEditSave() {
-    if (!editingApi || !address) return
-    const wallet = address.toLowerCase()
-    setApiActionError(null)
-    const nextAuthParamName = editForm.auth_type === 'queryparam' ? editForm.auth_param_name : editingApi.auth_param_name
-    try {
-      const sensitiveChanged = editingApi.endpoint_url !== editForm.endpoint_url
-        || editingApi.auth_type !== editForm.auth_type
-        || (editingApi.auth_param_name ?? '') !== (editForm.auth_type === 'queryparam' ? editForm.auth_param_name : (editingApi.auth_param_name ?? ''))
-        || (editingApi.method ?? 'GET') !== editForm.method
-        || editingApi.body_required !== editForm.body_required
-        || editingApi.dynamic_path_supported !== editForm.dynamic_path_supported
-        || JSON.stringify(editingApi.path_parameters ?? []) !== JSON.stringify(editForm.path_parameters)
-        || JSON.stringify(editingApi.query_parameters ?? []) !== JSON.stringify(editForm.query_parameters)
-      const res = await (sensitiveChanged ? sensitiveRequest : authorizedFetch)(`/api/apis/${editingApi.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          seller_wallet: address,
-          name: editForm.name,
-          category: editForm.category,
-          description: editForm.description,
-          endpoint_url: editForm.endpoint_url,
-          auth_type: editForm.auth_type,
-          ...(editForm.auth_type === 'queryparam' ? { auth_param_name: editForm.auth_param_name } : {}),
-          price_per_call: parseFloat(editForm.price_per_call),
-          method: editForm.method,
-          example_request: editForm.method === 'GET' ? '' : editForm.example_request,
-          body_required: editForm.method === 'GET' ? false : editForm.body_required,
-          dynamic_path_supported: editForm.dynamic_path_supported,
-          path_parameters: editForm.dynamic_path_supported ? editForm.path_parameters : [],
-          query_parameters: editForm.query_parameters,
-        }),
-      })
-      if (!isCurrentWallet(wallet)) return
-      if (res.ok) {
-        setMyApis(prev => prev.map(a => a.id === editingApi.id ? {
-          ...a,
-          name: editForm.name,
-          category: editForm.category,
-          description: editForm.description,
-          endpoint_url: editForm.endpoint_url,
-          auth_type: editForm.auth_type,
-          auth_param_name: nextAuthParamName,
-          price_per_call: parseFloat(editForm.price_per_call),
-          method: editForm.method,
-          example_request: editForm.method === 'GET' ? '' : editForm.example_request,
-          body_required: editForm.method === 'GET' ? false : editForm.body_required,
-          dynamic_path_supported: editForm.dynamic_path_supported,
-          path_parameters: editForm.dynamic_path_supported ? editForm.path_parameters : [],
-          query_parameters: editForm.query_parameters,
-          ...(sensitiveChanged || (a.example_request ?? '') !== (editForm.method === 'GET' ? '' : editForm.example_request)
-            ? { is_active: false, verified_at: null } : {}),
-        } : a))
-        setShowEditModal(false)
-        setEditingApi(null)
-      } else {
-        const body = await res.json().catch(() => ({})) as { error?: string }
-        if (!isCurrentWallet(wallet)) return
-        setApiActionError(body.error ?? 'Failed to save changes')
-      }
-    } catch (err: unknown) {
-      if (!isCurrentWallet(wallet)) return
-      setApiActionError(err instanceof Error ? err.message : 'Failed to save changes')
-    }
+  function updateEditedListing(api: ApiListing) {
+    setEditingApi(api)
+    setMyApis(previous => previous.map(item => item.id === api.id ? { ...item, ...api } : item))
   }
 
   async function handleDeleteConfirm() {
@@ -1042,8 +947,6 @@ function useDashboardWorkspaceState() {
     setEditingApi,
     showEditModal,
     setShowEditModal,
-    editForm,
-    setEditForm,
     deletingApiId,
     setDeletingApiId,
     deleteConfirmText,
@@ -1057,7 +960,7 @@ function useDashboardWorkspaceState() {
     viewApiCopied,
     setViewApiCopied,
     beginEditApi,
-    handleEditSave,
+    updateEditedListing,
     handleDeleteConfirm,
     toggleActive,
     handleViewApi,

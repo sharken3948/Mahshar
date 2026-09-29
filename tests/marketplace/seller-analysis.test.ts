@@ -61,6 +61,42 @@ test('successful persisted verification survives Groq failure and never sends st
   assert.equal(JSON.stringify(sellerAnalysisState.groqInput).includes('seller-secret-value'), false)
 })
 
+test('explicit edit-draft analysis uses the stored credential without mutating the listing', async () => {
+  const row = listing({ auth_type: 'bearer', encrypted_key: encryptKey('existing-edit-secret'),
+    verified_at: '2026-09-01T00:00:00.000Z', is_active: true, score: 7, consecutive_transient_count: 2 })
+  state.tables.api_listings.push(row)
+  const before = structuredClone(row)
+  sellerAnalysisState.groqError = true
+  sellerAnalysisState.response = Response.json({ draft: true })
+
+  const response = await analyze(request({ api_id: 'listing', draft: true, seller_wallet: alice.address,
+    name: 'Edited draft', category: 'Data', description: 'Draft metadata',
+    endpoint_url: 'https://seller.example/data', method: 'POST', auth_type: 'bearer', example_request: '{"value":1}',
+    body_required: true,
+    dynamic_path_supported: false, path_parameters: [], query_parameters: [] }))
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.endpoint_verified, true)
+  assert.equal(body.ai_available, false)
+  assert.equal(sellerAnalysisState.outboundUrl, 'https://seller.example/data')
+  assert.equal(sellerAnalysisState.outboundInit.headers.authorization, 'Bearer existing-edit-secret')
+  assert.equal(JSON.stringify(sellerAnalysisState.groqInput).includes('existing-edit-secret'), false)
+  assert.deepEqual(row, before)
+})
+
+test('edit-draft analysis never forwards a stored credential to a changed endpoint', async () => {
+  const row = listing({ auth_type: 'bearer', encrypted_key: encryptKey('endpoint-bound-secret') })
+  state.tables.api_listings.push(row)
+  const response = await analyze(request({ api_id: 'listing', draft: true, seller_wallet: alice.address,
+    endpoint_url: 'https://different.example/data', method: 'GET', auth_type: 'bearer',
+    body_required: false, dynamic_path_supported: false, path_parameters: [], query_parameters: [] }))
+  const body = await response.json()
+  assert.equal(body.endpoint_verified, false)
+  assert.match(body.blocking_issue, /credentials are required/i)
+  assert.equal(sellerAnalysisState.outboundCalls, 0)
+  assert.equal(sellerAnalysisState.groqInput, null)
+})
+
 test('401 analysis gives actionable auth guidance and detects Bearer evidence without verifying', async () => {
   sellerAnalysisState.response = Response.json({ error: 'missing token' }, {
     status: 401, headers: { 'www-authenticate': 'Bearer realm="seller"' },

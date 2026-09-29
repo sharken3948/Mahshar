@@ -38,3 +38,20 @@ test('verification executes the declared representative query and injects all fo
     assert.ok(row.verified_at)
   }
 })
+
+test('verification cannot be inherited when the representative request changes in flight', async () => {
+  reset(); resetVerificationState()
+  const row = { id: 'representative', seller_wallet: alice.address.toLowerCase(), name: 'API', description: 'description', category: 'Data',
+    endpoint_url: 'https://seller.example/data', method: 'POST', auth_type: 'public', auth_param_name: null,
+    encrypted_key: null, is_active: false, verified_at: null, price_per_call: 0.1,
+    example_request: '{"value":1}', example_response: '{}', expected_status_codes: null, body_required: true,
+    dynamic_path_supported: false, path_parameters: [], query_parameters: [] }
+  state.tables.api_listings.push(row)
+  verificationState.beforeResponse = () => { row.example_request = '{"value":2}' }
+  const request = new NextRequest(`${origin}/api/apis/representative/verify`, {
+    method: 'POST', headers: sessionHeaders(),
+  })
+  const response = await verify(request, { params: Promise.resolve({ id: 'representative' }) })
+  assert.equal(response.status, 409)
+  assert.equal(row.verified_at, null)
+})

@@ -1,6 +1,6 @@
 import { withWalletSession, requireListingOwner } from '@/lib/marketplace/server'
 import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
-import { matchListingConfiguration, normalizeExpectedStatusCodes } from '@/lib/marketplace/listing-security'
+import { matchListingVerificationConfiguration, normalizeExpectedStatusCodes } from '@/lib/marketplace/listing-security'
 import { decryptKey } from '@/lib/crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { scoreApi, type RealTestResult, type SetupSuggestions } from '@/lib/groq'
@@ -34,6 +34,7 @@ export interface EndpointTestDiagnostic {
 
 type AnalysisBody = {
   api_id?: string
+  draft?: boolean
   seller_wallet?: unknown
   name?: string
   category?: string
@@ -188,11 +189,15 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
   }
+  if (body.draft !== undefined && typeof body.draft !== 'boolean') {
+    return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
+  }
 
   assertWalletClaim(body.seller_wallet, authenticatedWallet)
   const db = createServiceClient()
   const persistedListing = body.api_id ? await requireListingOwner(db, body.api_id, authenticatedWallet) : null
-  if (persistedListing) {
+  const persistAnalysis = Boolean(persistedListing && !body.draft)
+  if (persistedListing && !body.draft) {
     body.endpoint_url = persistedListing.endpoint_url
     body.method = persistedListing.method ?? 'GET'
     body.auth_type = persistedListing.auth_type
@@ -206,6 +211,15 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     body.dynamic_path_supported = persistedListing.dynamic_path_supported
     body.path_parameters = persistedListing.path_parameters
     body.query_parameters = persistedListing.query_parameters
+  } else if (persistedListing && body.auth_type !== 'public' && !body.auth_key?.trim()) {
+    const storedCredentialMatchesDraft = typeof body.endpoint_url === 'string'
+      && body.endpoint_url.trim() === persistedListing.endpoint_url
+      && body.auth_type === persistedListing.auth_type
+      && (body.auth_param_name ?? null) === (persistedListing.auth_param_name ?? null)
+    if (storedCredentialMatchesDraft) {
+      try { body.auth_key = persistedListing.encrypted_key ? decryptKey(persistedListing.encrypted_key) : undefined }
+      catch { return NextResponse.json({ error: 'Stored API credentials could not be read' }, { status: 500 }) }
+    }
   }
 
   const endpointUrl = typeof body.endpoint_url === 'string' ? body.endpoint_url.trim() : ''
@@ -253,7 +267,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
   const bodySent = method !== 'GET' && requestContract.example.body !== null
     ? JSON.stringify(requestContract.example.body) : null
   let transientCount = 0
-  if (body.api_id) {
+  if (persistAnalysis) {
     const { data } = await db.from('api_listings').select('consecutive_transient_count').eq('id', body.api_id).single()
     transientCount = data?.consecutive_transient_count ?? 0
   }
@@ -337,7 +351,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     response_snippet: realTestResult.success ? null : (realTestResult.response_snippet ?? null),
   }
 
-  if (body.api_id) {
+  if (persistAnalysis) {
     const transient = isTransientStatus(realTestResult.status ?? null, timedOut)
     transientCount = transient ? transientCount + 1 : 0
     await db.from('api_listings').update({ consecutive_transient_count: transientCount })
@@ -383,8 +397,8 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
 
   // Verification is a deterministic fact. Persist it before the advisory model
   // call so Groq availability can never strand an otherwise valid listing.
-  if (body.api_id && realTestResult.success) {
-    const { data, error } = await matchListingConfiguration(db.from('api_listings')
+  if (persistAnalysis && realTestResult.success) {
+    const { data, error } = await matchListingVerificationConfiguration(db.from('api_listings')
       .update({ verified_at: new Date().toISOString(), consecutive_transient_count: 0 })
       .eq('id', body.api_id).ilike('seller_wallet', authenticatedWallet), persistedListing!).select('id')
     if (error) return NextResponse.json({ error: 'Endpoint verification could not be saved' }, { status: 500 })
@@ -413,8 +427,8 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     inconclusive = true
   }
 
-  if (body.api_id && aiResult && (realTestResult.success || declaredExpected)) {
-    const { data, error } = await matchListingConfiguration(db.from('api_listings')
+  if (persistAnalysis && aiResult && (realTestResult.success || declaredExpected)) {
+    const { data, error } = await matchListingVerificationConfiguration(db.from('api_listings')
       .update({ score: aiResult.score }).eq('id', body.api_id).ilike('seller_wallet', authenticatedWallet),
     persistedListing!).select('id')
     if (error || !data?.length) {

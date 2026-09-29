@@ -14,16 +14,13 @@ test('OpenAPI and checked-in schema match the runtime listing contract', () => {
 })
 
 test('seller listing editor preserves query-parameter authentication fields', () => {
-  const workspace = readFileSync('src/app/dashboard/dashboard-workspace.tsx', 'utf8')
-  const page = readFileSync('src/app/dashboard/apis/page.tsx', 'utf8')
-  assert.match(page, /option value="queryparam"/)
-  assert.match(page, /editForm\.auth_type === 'queryparam'[\s\S]*editForm\.auth_param_name/)
-  assert.match(workspace, /auth_param_name: api\.auth_param_name \?\? ''/)
-  assert.match(workspace, /auth_param_name: nextAuthParamName/)
-  assert.match(page, /RequestParameterEditor location="path"/)
-  assert.match(page, /RequestParameterEditor location="query"/)
-  assert.match(workspace, /path_parameters: editForm\.dynamic_path_supported/)
-  assert.match(workspace, /query_parameters: editForm\.query_parameters/)
+  const editor = readFileSync('src/components/EditListingForm.tsx', 'utf8')
+  assert.match(editor, /option value="queryparam"/)
+  assert.match(editor, /form\.auth_type === 'queryparam'[\s\S]*form\.auth_param_name/)
+  assert.match(editor, /RequestParameterEditor location="path"/)
+  assert.match(editor, /RequestParameterEditor location="query"/)
+  assert.match(editor, /path_parameters: form\.dynamic_path_supported/)
+  assert.match(editor, /query_parameters: queryParameters/)
 })
 
 test('transient infrastructure statuses can never be declared expected', () => {

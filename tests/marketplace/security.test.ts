@@ -168,6 +168,19 @@ test('path, query, method, and body-required edits require exact fresh proof and
   }
 })
 
+test('representative request edits invalidate active verification without inventing a fresh-proof requirement', async () => {
+  const row = seed(a)
+  Object.assign(row, { method: 'POST', body_required: true, example_request: '{"value":1}',
+    dynamic_path_supported: false, path_parameters: [], query_parameters: [] })
+  const patch = { seller_wallet: a, example_request: '{"value":2}' }
+  const response = await listing.PATCH(await authorized('/api/apis/victim', 'PATCH', patch), context('victim'))
+  assert.equal(response.status, 200)
+  assert.equal(row.example_request, '{"value":2}')
+  assert.equal(row.is_active, false)
+  assert.equal(row.verified_at, null)
+  assert.equal(state.tables.withdraw_used_nonces.length, 0)
+})
+
 test('sensitive listing proof is listing-specific, patch-specific, wallet-bound, and one-use', async () => {
   const first = seed(a)
   state.tables.api_listings.push({ ...structuredClone(first), id: 'other' })
@@ -221,6 +234,33 @@ test('private buyer, seller, listing and statistics reads require the owner sess
     assert.equal((await item.run(request(item.path, 'GET', undefined, headers))).status, 200)
     assert.equal((await item.run(request(item.path, 'GET', undefined, headers))).status, 200)
   }
+})
+
+test('owner edit payload reports credential presence without exposing encrypted or plaintext secrets', async () => {
+  seed(a)
+  const response = await listing.GET(await authorized('/api/apis/victim'), context('victim'))
+  assert.equal(response.status, 200)
+  const text = JSON.stringify(await response.json())
+  assert.match(text, /"credential_configured":true/)
+  assert.doesNotMatch(text, /encrypted_key|fixture-key/)
+})
+
+test('ioscope metadata editing leaves active semantics intact and does not touch external inactive inventory', async () => {
+  const ioscope = seed(a)
+  ioscope.id = 'ioscope'
+  ioscope.name = 'ioscope'
+  const external = { ...structuredClone(ioscope), id: 'a-new-one', name: 'A New One', seller_wallet: b,
+    is_active: false, verified_at: null }
+  state.tables.api_listings.push(external)
+  const externalBefore = structuredClone(external)
+
+  const response = await listing.PATCH(await authorized('/api/apis/ioscope', 'PATCH', {
+    seller_wallet: a, description: 'Updated marketplace copy',
+  }), context('ioscope'))
+  assert.equal(response.status, 200)
+  assert.equal(ioscope.is_active, true)
+  assert.ok(ioscope.verified_at)
+  assert.deepEqual(external, externalBefore)
 })
 
 test('public marketplace excludes inactive seller inventory and credentials', async () => {
