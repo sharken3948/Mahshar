@@ -5,9 +5,17 @@ export function credentialProxyAllowed(listing: { encrypted_key: unknown; verifi
   return !listing.encrypted_key || Boolean(listing.verified_at)
 }
 
+const JSONB_CONFIGURATION_KEYS = new Set<string>(['path_parameters', 'query_parameters'])
+
 // Compare the exact tested snapshot so concurrent edits cannot inherit old verification.
+// jsonb columns must be serialized: PostgREST filter values are template-coerced,
+// so an array would become "" or "[object Object]" and Postgres would reject the cast.
 export function matchListingConfiguration<T extends { filter(column: string, operator: string, value: unknown): T }>(query: T, listing: Record<string, unknown>): T {
-  for (const key of SENSITIVE_CONFIGURATION) query = query.filter(key, listing[key] == null ? 'is' : 'eq', listing[key] ?? null)
+  for (const key of SENSITIVE_CONFIGURATION) {
+    const value = listing[key]
+    if (value == null) { query = query.filter(key, 'is', null); continue }
+    query = query.filter(key, 'eq', JSONB_CONFIGURATION_KEYS.has(key) ? JSON.stringify(value) : value)
+  }
   return query
 }
 

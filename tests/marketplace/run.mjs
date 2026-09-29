@@ -1,5 +1,6 @@
 // Direct imports ensure node:test registers each case under Node 20 + this TSX build.
 // node --test reports only file-level success here, so use this entry point.
+await import('./listing-security-match.test.ts')
 await import('./security.test.ts')
 await import('./session-auth.test.ts')
 await import('./client-session.test.ts')
