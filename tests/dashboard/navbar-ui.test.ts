@@ -24,6 +24,21 @@ test('homepage keeps the premium Dashboard primary action', () => {
   assert.doesNotMatch(html, /aria-label="Home"/)
 })
 
+test('homepage orders Explore and Dashboard immediately before balance, network, and wallet controls', () => {
+  const html = renderNav({ landing: true })
+  const positions = ['>Explore ', '>Dashboard<', 'Mahshar Balance:', 'Arc Mainnet', 'Open account actions for']
+    .map(marker => html.indexOf(marker))
+  assert.ok(positions.every(position => position >= 0), String(positions))
+  assert.deepEqual(positions, [...positions].sort((left, right) => left - right))
+})
+
+test('application pages reuse the homepage logo treatment and header width', () => {
+  const html = renderNav({})
+  const css = readFileSync('src/components/nav-bar.module.css', 'utf8')
+  assert.match(html, /data-variant="landing"/)
+  assert.match(css, /\.landingNavInner,\s*\.appNavInner\s*\{[^}]*width:\s*calc\(100% - 124px\)[^}]*max-width:\s*1560px[^}]*height:\s*100%/)
+})
+
 test('dashboard routes replace Dashboard with a Home action to the homepage', () => {
   const html = renderNav({ dashboard: true })
   assert.match(html, /href="\/"[^>]*aria-label="Home"/)
@@ -51,7 +66,7 @@ test('connected wallet renders a shortened EVM identity and retains account acti
   assert.doesNotMatch(html, /display-name-must-not-render|chain-should-not-render/)
 
   const source = readFileSync('src/components/NavBar.tsx', 'utf8')
-  assert.match(source, /className=\{styles\.walletButton\} onClick=\{openAccountModal\}/)
+  assert.match(source, /className=\{`\$\{styles\.walletButton\} \$\{styles\.walletIdentityButton\}`\} onClick=\{openAccountModal\}/)
   assert.match(source, /chain\.unsupported[\s\S]*onClick=\{openChainModal\}/)
 })
 
@@ -67,11 +82,25 @@ test('session validation renders a neutral state and authenticated completion sw
   walletState.sessionStatus = 'checking'
   let html = renderNav({ landing: true })
   assert.match(html, />Checking…<\/button>/)
-  assert.doesNotMatch(html, />Sign in<\/button>|href="\/dashboard"/)
+  assert.match(html, /href="\/dashboard"[^>]*aria-label="Dashboard"/)
+  assert.doesNotMatch(html, />Sign in<\/button>|>Signing in…<\/button>/)
   walletState.sessionStatus = 'authenticated'
   html = renderNav({ landing: true })
   assert.match(html, /href="\/dashboard"[^>]*aria-label="Dashboard"/)
   assert.doesNotMatch(html, />Sign in<\/button>|>Checking…<\/button>/)
+})
+
+test('Signing in is transient, keeps Dashboard visible, and clears on every terminal state', () => {
+  walletState.sessionStatus = 'signing'
+  let html = renderNav({ landing: true })
+  assert.match(html, /href="\/dashboard"[^>]*aria-label="Dashboard"/)
+  assert.match(html, />Signing in…<\/button>/)
+
+  for (const status of ['authenticated', 'unauthenticated', 'error'] as const) {
+    walletState.sessionStatus = status
+    html = renderNav({ landing: true })
+    assert.doesNotMatch(html, />Signing in…<\/button>/)
+  }
 })
 
 test('disconnected mobile header offers wallet connection without an authenticated Dashboard action', () => {
@@ -86,19 +115,27 @@ test('responsive header rules preserve all controls without horizontal overflow 
   const css = readFileSync('src/components/nav-bar.module.css', 'utf8')
   const compact = css.match(/@media \(max-width: 800px\)\s*\{[\s\S]*?\n\}/)?.[0] ?? ''
   assert.match(compact, /flex-wrap:\s*wrap/)
-  assert.match(compact, /\.landingNavRight, \.appNavRight[^}]*width:\s*100%/)
-  assert.match(compact, /\.walletButton[^}]*max-width:\s*142px[^}]*overflow:\s*hidden/)
-  assert.match(compact, /\.dashboardLink[^}]*min-width:\s*104px[^}]*font-size:\s*13px/)
+  assert.match(compact, /\.landingNavLeft[^}]*width:\s*100%[^}]*flex:\s*1 1 100%/)
+  assert.match(compact, /\.landingNavRight, \.appNavRight[^}]*width:\s*100%[^}]*flex-wrap:\s*nowrap/)
+  assert.match(compact, /\.walletButton[^}]*max-width:\s*132px[^}]*overflow:\s*hidden/)
+  assert.match(compact, /\.dashboardLink[^}]*min-width:\s*100px[^}]*font-size:\s*13px/)
   assert.match(compact, /\.primaryLabel[^}]*position:\s*static/)
   assert.doesNotMatch(compact, /\.primaryLabel[^}]*clip-path:\s*inset/)
-  assert.match(compact, /\.networkPill[^}]*min-width:\s*119px/)
+  assert.match(compact, /\.networkPill[^}]*min-width:\s*112px/)
+  assert.match(compact, /\.sessionButton[^}]*max-width:\s*112px/)
+  assert.match(compact, /\.walletIdentityButton[^}]*max-width:\s*126px/)
   assert.doesNotMatch(css, /\.networkPill\s*\{[^}]*display:\s*none/)
   assert.doesNotMatch(css, /\.exploreGroup\s*\{[^}]*display:\s*none/)
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*animation:\s*none/)
   const narrow = css.match(/@media \(max-width: 430px\)\s*\{[\s\S]*?\n\}/)?.[0] ?? ''
-  assert.match(narrow, /\.dashboardLink[^}]*min-width:\s*88px/)
+  assert.match(narrow, /\.dashboardLink[^}]*min-width:\s*76px[^}]*font-size:\s*13px/)
   assert.match(narrow, /\.dashboardLink svg[^}]*display:\s*none/)
+  assert.match(narrow, /\.networkPill[^}]*width:\s*36px[^}]*min-width:\s*36px/)
+  assert.match(narrow, /\.sessionButton[^}]*max-width:\s*82px/)
+  assert.match(narrow, /\.walletIdentityButton[^}]*width:\s*88px[^}]*max-width:\s*88px/)
+  assert.match(narrow, /\.landingNav \.landingNavRight[^}]*flex-wrap:\s*wrap/)
   assert.doesNotMatch(narrow, /\.primaryLabel[^}]*display:\s*none/)
+  assert.ok(76 + 36 + 82 + 88 + (3 * 4) <= 320 - 24, 'narrow connected/signing controls must fit at 320px')
 })
 
 test('Explore exposes only the three human-facing public destinations', () => {

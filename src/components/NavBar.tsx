@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount } from 'wagmi'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { MahsharLogo } from './MahsharLogo'
 import { useVisibilityRefresh } from '@/hooks/useVisibilityRefresh'
 import { useProductPreferences } from './ProductPreferencesProvider'
@@ -61,10 +61,9 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
         <div className={landing ? styles.landingNavInner : styles.dashboardNavInner}>
           <div className={styles.landingNavLeft}>
             {landing && <MahsharLogo variant="landing" />}
-            <PrimaryNavigationLink dashboard={dashboard} sessionStatus={sessionStatus} />
-            <ExploreMenu />
+            {!landing && <><PrimaryNavigationLink dashboard={dashboard} isConnected={isConnected} sessionStatus={sessionStatus} /><ExploreMenu /></>}
           </div>
-          <HeaderControls isConnected={isConnected} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} connectorIcon={connector?.icon} sessionStatus={sessionStatus} authenticate={authenticate} sessionError={sessionError} />
+          <HeaderControls leading={landing ? <><ExploreMenu /><PrimaryNavigationLink dashboard={false} isConnected={isConnected} sessionStatus={sessionStatus} /></> : undefined} isConnected={isConnected} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} connectorIcon={connector?.icon} sessionStatus={sessionStatus} authenticate={authenticate} sessionError={sessionError} />
         </div>
       </nav>
     )
@@ -73,9 +72,9 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
   return (
     <nav className={styles.appNav} aria-label="Primary navigation">
       <div className={styles.appNavInner}>
-        <MahsharLogo />
+        <MahsharLogo variant="landing" />
         <div className={styles.appNavRight}>
-          <PrimaryNavigationLink dashboard={false} sessionStatus={sessionStatus} />
+          <PrimaryNavigationLink dashboard={false} isConnected={isConnected} sessionStatus={sessionStatus} />
           {isConnected && (
             <span className={styles.balancePill}>
               <span>Mahshar Balance:</span>
@@ -92,8 +91,11 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
   )
 }
 
-function PrimaryNavigationLink({ dashboard, sessionStatus }: { dashboard: boolean; sessionStatus: 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error' }) {
-  if (!dashboard && sessionStatus !== 'authenticated') return null
+function PrimaryNavigationLink({ dashboard, isConnected, sessionStatus }: { dashboard: boolean; isConnected: boolean; sessionStatus: 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error' }) {
+  // Navigation is not an authorization boundary. Keep it stable while an
+  // already-connected wallet is checking or completing authentication, then
+  // hide it only for a disconnected or explicitly unauthenticated session.
+  if (!dashboard && (!isConnected || ['disconnected', 'unauthenticated', 'error'].includes(sessionStatus))) return null
   return (
     <Link href={dashboard ? '/' : '/dashboard'} className={styles.dashboardLink} aria-label={dashboard ? 'Home' : 'Dashboard'}>
       <span className={styles.primaryLabel}>{dashboard ? 'Home' : 'Dashboard'}</span>
@@ -102,9 +104,10 @@ function PrimaryNavigationLink({ dashboard, sessionStatus }: { dashboard: boolea
   )
 }
 
-function HeaderControls({ isConnected, displayedBalance, balanceUnavailable, formatUsdc, connectorIcon, sessionStatus, authenticate, sessionError }: { isConnected: boolean; displayedBalance: string | null; balanceUnavailable: boolean; formatUsdc: (value: string | number) => string; connectorIcon?: string; sessionStatus: 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error'; authenticate: () => Promise<boolean>; sessionError: string | null }) {
+function HeaderControls({ leading, isConnected, displayedBalance, balanceUnavailable, formatUsdc, connectorIcon, sessionStatus, authenticate, sessionError }: { leading?: ReactNode; isConnected: boolean; displayedBalance: string | null; balanceUnavailable: boolean; formatUsdc: (value: string | number) => string; connectorIcon?: string; sessionStatus: 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error'; authenticate: () => Promise<boolean>; sessionError: string | null }) {
   return (
     <div className={styles.landingNavRight}>
+      {leading}
       {isConnected && (
         <span className={styles.balancePill}>
           <span>Mahshar Balance:</span>
@@ -122,9 +125,9 @@ function HeaderControls({ isConnected, displayedBalance, balanceUnavailable, for
 function SessionControl({ isConnected, status, authenticate, error }: { isConnected: boolean; status: 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error'; authenticate: () => Promise<boolean>; error: string | null }) {
   if (!isConnected || status === 'authenticated' || status === 'disconnected') return null
   if (status === 'checking' || status === 'signing') {
-    return <button type="button" className={styles.walletButton} disabled aria-live="polite">{status === 'checking' ? 'Checking…' : 'Signing in…'}</button>
+    return <button type="button" className={`${styles.walletButton} ${styles.sessionButton}`} disabled aria-live="polite">{status === 'checking' ? 'Checking…' : 'Signing in…'}</button>
   }
-  return <button type="button" className={styles.walletButton} onClick={() => { void authenticate() }} title={error ?? undefined}>Sign in</button>
+  return <button type="button" className={`${styles.walletButton} ${styles.sessionButton}`} onClick={() => { void authenticate() }} title={error ?? undefined}>Sign in</button>
 }
 
 function ArcMainnetStatus() {
@@ -138,13 +141,13 @@ function WalletIdentityPill({ connectorIcon }: { connectorIcon?: string }) {
         const ready = mounted
         const connected = ready && account && chain
         if (!connected) {
-          return <button type="button" className={styles.walletButton} onClick={openConnectModal} disabled={!ready}>Connect wallet</button>
+          return <button type="button" className={`${styles.walletButton} ${styles.walletIdentityButton}`} onClick={openConnectModal} disabled={!ready}>Connect wallet</button>
         }
         if (chain.unsupported) {
-          return <button type="button" className={`${styles.walletButton} ${styles.wrongNetwork}`} onClick={openChainModal}><span className={styles.walletMark} aria-hidden="true" />Wrong network</button>
+          return <button type="button" className={`${styles.walletButton} ${styles.walletIdentityButton} ${styles.wrongNetwork}`} onClick={openChainModal}><span className={styles.walletMark} aria-hidden="true" />Wrong network</button>
         }
         return (
-          <button type="button" className={styles.walletButton} onClick={openAccountModal} aria-label={`Open account actions for ${account.address}`} title={account.address}>
+          <button type="button" className={`${styles.walletButton} ${styles.walletIdentityButton}`} onClick={openAccountModal} aria-label={`Open account actions for ${account.address}`} title={account.address}>
             {account.ensAvatar || connectorIcon
               ? <span className={styles.walletAvatar}><img src={account.ensAvatar || connectorIcon} alt="" /></span>
               : <span className={styles.walletMark} aria-hidden="true" />}

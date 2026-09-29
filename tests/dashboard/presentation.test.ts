@@ -23,7 +23,7 @@ test('landing navigation gets its own larger centered logo treatment',()=>{
  for(const width of ['142px','170px','190px','215px'])assert.ok(logo.includes(`width: ${width}`),width)
  assert.match(logo,/\.landing \.image[^}]*position:\s*absolute[^}]*transform:\s*none/)
  assert.match(navbar,/landing \? styles\.landingNav : styles\.dashboardNav/)
- assert.match(navbarCss,/\.landingNavInner\s*\{[^}]*max-width:\s*1560px/)
+ assert.match(navbarCss,/\.landingNavInner,\s*\.appNavInner\s*\{[^}]*max-width:\s*1560px/)
  assert.match(landing,/<NavBar landing \/>/)
  assert.match(landing,/>MAHSHAR API MARKETPLACE<\/p>/)
  assert.doesNotMatch(landing,/h-px w-9 bg-\[#2775ca\]/)
