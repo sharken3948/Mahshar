@@ -32,6 +32,7 @@ test('fresh connect, Strict Mode remount, and all initial private consumers comp
   runEffects()
   await flush()
   assert.equal(state.signatures, 1)
+  assert.equal(render(MarketplaceSessionProvider).status, 'signing', 'the signature state should exist only while the wallet prompt is unresolved')
 
   replayEffects()
   remount()
@@ -49,6 +50,7 @@ test('fresh connect, Strict Mode remount, and all initial private consumers comp
   state.pendingSignatures.shift().resolve(signature)
   const responses = await Promise.all(reads)
   assert.ok(responses.every(response => response.ok))
+  assert.equal(render(MarketplaceSessionProvider).status, 'authenticated')
   assert.equal(state.signatures, 1)
   assert.equal(state.fetches.filter((item: { input: string }) => item.input === '/api/auth/challenge').length, 1)
   assert.equal(state.fetches.filter((item: { input: string; init: RequestInit }) =>
@@ -69,11 +71,13 @@ test('a provider remount reuses a valid matching server session without requesti
   runEffects()
   await flush()
   assert.equal(state.signatures, 0, 'the remounted provider signed before the valid session check completed')
+  assert.equal(render(MarketplaceSessionProvider).status, 'checking', 'session recovery must not claim a signature is active')
 
   releaseSessionBodies()
   await flush()
   const context = render(MarketplaceSessionProvider)
   assert.equal(context.status, 'authenticated')
+  assert.notEqual(context.status, 'signing')
   assert.equal(context.wallet, alice)
   assert.equal(state.signatures, 0)
   assert.equal(state.fetches.filter((item: { input: string }) => item.input.startsWith('/api/auth/challenge')).length, 0)
@@ -154,6 +158,7 @@ test('wallet in-app browser remount reuses the successful login in the same brow
   const context = render(MarketplaceSessionProvider)
   assert.equal(context.status, 'authenticated')
   assert.equal(context.wallet, alice)
+  assert.notEqual(context.status, 'signing')
   assert.equal(state.signatures, 1)
 })
 
@@ -214,6 +219,7 @@ test('rejected login does not reopen automatically and explicit sign-in retries 
   await flush()
   context = render(MarketplaceSessionProvider)
   assert.equal(context.status, 'unauthenticated')
+  assert.notEqual(context.status, 'signing')
   assert.equal(state.signatures, 1)
   render(MarketplaceSessionProvider)
   runEffects()

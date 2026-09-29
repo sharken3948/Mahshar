@@ -97,7 +97,11 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
       setError(null)
       return 'authenticated'
     }
-    if (authenticatedWallet.current === requestedWallet) return 'authenticated'
+    if (authenticatedWallet.current === requestedWallet) {
+      setStatus('authenticated')
+      setError(null)
+      return 'authenticated'
+    }
     if (initializedSession.current?.wallet === requestedWallet) return initializedSession.current.result
     if (currentWallet.current === requestedWallet) {
       setStatus('checking')
@@ -144,11 +148,20 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
           deadline: number; origin: string }
         const signature = await serializeSignature(async () => {
           if (getAccount(config).address?.toLowerCase() !== requestedWallet) throw new Error('Wallet changed')
-          return signTypedDataAsync({ account: requestedWallet as Address, domain: LOGIN_AUTH_DOMAIN,
-            types: LOGIN_AUTH_TYPES, primaryType: 'MahsharLogin', message: loginMessage({
-              wallet: requestedWallet as Address, origin: challenge.origin, nonce: challenge.nonce,
-              issuedAt: challenge.issued_at, deadline: challenge.deadline,
-            }) })
+          if (currentWallet.current === requestedWallet) setStatus('signing')
+          try {
+            return await signTypedDataAsync({ account: requestedWallet as Address, domain: LOGIN_AUTH_DOMAIN,
+              types: LOGIN_AUTH_TYPES, primaryType: 'MahsharLogin', message: loginMessage({
+                wallet: requestedWallet as Address, origin: challenge.origin, nonce: challenge.nonce,
+                issuedAt: challenge.issued_at, deadline: challenge.deadline,
+              }) })
+          } finally {
+            // The wallet prompt is over. Session creation/recovery is a passive
+            // check and must never leave the header claiming a signature is active.
+            if (currentWallet.current === requestedWallet && establishedSessionWallet !== requestedWallet) {
+              setStatus('checking')
+            }
+          }
         })
         if (getAccount(config).address?.toLowerCase() !== requestedWallet) throw new Error('Wallet changed')
         const response = await fetch('/api/auth/session', {
@@ -190,7 +203,11 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
       setError(null)
       return true
     }
-    if (authenticatedWallet.current === requestedWallet) return true
+    if (authenticatedWallet.current === requestedWallet) {
+      setStatus('authenticated')
+      setError(null)
+      return true
+    }
     const checked = await initializeSession(requestedWallet)
     if (currentWallet.current !== requestedWallet || getAccount(config).address?.toLowerCase() !== requestedWallet) return false
     // A parallel consumer may have completed login while this caller awaited
@@ -210,7 +227,9 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
       setStatus('unauthenticated')
       return false
     }
-    setStatus('signing')
+    // Challenge creation and an existing cross-mount login are passive work.
+    // Only performLogin's actual signTypedData call publishes `signing`.
+    if (!loginInFlight.has(requestedWallet)) setStatus('checking')
     setError(null)
     const result = await performLogin(requestedWallet)
     if (currentWallet.current !== requestedWallet || getAccount(config).address?.toLowerCase() !== requestedWallet) return false
