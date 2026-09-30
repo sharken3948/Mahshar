@@ -1,5 +1,5 @@
 import { createServiceClient as baseClient } from '../marketplace/fixtures'
-export const boundary = { actions: 0, unavailable: false, external: 0 }
+export const boundary = { actions: 0, unavailable: false, unavailableTable: null as string | null, external: 0 }
 export function createServiceClient() {
   const db = baseClient()
   return {
@@ -9,8 +9,14 @@ export function createServiceClient() {
     },
     from: (table: string) => {
       boundary.actions++
+      if (boundary.unavailable || boundary.unavailableTable === table) {
+        const failed: any = {}
+        for (const method of ['select','eq','not','is','order','limit','range']) failed[method] = () => failed
+        failed.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: null, count: null, error: { code: '42P01', message: 'fixture unavailable' } }).then(resolve)
+        return failed
+      }
       const query = db.from(table)
-      return Object.assign(query, { range: () => query })
+      return query
     },
   }
 }

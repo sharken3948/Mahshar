@@ -16,7 +16,7 @@ export function reset() {
   state.pruneCalls = 0; state.pruneResult = 0
   state.authPruneCalls = 0; state.authPruneResult = { challenges: 0, sessions: 0 }
   state.tables = { api_listings: [], api_calls: [], purchases: [], credit_balances: [], seller_withdrawals: [],
-    withdraw_used_nonces: [], wallet_auth_challenges: [], wallet_sessions: [] }
+    x402_settlement_attempts: [], withdraw_used_nonces: [], wallet_auth_challenges: [], wallet_sessions: [] }
 }
 export function sessionHeaders(account = alice, options: { expired?: boolean; revoked?: boolean; token?: string } = {}) {
   const token = options.token ?? randomBytes(32).toString('base64url')
@@ -42,9 +42,13 @@ export async function operationHeaders(path: string, method = 'GET', body?: unkn
 }
 class Query {
   predicates: ((r: Record<string, any>) => boolean)[] = []
-  columns = '*'; take = Infinity; skip = 0; singleRow = false; mutation?: { kind: string; value?: Record<string, any> }
+  columns = '*'; take = Infinity; skip = 0; singleRow = false; countMode = false; head = false
+  orderBy: { key: string; ascending: boolean } | null = null
+  mutation?: { kind: string; value?: Record<string, any> }
   constructor(readonly table: string) {}
-  select(columns = '*') { this.columns = columns; return this }
+  select(columns = '*', options?: { count?: string; head?: boolean }) {
+    this.columns = columns; this.countMode = options?.count === 'exact'; this.head = options?.head === true; return this
+  }
   eq(key: string, value: unknown) { this.predicates.push(r => {
     if (r[key] && value && typeof r[key] === 'object') {
       return JSON.stringify(r[key]) === (typeof value === 'string' ? value : JSON.stringify(value))
@@ -58,7 +62,8 @@ class Query {
   in(key: string, values: unknown[]) { this.predicates.push(r => values.includes(r[key])); return this }
   gte(key: string, value: unknown) { this.predicates.push(r => r[key] >= (value as any)); return this }
   gt(key: string, value: unknown) { this.predicates.push(r => r[key] > (value as any)); return this }
-  order(_key: string, _options?: unknown) { return this }
+  lte(key: string, value: unknown) { this.predicates.push(r => r[key] <= (value as any)); return this }
+  order(key: string, options?: { ascending?: boolean }) { this.orderBy = { key, ascending: options?.ascending !== false }; return this }
   limit(n: number) { this.take = n; return this }
   range(from: number, to: number) { this.skip = from; this.take = to - from + 1; return this }
   single<T = unknown>() { this.singleRow = true; return this as Query & PromiseLike<{ data: T; error: null }> }
@@ -79,12 +84,19 @@ class Query {
         auth_param_name: null, encrypted_key: null, ...this.mutation.value }
       table.push(row as any); table = [row as any]
     }
-    let rows = table.filter(r => this.predicates.every(p => p(r))).slice(this.skip, this.skip + this.take) as Record<string, any>[]
+    let rows = table.filter(r => this.predicates.every(p => p(r))) as Record<string, any>[]
+    const count = rows.length
+    if (this.orderBy) {
+      const { key, ascending } = this.orderBy
+      rows = [...rows].sort((a, b) => String(a[key] ?? '').localeCompare(String(b[key] ?? '')) * (ascending ? 1 : -1))
+    }
+    rows = rows.slice(this.skip, this.skip + this.take)
     if (this.mutation?.kind === 'update') rows.forEach(r => Object.assign(r, this.mutation!.value))
     if (this.mutation?.kind === 'delete') state.tables[this.table] = table.filter(r => !rows.includes(r))
     rows = rows.map(r => this.columns === '*' || this.columns.includes('(') ? structuredClone(r)
       : Object.fromEntries(this.columns.split(',').map(k => [k.trim(), structuredClone(r[k.trim()])])))
-    return Promise.resolve({ data: this.singleRow ? rows[0] ?? null : rows, error: null }).then(resolve)
+    return Promise.resolve({ data: this.head ? null : this.singleRow ? rows[0] ?? null : rows, error: null,
+      ...(this.countMode ? { count } : {}) }).then(resolve)
   }
 }
 export function createServiceClient() {

@@ -17,7 +17,7 @@ async function request(path: string, method = 'GET', body?: unknown, account = a
   return unsigned(path, method, body, sessionHeaders(account))
 }
 beforeEach(() => {
-  reset(); boundary.actions = 0; boundary.unavailable = false; boundary.external = 0
+  reset(); boundary.actions = 0; boundary.unavailable = false; boundary.unavailableTable = null; boundary.external = 0
   process.env.ADMIN_WALLETS = alice.address
   process.env.DISCOVERY_SELLER_WALLET = other
   delete process.env.MAINNET_MODE
