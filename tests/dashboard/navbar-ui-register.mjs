@@ -54,6 +54,7 @@ Module._load = function(id, parent, main) {
   if (id === './ProductPreferencesProvider') {
     return { useProductPreferences: () => ({ formatUsdc: value => String(value) }) }
   }
+  if (id === './OnrampProvider') return { OnrampTrigger: () => React.createElement('button', { type: 'button' }, 'Add USDC') }
   if (id === '@/hooks/useVisibilityRefresh') return { useVisibilityRefresh: () => {} }
   if (id === '@/components/MarketplaceSessionProvider' || id === './MarketplaceSessionProvider') return { useMarketplaceSession: () => ({ request: async () => Response.json({ gatewayAvailable: '0' }), status: walletState.sessionStatus, networkStatus: walletState.networkStatus, authenticate: async () => { walletState.authenticationActions++; return true }, error: walletState.sessionStatus === 'unauthenticated' ? 'Wallet sign-in was cancelled.' : null, wallet: null }) }
   return load.call(this, id, parent, main)

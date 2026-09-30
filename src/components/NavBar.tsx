@@ -10,7 +10,7 @@ import { useProductPreferences } from './ProductPreferencesProvider'
 import { useMarketplaceSession } from './MarketplaceSessionProvider'
 import styles from './nav-bar.module.css'
 
-export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalance = true, landing = false, dashboard = false }: { balanceOverride?: string | null; balanceUnavailableOverride?: boolean; pollBalance?: boolean; landing?: boolean; dashboard?: boolean }) {
+export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalance = true, landing = false, dashboard = false, onOnrampReturn }: { balanceOverride?: string | null; balanceUnavailableOverride?: boolean; pollBalance?: boolean; landing?: boolean; dashboard?: boolean; onOnrampReturn?: () => void }) {
   const { address, connector, isConnected } = useAccount()
   const [balance, setBalance] = useState<string | null>(null)
   const [balanceUnavailable, setBalanceUnavailable] = useState(false)
@@ -65,9 +65,9 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
               {landing && <MahsharLogo variant="landing" />}
               {!landing && <><PrimaryNavigationLink dashboard={dashboard} isConnected={isConnected} sessionStatus={sessionStatus} /><ExploreMenu /></>}
             </div>
-            <HeaderControls leading={landing ? <><ExploreMenu /><PrimaryNavigationLink dashboard={false} isConnected={isConnected} sessionStatus={sessionStatus} /></> : undefined} isConnected={isConnected} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} connectorIcon={connector?.icon} sessionStatus={sessionStatus} authenticate={authenticate} sessionError={sessionError} />
+            <HeaderControls leading={landing ? <><ExploreMenu /><PrimaryNavigationLink dashboard={false} isConnected={isConnected} sessionStatus={sessionStatus} /></> : undefined} isConnected={isConnected} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} connectorIcon={connector?.icon} sessionStatus={sessionStatus} authenticate={authenticate} sessionError={sessionError} onOnrampReturn={onOnrampReturn} />
           </div>
-          <MobileHeader isConnected={isConnected} connectorIcon={connector?.icon} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} sessionStatus={sessionStatus} networkStatus={networkStatus} authenticate={authenticate} sessionError={sessionError} />
+          <MobileHeader isConnected={isConnected} connectorIcon={connector?.icon} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} sessionStatus={sessionStatus} networkStatus={networkStatus} authenticate={authenticate} sessionError={sessionError} onOnrampReturn={onOnrampReturn} />
         </div>
       </nav>
     )
@@ -80,19 +80,12 @@ export function NavBar({ balanceOverride, balanceUnavailableOverride, pollBalanc
           <MahsharLogo variant="landing" />
           <div className={styles.appNavRight}>
             <PrimaryNavigationLink dashboard={false} isConnected={isConnected} sessionStatus={sessionStatus} />
-            {isConnected && (
-              <span className={styles.balancePill}>
-                <span>Mahshar Balance:</span>
-                <strong>${displayedBalance === null ? '—' : formatUsdc(displayedBalance)} USDC</strong>
-                {displayedUnavailable && <small role="status">Balance unavailable</small>}
-              </span>
-            )}
             <ArcMainnetStatus />
             <SessionControl isConnected={isConnected} status={sessionStatus} authenticate={authenticate} error={sessionError} />
             <WalletIdentityPill connectorIcon={connector?.icon} />
           </div>
         </div>
-        <MobileHeader isConnected={isConnected} connectorIcon={connector?.icon} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} sessionStatus={sessionStatus} networkStatus={networkStatus} authenticate={authenticate} sessionError={sessionError} />
+        <MobileHeader isConnected={isConnected} connectorIcon={connector?.icon} displayedBalance={displayedBalance} balanceUnavailable={displayedUnavailable} formatUsdc={formatUsdc} sessionStatus={sessionStatus} networkStatus={networkStatus} authenticate={authenticate} sessionError={sessionError} onOnrampReturn={onOnrampReturn} />
       </div>
     </nav>
   )
@@ -111,17 +104,10 @@ function PrimaryNavigationLink({ dashboard, isConnected, sessionStatus }: { dash
   )
 }
 
-function HeaderControls({ leading, isConnected, displayedBalance, balanceUnavailable, formatUsdc, connectorIcon, sessionStatus, authenticate, sessionError }: { leading?: ReactNode; isConnected: boolean; displayedBalance: string | null; balanceUnavailable: boolean; formatUsdc: (value: string | number) => string; connectorIcon?: string; sessionStatus: 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error'; authenticate: () => Promise<boolean>; sessionError: string | null }) {
+function HeaderControls({ leading, isConnected, displayedBalance, balanceUnavailable, formatUsdc, connectorIcon, sessionStatus, authenticate, sessionError, onOnrampReturn }: { leading?: ReactNode; isConnected: boolean; displayedBalance: string | null; balanceUnavailable: boolean; formatUsdc: (value: string | number) => string; connectorIcon?: string; sessionStatus: 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error'; authenticate: () => Promise<boolean>; sessionError: string | null; onOnrampReturn?: () => void }) {
   return (
     <div className={styles.landingNavRight}>
       {leading}
-      {isConnected && (
-        <span className={styles.balancePill}>
-          <span>Mahshar Balance:</span>
-          <strong>${displayedBalance === null ? '—' : formatUsdc(displayedBalance)} USDC</strong>
-          {balanceUnavailable && <small role="status">Balance unavailable</small>}
-        </span>
-      )}
       <ArcMainnetStatus />
       <SessionControl isConnected={isConnected} status={sessionStatus} authenticate={authenticate} error={sessionError} />
       <WalletIdentityPill connectorIcon={connectorIcon} />
@@ -169,7 +155,7 @@ function WalletIdentityPill({ connectorIcon, compact = false }: { connectorIcon?
 type SessionStatus = 'disconnected' | 'checking' | 'signing' | 'authenticated' | 'unauthenticated' | 'error'
 type NetworkStatus = 'disconnected' | 'checking' | 'switching' | 'ready' | 'required'
 
-function MobileHeader({ isConnected, connectorIcon, displayedBalance, balanceUnavailable, formatUsdc, sessionStatus, networkStatus, authenticate, sessionError }: {
+function MobileHeader({ isConnected, connectorIcon, displayedBalance, balanceUnavailable, formatUsdc, sessionStatus, networkStatus, authenticate, sessionError, onOnrampReturn }: {
   isConnected: boolean
   connectorIcon?: string
   displayedBalance: string | null
@@ -179,6 +165,7 @@ function MobileHeader({ isConnected, connectorIcon, displayedBalance, balanceUna
   networkStatus: NetworkStatus
   authenticate: () => Promise<boolean>
   sessionError: string | null
+  onOnrampReturn?: () => void
 }) {
   const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
@@ -244,7 +231,6 @@ function MobileHeader({ isConnected, connectorIcon, displayedBalance, balanceUna
           </div>
           <MobileMenuLink href="/dashboard" onSelect={close}>Dashboard</MobileMenuLink>
           <div className={styles.mobileMenuStatus}><span>Arc Mainnet</span><strong className={styles[`mobileMenuNetwork_${networkStatus}`]}>{networkCopy}</strong></div>
-          <MobileMenuLink href="/dashboard/wallet" onSelect={close} detail={isConnected ? balanceUnavailable ? 'Balance unavailable' : `${displayedBalance === null ? '—' : formatUsdc(displayedBalance)} USDC` : 'Connect to view'}>Mahshar Balance</MobileMenuLink>
           <MobileMenuLink href="/dashboard/wallet" onSelect={close}>Wallet</MobileMenuLink>
           <MobileMenuLink href="/dashboard/settings" onSelect={close}>Settings</MobileMenuLink>
           <MobileMenuLink href="/support" onSelect={close}>Support</MobileMenuLink>

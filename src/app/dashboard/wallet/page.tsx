@@ -1,10 +1,12 @@
 'use client'
 
 import { ConnectButton } from '@rainbow-me/rainbowkit'
+import Image from 'next/image'
 import { useState } from 'react'
 import { IS_ARC_MAINNET, useDashboardWorkspace } from '../dashboard-workspace'
 import { DashboardCardHeader, DashboardIcon, UsdcUnit } from '../dashboard-visuals'
 import { useProductPreferences } from '@/components/ProductPreferencesProvider'
+import { OnrampTrigger } from '@/components/OnrampProvider'
 import styles from '../dashboard.module.css'
 
 export default function WalletDashboardPage() {
@@ -15,6 +17,7 @@ export default function WalletDashboardPage() {
     withdrawAmount, setWithdrawAmount, withdrawStep, withdrawError, withdrawFlatFee,
     initiateStep, initiateError, releaseStep, releaseError,
     withdrawingRaw, withdrawalBlockRaw, currentBlock,
+    scheduleWalletRefresh,
     handleDeposit, handleWithdraw, handleInitiateWithdraw, handleReleasePending,
   } = useDashboardWorkspace()
   const [copyFeedback, setCopyFeedback] = useState<{ address: string; message: string } | null>(null)
@@ -37,9 +40,29 @@ export default function WalletDashboardPage() {
         </div>
       ) : (
         <>
+          <section className={styles.walletOnrampCard} aria-labelledby="wallet-onramp-title">
+            <div className={styles.walletOnrampLogo}>
+              <Image src="/brand/usdc-token.svg" width={96} height={96} alt="USDC" />
+            </div>
+            <div className={styles.walletOnrampContent}>
+              <p className={styles.walletOnrampEyebrow}>ADD FUNDS TO YOUR ARC WALLET</p>
+              <h2 id="wallet-onramp-title">Buy USDC with your Card</h2>
+              <p className={styles.walletOnrampCopy}>Fund your Arc Mainnet wallet through Circle Onramp.</p>
+              <div className={styles.walletOnrampIndicators} aria-label="Funding details">
+                <span>Fiat <i aria-hidden="true">→</i> USDC</span>
+                <span>Arc Mainnet</span>
+                <span>Powered by Circle</span>
+              </div>
+            </div>
+            <div className={styles.walletOnrampAction}>
+              <OnrampTrigger variant="walletCard" onBalanceRefresh={() => scheduleWalletRefresh({ kind: 'onramp' })} />
+              <p>Available payment methods vary by region and provider.</p>
+            </div>
+          </section>
+
           <div className={`${styles.walletSummary} mb-8 grid min-w-0 gap-5 lg:grid-cols-3`}>
             <section className={`${styles.card} ${styles.walletSummaryCard}`}>
-              <p className="text-sm font-semibold text-[#2775CA]">Wallet USDC</p>
+              <p className="text-sm font-semibold text-[#2775CA]">Arc USDC Balance</p>
               <div className={styles.balanceValue}>{walletUsdcRaw != null ? formatUsdc(walletUsdcRaw, true) : '—'} <UsdcUnit /></div>
               <p className="text-xs text-slate-500">{walletUsdcStatus === 'stale' ? 'Last known balance · refreshing in the background.' : walletUsdcStatus === 'unknown' ? walletUsdcLoading ? 'Checking balance…' : 'Balance temporarily unavailable.' : 'Held in your own wallet on Arc.'}</p>
             </section>

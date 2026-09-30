@@ -18,6 +18,7 @@ import { MahsharFlowMotif } from '@/components/MahsharFlowMotif'
 import { buyerPaymentQuote, gatewayCanPay, insufficientGatewayMessage, type BuyerPaymentQuote } from '@/lib/payments/buyer-balance'
 import styles from './buyer.module.css'
 import { useArcWalletUsdcBalance } from '@/hooks/useArcWalletUsdcBalance'
+import { OnrampTrigger } from '@/components/OnrampProvider'
 
 interface PaymentRequirements {
   scheme: string
@@ -131,6 +132,7 @@ export default function BuyerPage() {
   const [paymentStep, setPaymentStep] = useState<'probing' | 'signing' | 'submitting'>('probing')
   const [paymentError, setPaymentError] = useState<string | null>(null)
   const [gatewayFundingNeeded, setGatewayFundingNeeded] = useState(false)
+  const [walletFundingNeeded, setWalletFundingNeeded] = useState(false)
   const [gatewayAvailable, setGatewayAvailable] = useState<string | null>(null)
   const [gatewayBalanceUnavailable, setGatewayBalanceUnavailable] = useState(false)
   const [paymentConfirmation, setPaymentConfirmation] = useState<PaymentConfirmation | null>(null)
@@ -154,7 +156,8 @@ export default function BuyerPage() {
   const [authFilters, setAuthFilters] = useState<Set<AuthType>>(new Set())
   const [sortBy, setSortBy] = useState<'newest' | 'price-low' | 'price-high' | 'score' | 'latency'>('newest')
 
-  const { walletUsdcRaw, status: walletUsdcStatus, isLoading: walletUsdcLoading } = useArcWalletUsdcBalance()
+  const { walletUsdcRaw, status: walletUsdcStatus, isLoading: walletUsdcLoading, refresh: refreshArcWalletBalance } = useArcWalletUsdcBalance()
+  const refreshArcWalletAfterOnramp = useCallback(() => { void refreshArcWalletBalance(true) }, [refreshArcWalletBalance])
 
   const refreshGatewayBalance = useCallback(async (wallet: string) => {
     try {
@@ -333,6 +336,7 @@ export default function BuyerPage() {
     setCalling(apiId)
     setPaymentError(null)
     setGatewayFundingNeeded(false)
+    setWalletFundingNeeded(false)
 
     const api = [...allApis, ...results].find(a => a.id === apiId)
     const apiName = api?.name ?? apiId
@@ -396,6 +400,7 @@ export default function BuyerPage() {
       const quote = buyerPaymentQuote(api.price_per_call, requirements.amount)
       if (!gatewayCanPay(currentGatewayAvailable, requirements.amount)) {
         setGatewayFundingNeeded(true)
+        setWalletFundingNeeded(walletUsdcRaw !== undefined && walletUsdcRaw < BigInt(requirements.amount))
         setPaymentError(insufficientGatewayMessage(requirements.amount))
         return
       }
@@ -417,6 +422,7 @@ export default function BuyerPage() {
     setCalling(confirmation.apiId)
     setPaymentError(null)
     setGatewayFundingNeeded(false)
+    setWalletFundingNeeded(false)
     const { apiId, apiName, apiMethod, exampleRequest, proxyBody, paymentRequired, requirements, wallet } = confirmation
     try {
       if (address.toLowerCase() !== wallet) throw new Error('Wallet changed. Review the payment again.')
@@ -480,6 +486,7 @@ export default function BuyerPage() {
           const currentGatewayAvailable = await refreshGatewayBalance(wallet)
           if (currentGatewayAvailable !== null && !gatewayCanPay(currentGatewayAvailable, requirements.amount)) {
             setGatewayFundingNeeded(true)
+            setWalletFundingNeeded(walletUsdcRaw !== undefined && walletUsdcRaw < BigInt(requirements.amount))
             setPaymentError(insufficientGatewayMessage(requirements.amount))
             return
           }
@@ -588,7 +595,7 @@ export default function BuyerPage() {
   if (!isConnected) {
     return (
       <>
-        <NavBar />
+        <NavBar onOnrampReturn={refreshArcWalletAfterOnramp} />
         <main className={styles.connectMain}>
           <MahsharFlowMotif variant="background" tone="purple" className={styles.connectBackgroundFlow} />
           <section className={styles.connectCard}>
@@ -607,7 +614,7 @@ export default function BuyerPage() {
 
   return (
     <>
-    <NavBar />
+    <NavBar onOnrampReturn={refreshArcWalletAfterOnramp} />
     <main className={styles.page}><div className={styles.main}>
       <MahsharFlowMotif variant="background" tone="blue" className={styles.backgroundFlow} />
       <header className={styles.hero}>
@@ -626,7 +633,7 @@ export default function BuyerPage() {
       </section>
 
       <div className={styles.workspace}><section className={styles.resultsColumn}><div className={styles.resultsHeader}><div><h2>{searchHasRun ? 'AI search results' : 'Marketplace APIs'}</h2><p>{filteredApis.length} {filteredApis.length === 1 ? 'API found' : 'APIs found'}{searchHasRun ? ' for your search' : ''}</p></div><select value={sortBy} onChange={event => setSortBy(event.target.value as typeof sortBy)} className={styles.sortSelect} aria-label="Sort marketplace results"><option value="newest">Newest</option><option value="price-low">Price: Low to High</option><option value="price-high">Price: High to Low</option><option value="score">AI Score</option><option value="latency">Latency</option></select></div>
-        {paymentError && <div className={`${styles.emptyState} ${styles.errorState}`}><h3>Request needs attention</h3><p>{paymentError}</p>{gatewayFundingNeeded && <Link className={styles.fundingLink} href="/dashboard/wallet#deposit">Fund Mahshar Balance</Link>}</div>}
+        {paymentError && <div className={`${styles.emptyState} ${styles.errorState}`}><h3>{walletFundingNeeded ? 'Insufficient USDC' : 'Request needs attention'}</h3><p>{walletFundingNeeded ? 'You need more Arc USDC before you can fund Mahshar Balance for this request.' : paymentError}</p>{walletFundingNeeded && <p>After funding, deposit to Mahshar Balance and explicitly start this request again.</p>}{gatewayFundingNeeded && <div className={styles.fundingActions}><Link className={styles.fundingLink} href="/dashboard/wallet#deposit">Fund Mahshar Balance</Link>{walletFundingNeeded && <OnrampTrigger variant="insufficient" onBalanceRefresh={refreshArcWalletAfterOnramp} />}</div>}</div>}
         {listingsLoading ? <div className={styles.loadingState}><div className={styles.skeleton} /><div className={styles.skeleton} /><div className={styles.skeleton} /></div> : listingsError ? <div className={`${styles.emptyState} ${styles.errorState}`}><h3>Marketplace unavailable</h3><p>{listingsError}</p></div> : searchHasRun && !searching && !searchError && results.length === 0 ? <div className={styles.emptyState}><h3>No AI matches found</h3><p>Try describing the capability, data source, or task in a different way.</p></div> : filteredApis.length === 0 ? <div className={styles.emptyState}><h3>No APIs match these filters</h3><p>Clear a filter or choose another category to see active marketplace listings.</p></div> : <div className={styles.resultsList}>{filteredApis.map(api => <ApiRow key={api.id} api={api} avgLatency={latencyMap[api.id] ?? null} calling={calling} paymentStep={paymentStep} onUse={handleUseApi} purchased={purchasedApiIds.has(api.id)} onView={handleViewApi} />)}</div>}
       </section>
       <aside className={styles.filterRail}><header className={styles.filterHeader}><h2>Filters</h2>{filtersActive && <button onClick={clearFilters} className={styles.clearButton}>Clear all</button>}</header><div className={styles.filterBody}>

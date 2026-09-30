@@ -80,5 +80,6 @@ Module._load = function(id, parent, main) {
   if (id === '@/components/MarketplaceSessionProvider' || id === './MarketplaceSessionProvider') return { useMarketplaceSession: () => ({ request: globalThis.fetch, status: state.sessionStatus, networkStatus: state.address ? 'ready' : 'disconnected', authenticate: async () => true, error: null, wallet: null }) }
   if (id === './MahsharLogo') return { MahsharLogo: function MahsharLogo() {} }
   if (id === './ProductPreferencesProvider') return { useProductPreferences: () => ({ formatUsdc: value => String(value) }) }
+  if (id === './OnrampProvider') return { OnrampTrigger: function OnrampTrigger() {} }
   return load.call(this, id, parent, main)
 }

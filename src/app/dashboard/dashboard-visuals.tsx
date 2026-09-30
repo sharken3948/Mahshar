@@ -58,8 +58,8 @@ export function DashboardSidebar() {
 }
 
 export function DashboardNavBar() {
-  const { gatewayStats, gatewayUnavailable } = useDashboardWorkspace()
-  return <NavBar dashboard balanceOverride={gatewayStats?.gatewayAvailable ?? null} balanceUnavailableOverride={gatewayUnavailable} pollBalance={false} />
+  const { gatewayStats, gatewayUnavailable, scheduleWalletRefresh } = useDashboardWorkspace()
+  return <NavBar dashboard balanceOverride={gatewayStats?.gatewayAvailable ?? null} balanceUnavailableOverride={gatewayUnavailable} pollBalance={false} onOnrampReturn={() => scheduleWalletRefresh({ kind: 'onramp' })} />
 }
 
 export function DashboardCardHeader({ title, subtitle, icon, tone }: { title: string; subtitle: string; icon: IconName; tone: 'blue' | 'green' | 'pink' | 'purple' }) {

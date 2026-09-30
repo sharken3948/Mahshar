@@ -15,6 +15,7 @@ export type WalletRefreshAction =
   | { kind: 'trustlessWithdrawalInitiated' }
   | { kind: 'trustlessWithdrawalReleased' }
   | { kind: 'sellerWithdrawal' }
+  | { kind: 'onramp' }
   | { kind: 'bridge'; source: 'evm' | 'solana' }
 
 const ACTION_RESOURCES: Record<Exclude<WalletRefreshAction['kind'], 'bridge'>, readonly WalletRefreshResource[]> = {
@@ -23,6 +24,7 @@ const ACTION_RESOURCES: Record<Exclude<WalletRefreshAction['kind'], 'bridge'>, r
   trustlessWithdrawalInitiated: ['arcWallet', 'gateway', 'pendingWithdrawal'],
   trustlessWithdrawalReleased: ['arcWallet', 'pendingWithdrawal'],
   sellerWithdrawal: ['arcWallet', 'sellerEarnings'],
+  onramp: ['arcWallet'],
 }
 
 export function walletRefreshResources(action: WalletRefreshAction): readonly WalletRefreshResource[] {

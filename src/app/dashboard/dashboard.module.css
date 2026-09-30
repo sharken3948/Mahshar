@@ -101,6 +101,20 @@
 .card :global(.relative.mb-2) :global(.font-mono) { font-size: clamp(30px, 1.7vw, 38px); letter-spacing: -.04em; margin: 6px 0; }
 .walletNote { margin-top: 34px; padding: 18px; border-radius: 14px; background: #f6f9fe; display: flex; align-items: center; gap: 14px; color: #58779d; font-size: clamp(13px, .7vw, 15px); line-height: 1.6; }
 .walletNote svg { flex-shrink: 0; }
+.walletOnrampCard { position: relative; isolation: isolate; overflow: hidden; display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr) minmax(180px, auto); align-items: center; gap: clamp(20px, 1.8vw, 34px); margin-bottom: clamp(20px, 1.6vw, 28px); border: 1px solid #c9def4; border-radius: clamp(20px, 1.35vw, 24px); padding: clamp(24px, 1.7vw, 34px); background: linear-gradient(110deg, #edf6ff 0%, #f6faff 54%, #eaf4ff 100%); box-shadow: 0 10px 30px #2775ca12; }
+.walletOnrampCard::before { position: absolute; z-index: -1; top: -54px; left: -34px; width: 156px; height: 156px; border: 20px solid #cfe5fb80; border-radius: 50%; box-shadow: 43px 58px 0 -23px #bfddfa55; content: ''; }
+.walletOnrampCard::after { position: absolute; z-index: -1; right: -58px; bottom: -82px; width: 180px; height: 180px; border-radius: 50%; background: #cce3fa70; content: ''; }
+.walletOnrampLogo { display: grid; width: clamp(68px, 4.3vw, 82px); height: clamp(68px, 4.3vw, 82px); place-items: center; border: 1px solid #ffffffd9; border-radius: 50%; background: #fff; box-shadow: 0 10px 24px #1c5ca526; }
+.walletOnrampLogo img { display: block; width: 100%; height: 100%; }
+.walletOnrampContent { min-width: 0; }
+.walletOnrampEyebrow { margin: 0 0 7px; color: #2775ca; font-size: 13px; font-weight: 800; letter-spacing: .13em; line-height: 1.4; }
+.walletOnrampContent h2 { margin: 0; color: #142f52; font-size: clamp(22px, 1.35vw, 28px); font-weight: 780; letter-spacing: -.035em; line-height: 1.16; }
+.walletOnrampCopy { margin: 7px 0 0; color: #58718d; font-size: clamp(14px, .78vw, 16px); line-height: 1.55; }
+.walletOnrampIndicators { display: flex; min-width: 0; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+.walletOnrampIndicators span { display: inline-flex; min-height: 32px; align-items: center; gap: 7px; border: 1px solid #cddff1; border-radius: 999px; padding: 6px 10px; background: #ffffffa8; color: #426585; font-size: 13px; font-weight: 700; line-height: 1.2; }
+.walletOnrampIndicators i { color: #2775ca; font-size: 15px; font-style: normal; }
+.walletOnrampAction { display: grid; min-width: 180px; justify-items: stretch; gap: 10px; }
+.walletOnrampAction p { max-width: 230px; margin: 0; color: #667f99; font-size: 13px; line-height: 1.5; text-align: center; }
 .walletSummary { margin-bottom: clamp(32px, 2.5vw, 44px); }
 .walletSummaryCard { position: relative; overflow: hidden; min-height: 166px; display: flex; flex-direction: column; justify-content: center; padding: clamp(24px, 1.5vw, 30px); }
 .walletSummaryCard::before { position: absolute; top: 0; left: 0; width: 100%; height: 3px; content: ''; background: linear-gradient(90deg, #bddbfa, #eff6ff); }
@@ -228,6 +242,9 @@
 @media (max-width: 900px) {
   .shell { --sidebar-width: 208px; --page-gutter: 22px; }
   .cards { grid-template-columns: minmax(0, 1fr); }
+  .walletOnrampCard { grid-template-columns: auto minmax(0, 1fr); }
+  .walletOnrampAction { grid-column: 2; min-width: 0; justify-items: start; }
+  .walletOnrampAction p { max-width: 360px; text-align: left; }
   .content :global(.md\:col-span-2) { grid-column: auto; }
   .backgroundFlowBottom { display: none; }
 }
@@ -251,9 +268,21 @@
   .pageHeader { margin-bottom: 26px; }
   .pageHeader h1 { font-size: 32px; }
   .cardHeader { margin-bottom: 20px; }
+  .walletOnrampCard { grid-template-columns: minmax(0, 1fr); align-items: start; justify-items: stretch; padding: 22px 20px; }
+  .walletOnrampCard > * { min-width: 0; max-width: 100%; }
+  .walletOnrampLogo { width: 64px; height: 64px; justify-self: start; }
+  .walletOnrampContent { width: 100%; }
+  .walletOnrampAction { grid-column: auto; width: 100%; }
+  .walletOnrampAction p { max-width: none; }
   .content :global(.lg\:grid-cols-4), .content :global(.lg\:grid-cols-3) { grid-template-columns: minmax(0, 1fr); }
   .withdrawalHistoryHeader { align-items: stretch; flex-direction: column; }
   .withdrawalHistoryActions { justify-content: flex-start; }
   .content :global(th), .content :global(td) { padding-top: 12px; padding-bottom: 12px; }
   .listedApisTable { min-width: 650px; }
+}
+
+@media (max-width: 430px) {
+  .walletOnrampEyebrow, .walletOnrampContent h2, .walletOnrampCopy, .walletOnrampAction p { white-space: normal; overflow-wrap: anywhere; }
+  .walletOnrampIndicators { display: grid; justify-items: start; }
+  .walletOnrampIndicators span { max-width: 100%; white-space: normal; }
 }

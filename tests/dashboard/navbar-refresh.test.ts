@@ -28,13 +28,13 @@ test('NavBar waits for session hydration before starting its private balance rea
   assert.equal(state.requests.length, 1)
 })
 
-test('NavBar retains its last successful Gateway balance when the 60-second poll fails', async () => {
+test('NavBar no longer presents its legacy Gateway balance after successful or failed refreshes', async () => {
   render()
   runEffects()
   await setImmediate()
 
   let tree = render()
-  assert.match(textContent(tree), /\$\s*12\.5\s+USDC/)
+  assert.doesNotMatch(textContent(tree), /\$\s*12\.5\s+USDC|Mahshar Balance|Add USDC/)
 
   state.responseOk = false
   const scheduledPoll = timers.find((_, index) => timerDelays[index] === REFRESH_INTERVAL_MS)
@@ -43,8 +43,7 @@ test('NavBar retains its last successful Gateway balance when the 60-second poll
   for (let index = 0; index < 4; index++) await setImmediate()
 
   tree = render()
-  assert.match(textContent(tree), /\$\s*12\.5\s+USDC/)
-  assert.doesNotMatch(textContent(tree), /\$\s*—\s+USDC/)
+  assert.doesNotMatch(textContent(tree), /\$\s*12\.5\s+USDC|\$\s*—\s+USDC|Mahshar Balance|Add USDC/)
 })
 
 test('NavBar ignores wallet A response after switching to wallet B', async () => {
@@ -66,6 +65,5 @@ test('NavBar ignores wallet A response after switching to wallet B', async () =>
   requestA.resolve(Response.json({ gatewayAvailable: '11' }))
   for (let index = 0; index < 3; index++) await setImmediate()
 
-  assert.match(textContent(render()), /\$\s*22\s+USDC/)
-  assert.doesNotMatch(textContent(render()), /\$\s*11\s+USDC/)
+  assert.doesNotMatch(textContent(render()), /\$\s*(?:11|22)\s+USDC|Mahshar Balance|Add USDC/)
 })

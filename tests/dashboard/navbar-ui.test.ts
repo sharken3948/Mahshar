@@ -25,12 +25,14 @@ test('homepage keeps the premium Dashboard primary action', () => {
   assert.doesNotMatch(html, /aria-label="Home"/)
 })
 
-test('homepage orders Explore and Dashboard immediately before balance, network, and wallet controls', () => {
+test('homepage removes the ambiguous balance funding control and preserves remaining control order', () => {
   const html = renderNav({ landing: true })
-  const positions = ['>Explore ', '>Dashboard<', 'Mahshar Balance:', 'Arc Mainnet', 'Open account actions for']
+  const positions = ['>Explore ', '>Dashboard<', 'Arc Mainnet', 'Open account actions for']
     .map(marker => html.indexOf(marker))
   assert.ok(positions.every(position => position >= 0), String(positions))
   assert.deepEqual(positions, [...positions].sort((left, right) => left - right))
+  assert.doesNotMatch(html, /Mahshar Balance:|>Add USDC<|\$12\.5 USDC/)
+  assert.doesNotMatch(readFileSync('src/components/NavBar.tsx', 'utf8'), /OnrampTrigger/)
 })
 
 test('application pages reuse the homepage logo treatment and header width', () => {
@@ -137,9 +139,10 @@ test('mobile menu maps every available approved item to a real route without pla
   const menu = source.slice(source.indexOf('id="mahshar-mobile-menu"'), source.indexOf('</div>\n      </>}', source.indexOf('id="mahshar-mobile-menu"')))
   for (const [label, href] of [
     ['Marketplace', '/buyer'], ['Build', '/seller'], ['Agents', '/agents'], ['Docs', '/docs'],
-    ['Dashboard', '/dashboard'], ['Mahshar Balance', '/dashboard/wallet'], ['Wallet', '/dashboard/wallet'],
+    ['Dashboard', '/dashboard'], ['Wallet', '/dashboard/wallet'],
     ['Settings', '/dashboard/settings'], ['Support', '/support'],
   ]) assert.match(menu, new RegExp(`href="${href.replaceAll('/', '\\/')}"[^>]*>${label}`), label)
+  assert.doesNotMatch(menu, /Mahshar Balance|Add USDC/)
   assert.doesNotMatch(menu, /href="(?:#|javascript:)|Community/)
   assert.match(menu, /mobileMenuStatus[^>]*><span>Arc Mainnet<\/span>/)
 })

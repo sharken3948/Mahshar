@@ -85,6 +85,7 @@
 .skeleton { height: 142px; border: 1px solid #e2eaf2; border-radius: 19px; background: linear-gradient(100deg, #f7f9fc 20%, #edf2f8 40%, #f7f9fc 60%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
 .errorState { border-style: solid; border-color: #f0c8d0; background: #fff7f8; color: #b64152; }
 .fundingLink { display: inline-flex; margin-top: 13px; }
+.fundingActions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .connectMain { position: relative; isolation: isolate; display: grid; min-height: 100vh; place-items: center; overflow: hidden; padding: 112px 24px 48px; background: #f5f7fb; }
 .connectBackgroundFlow { position: absolute; z-index: -1; top: 12%; right: clamp(-330px, -14vw, -170px); width: clamp(480px, 34vw, 700px); opacity: .075; }
 .connectCard { position: relative; overflow: hidden; width: min(100%, 464px); padding: 38px; border: 1px solid #d3e0ec; border-radius: 24px; background: #fff; box-shadow: 0 18px 46px #203c6517; text-align: center; }
