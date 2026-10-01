@@ -6,8 +6,10 @@ export function PublicSiteFooter() {
     <footer className={styles.footer}>
       <p>© {new Date().getFullYear()} Mahshar. The API economy, powered by USDC.</p>
       <nav aria-label="Footer navigation">
-        <Link href="/support">Support</Link>
+        <Link href="/marketplace">Marketplace</Link>
         <Link href="/agents">For AI Agents</Link>
+        <Link href="/docs">Documentation</Link>
+        <Link href="/support">Support</Link>
       </nav>
     </footer>
   )

@@ -7,6 +7,19 @@ import styles from '../public-pages.module.css'
 export const metadata: Metadata = {
   title: 'Support | Mahshar',
   description: 'Self-service help for Mahshar marketplace, wallet, bridge, provider, and agent flows.',
+  alternates: { canonical: '/support' },
+  openGraph: {
+    type: 'website',
+    siteName: 'Mahshar',
+    title: 'Support | Mahshar',
+    description: 'Self-service help for Mahshar marketplace, wallet, bridge, provider, and agent flows.',
+    url: '/support',
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Support | Mahshar',
+    description: 'Self-service help for Mahshar marketplace, wallet, bridge, provider, and agent flows.',
+  },
 }
 
 const topics = [

@@ -8,6 +8,18 @@ export const metadata: Metadata = {
   title: 'Agents | Mahshar',
   description: 'Use Mahshar’s public discovery, OpenAPI, proxy, and x402 contracts from an autonomous client.',
   alternates: { canonical: '/agents' },
+  openGraph: {
+    type: 'website',
+    siteName: 'Mahshar',
+    title: 'Agents | Mahshar',
+    description: 'Use Mahshar’s public discovery, OpenAPI, proxy, and x402 contracts from an autonomous client.',
+    url: '/agents',
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Agents | Mahshar',
+    description: 'Use Mahshar’s public discovery, OpenAPI, proxy, and x402 contracts from an autonomous client.',
+  },
 }
 
 const features = [
@@ -18,6 +30,7 @@ const features = [
 ]
 
 const resources = [
+  { icon: 'api' as const, title: 'Public API marketplace', copy: 'Browse crawlable pages for active APIs before using the machine contract to execute a call.', href: '/marketplace', label: 'Browse APIs' },
   { icon: 'discover' as const, title: 'Raw machine discovery', copy: 'View the public JSON catalog consumed by agents. This is machine data, not a product page.', href: '/api/agent/discover', label: 'View raw discovery JSON' },
   { icon: 'docs' as const, title: 'OpenAPI 3.1 specification', copy: 'Inspect the public discovery, execution, access, and recovery contract.', href: '/api/openapi', label: 'Open OpenAPI specification' },
   { icon: 'book' as const, title: 'Integration guide', copy: 'Follow the documented discovery, payment, delivery-state, and recovery sequence.', href: '/docs#agent-integration', label: 'Read guide' },

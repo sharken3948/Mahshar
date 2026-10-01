@@ -12,7 +12,7 @@
 }
 
 .footer p { margin: 0; }
-.footer nav { display: flex; gap: 22px; }
+.footer nav { display: flex; flex-wrap: wrap; justify-content: center; gap: 22px; }
 .footer a { color: #356ba9; text-decoration: none; }
 .footer a:hover { text-decoration: underline; }
 .footer a:focus-visible { outline: 3px solid rgba(8, 103, 237, .3); outline-offset: 4px; }

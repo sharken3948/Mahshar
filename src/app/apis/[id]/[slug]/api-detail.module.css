@@ -1,0 +1,36 @@
+.hero h1 { max-width: 1040px; overflow-wrap: anywhere; }
+.badges { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 0; color: #5d7899; font-size: 12px; font-weight: 660; }
+.badges span { border-radius: 999px; padding: 6px 10px; background: #eef4fb; }
+.content { padding: 58px 62px 72px; background: #f8fbff; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
+.mainColumn { display: grid; min-width: 0; gap: 20px; }
+.panel, .purchaseCard { border: 1px solid #dce8f5; border-radius: 16px; background: #fff; box-shadow: 0 15px 38px rgba(50, 101, 158, .06); }
+.panel { padding: 28px; }
+.panel h2 { margin: 8px 0 22px; color: #0a214a; font-size: 27px; letter-spacing: -.035em; }
+.factGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 0; overflow: hidden; border: 1px solid #e3edf7; border-radius: 12px; background: #e3edf7; }
+.factGrid div { min-width: 0; padding: 17px; background: #fbfdff; }
+.factGrid dt { color: #6c819d; font-size: 12px; font-weight: 660; letter-spacing: .04em; text-transform: uppercase; }
+.factGrid dd { margin: 6px 0 0; color: #142e56; font-size: 15px; font-weight: 610; overflow-wrap: anywhere; }
+.purchaseCard { position: sticky; top: 100px; display: flex; flex-direction: column; padding: 25px; }
+.purchaseCard > p { margin: 0; color: #6c819d; font-size: 11px; font-weight: 760; letter-spacing: .14em; }
+.purchaseCard > strong { margin-top: 10px; color: #09224d; font-size: 32px; letter-spacing: -.04em; }
+.purchaseCard > strong span { font-size: 16px; letter-spacing: 0; }
+.purchaseCard > small { margin-top: 3px; color: #6d829e; }
+.purchaseCard ul { display: grid; gap: 10px; margin: 24px 0; border-top: 1px solid #e5edf6; padding: 20px 0 0 19px; color: #526d8e; font-size: 14px; }
+.purchaseCard a:first-of-type { width: 100%; }
+.helpLink { margin-top: 15px; color: #2866aa; font-size: 13px; font-weight: 650; text-align: center; text-decoration: none; }
+.helpLink:hover { text-decoration: underline; }
+
+@media (max-width: 920px) {
+  .layout { grid-template-columns: 1fr; }
+  .purchaseCard { position: static; }
+}
+
+@media (max-width: 760px) {
+  .content { padding: 42px 24px 58px; }
+}
+
+@media (max-width: 540px) {
+  .panel { padding: 21px; }
+  .factGrid { grid-template-columns: 1fr; }
+}

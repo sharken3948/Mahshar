@@ -223,7 +223,7 @@ function MobileHeader({ isConnected, connectorIcon, displayedBalance, balanceUna
           <div className={styles.mobileMenuSection}>
             <button type="button" className={styles.mobileExploreToggle} aria-expanded={exploreOpen} aria-controls="mahshar-mobile-explore" onClick={() => setExploreOpen(open => !open)}><span>Explore</span><ChevronIcon /></button>
             {exploreOpen && <div id="mahshar-mobile-explore" className={styles.mobileExploreLinks}>
-              <MobileMenuLink href="/buyer" onSelect={close}>Marketplace</MobileMenuLink>
+              <MobileMenuLink href="/marketplace" onSelect={close}>Marketplace</MobileMenuLink>
               <MobileMenuLink href="/seller" onSelect={close}>Build</MobileMenuLink>
               <MobileMenuLink href="/agents" onSelect={close}>Agents</MobileMenuLink>
               <MobileMenuLink href="/docs" onSelect={close}>Docs</MobileMenuLink>
@@ -299,6 +299,7 @@ function ExploreMenu() {
       </button>
       {isOpen && (
         <div id="landing-explore-menu" className={styles.exploreMenu} role="menu">
+          <ExploreLink href="/marketplace" title="Marketplace" copy="Browse active APIs" icon={<MarketplaceIcon />} onSelect={() => setIsOpen(false)} />
           <ExploreLink href="/agents" title="Agents" copy="Use the machine interface" icon={<AgentIcon />} onSelect={() => setIsOpen(false)} />
           <ExploreLink href="/docs" title="Docs" copy="Read Mahshar documentation" icon={<DocsIcon />} onSelect={() => setIsOpen(false)} />
           <ExploreLink href="/support" title="Support" copy="Get product help" icon={<SupportIcon />} onSelect={() => setIsOpen(false)} />
@@ -316,5 +317,6 @@ function NavArrowIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><pa
 function HomeIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 11 8-7 8 7" /><path d="M6.5 10v10h11V10M10 20v-6h4v6" /></svg> }
 function ChevronIcon() { return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg> }
 function AgentIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="7" width="14" height="12" rx="3" /><path d="M12 3v4M9 12h.01M15 12h.01M2 12h3M19 12h3" /></svg> }
+function MarketplaceIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16l-1-4H5L4 8Z" /><path d="M5 8v12h14V8M9 20v-6h6v6" /></svg> }
 function DocsIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6V3Z" /><path d="M15 3v5h4M9 12h6M9 16h6" /></svg> }
 function SupportIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M9.8 9a2.4 2.4 0 1 1 3.2 2.27c-.62.25-1 .88-1 1.55V14M12 18h.01" /></svg> }

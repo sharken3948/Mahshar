@@ -7,6 +7,19 @@ import styles from '../public-pages.module.css'
 export const metadata: Metadata = {
   title: 'Documentation | Mahshar',
   description: 'A human-readable index for Mahshar’s current marketplace, agent, payment, access, and wallet flows.',
+  alternates: { canonical: '/docs' },
+  openGraph: {
+    type: 'website',
+    siteName: 'Mahshar',
+    title: 'Documentation | Mahshar',
+    description: 'A human-readable index for Mahshar’s current marketplace, agent, payment, access, and wallet flows.',
+    url: '/docs',
+  },
+  twitter: {
+    card: 'summary',
+    title: 'Documentation | Mahshar',
+    description: 'A human-readable index for Mahshar’s current marketplace, agent, payment, access, and wallet flows.',
+  },
 }
 
 const topics = [
@@ -58,7 +71,7 @@ export default function DocsPage() {
           <div className={styles.container}>
             <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>GETTING STARTED</p><h2>Three implemented entry points</h2><p>Mahshar provides separate interfaces for people buying API calls, providers listing endpoints, and autonomous clients.</p></div></div>
             <div className={styles.contentGrid}>
-              <article className={styles.contentCard}><h3>Buy API access</h3><p>The Marketplace lists active APIs after an EVM wallet is connected. Buyers can browse, search, inspect prices, and call a listing.</p><div className={styles.actions}><Link href="/buyer" className={styles.secondaryButton}>Open Marketplace</Link></div></article>
+              <article className={styles.contentCard}><h3>Buy API access</h3><p>Browse active APIs on the public Marketplace, then open the existing buyer application when you are ready to connect a wallet and make a call.</p><div className={styles.actions}><Link href="/marketplace" className={styles.secondaryButton}>Browse APIs</Link><Link href="/buyer" className={styles.secondaryButton}>Use an API</Link></div></article>
               <article className={styles.contentCard} id="providers"><h3>List an API</h3><p>The provider flow collects endpoint, method, auth, price, and example data, then uses the existing review and activation path.</p><div className={styles.actions}><Link href="/seller" className={styles.secondaryButton}>List Your API</Link></div></article>
               <article className={styles.contentCard}><h3>Integrate an agent</h3><p>The agent path starts with the public discovery endpoint, which links the OpenAPI contract and describes each active listing.</p><div className={styles.actions}><Link href="/agents" className={styles.secondaryButton}>Open Agents</Link></div></article>
             </div>

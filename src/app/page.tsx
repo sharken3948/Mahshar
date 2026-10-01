@@ -5,7 +5,25 @@ import { NavBar } from '@/components/NavBar'
 import { PublicSiteFooter } from '@/components/PublicSiteFooter'
 import styles from './landing.module.css'
 
-export const metadata: Metadata = { alternates: { canonical: '/' } }
+export const metadata: Metadata = {
+  title: 'Mahshar — AI API Marketplace Powered by USDC',
+  description: 'Discover APIs for AI agents and applications, then pay per call with USDC via x402 on Arc Mainnet.',
+  alternates: { canonical: '/' },
+  openGraph: {
+    type: 'website',
+    siteName: 'Mahshar',
+    title: 'Mahshar — AI API Marketplace Powered by USDC',
+    description: 'Discover APIs for AI agents and applications, then pay per call with USDC via x402 on Arc Mainnet.',
+    url: '/',
+    images: [{ url: '/logo.png', width: 1024, height: 559, alt: 'Mahshar' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Mahshar — AI API Marketplace Powered by USDC',
+    description: 'Discover APIs for AI agents and applications, then pay per call with USDC via x402 on Arc Mainnet.',
+    images: ['/logo.png'],
+  },
+}
 
 const workflow = [
   { number: '01', title: 'Discover', copy: 'Find the API your agent or application needs.', icon: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.6 15.6 4.4 4.4" /></> },
@@ -14,8 +32,20 @@ const workflow = [
 ]
 
 export default function LandingPage() {
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      { '@type': 'WebSite', name: 'Mahshar', url: 'https://mahshar.xyz' },
+      { '@type': 'Organization', name: 'Mahshar', url: 'https://mahshar.xyz', logo: 'https://mahshar.xyz/logo.png' },
+    ],
+  }
+
   return (
     <main className={styles.page}>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
+      />
       <NavBar landing />
 
       <section className={styles.hero}>

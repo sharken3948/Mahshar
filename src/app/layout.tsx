@@ -17,9 +17,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Mahshar: The API Economy, Powered by USDC',
-  description: 'Buy and sell API access with instant USDC nanopayments. AI-matched, x402-powered, zero integration.',
+  title: 'Mahshar — AI API Marketplace Powered by USDC',
+  description: 'Discover APIs for AI agents and applications, then pay per call with USDC via x402 on Arc Mainnet.',
   metadataBase: new URL('https://mahshar.xyz'),
+  openGraph: {
+    type: 'website',
+    siteName: 'Mahshar',
+    images: [{ url: '/logo.png', width: 1024, height: 559, alt: 'Mahshar' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    images: ['/logo.png'],
+  },
   icons: {
     icon: [
       { url: '/icon.png', sizes: '512x512', type: 'image/png' },

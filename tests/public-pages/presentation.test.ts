@@ -14,8 +14,13 @@ test('Agents, Docs, and Support are real App Router pages using the shared publi
   }
 
   const shell = readFileSync('src/components/PublicPageShell.tsx', 'utf8')
-  assert.match(shell, /<NavBar landing \/>/)
+  const navigation = readFileSync('src/components/PublicOnlyNav.tsx', 'utf8')
+  assert.match(shell, /<PublicOnlyNav \/>/)
+  assert.doesNotMatch(shell, /<NavBar/)
   assert.match(shell, /<PublicSiteFooter \/>/)
+  for (const source of [shell, navigation]) {
+    assert.doesNotMatch(source, /useAccount|useMarketplaceSession|gateway\/balance|useVisibilityRefresh|pollBalance/)
+  }
 })
 
 test('public pages avoid unsupported reference claims and destinations', () => {
@@ -64,6 +69,7 @@ test('canonical production hosts permanently redirect without widening auth orig
 test('shared public layout has capped desktop width and explicit overflow safeguards', () => {
   const css = readFileSync('src/app/public-pages.module.css', 'utf8')
   const shellCss = readFileSync('src/components/public-page-shell.module.css', 'utf8')
+  const navigationCss = readFileSync('src/components/public-only-nav.module.css', 'utf8')
   assert.match(css, /\.container\s*\{[^}]*max-width:\s*1560px[^}]*margin:\s*0 auto/)
   assert.match(shellCss, /overflow-x:\s*clip/)
   assert.match(css, /\.codePanel\s*\{[^}]*overflow-x:\s*auto/)
@@ -71,6 +77,9 @@ test('shared public layout has capped desktop width and explicit overflow safegu
   for (const breakpoint of ['1180px', '800px', '520px']) assert.ok(css.includes(`max-width: ${breakpoint}`), breakpoint)
   assert.match(css, /@media \(max-width: 800px\)[\s\S]*\.heroGrid[^}]*grid-template-columns:\s*1fr/)
   assert.match(css, /@media \(max-width: 520px\)[\s\S]*\.featureGrid, \.topicGrid, \.resourceGrid[^}]*grid-template-columns:\s*1fr/)
+  assert.match(navigationCss, /max-width:\s*1560px/)
+  assert.match(navigationCss, /@media \(max-width: 900px\)[\s\S]*\.desktopLinks\s*\{\s*display:\s*none/)
+  assert.match(navigationCss, /width:\s*min\(280px, calc\(100vw - 32px\)\)/)
 })
 
 test('homepage uses the same extracted public footer without changing its body hierarchy', () => {

@@ -3,3 +3,5 @@ Allow: /
 
 # AI Agent Discovery
 # Mahshar API marketplace catalog: https://mahshar.xyz/api/agent/discover
+
+Sitemap: https://mahshar.xyz/sitemap.xml
