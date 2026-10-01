@@ -27,6 +27,17 @@ For buyers and agents:
 - Retrieve responses tied to the exact purchase.
 - Never receive the seller's upstream credentials.
 
+## Public Discovery and Buyer Application
+
+Mahshar provides crawlable public discovery surfaces without requiring a wallet connection:
+
+- [Marketplace](https://mahshar.xyz/marketplace) for browsing active pay-per-call APIs.
+- Stable API detail URLs at `/apis/<listing-id>/<slug>`.
+- Public [agent guidance](https://mahshar.xyz/agents), [documentation](https://mahshar.xyz/docs), and [support](https://mahshar.xyz/support).
+- [robots.txt](https://mahshar.xyz/robots.txt) and a generated [sitemap](https://mahshar.xyz/sitemap.xml) for public discovery.
+
+The public discovery layer is isolated from wallet authentication, payment execution, and proxy behavior. The wallet-enabled [`/buyer`](https://mahshar.xyz/buyer) application remains the place to connect a wallet and execute paid API requests.
+
 ## Supported Upstream Authentication
 
 | Model | Upstream behavior |
@@ -130,7 +141,9 @@ Autonomous clients should start with the public discovery endpoint and its curre
 
 Runtime discovery and OpenAPI URLs are generated from the configured canonical marketplace origin.
 
-## Cross-Chain Funding
+## Wallet Funding
+
+Mahshar supports Circle Onramp funding for a connected Arc Mainnet wallet. It is available from the dashboard Wallet workspace and from the Buyer application when additional Arc USDC is needed.
 
 The dashboard provides explicit Circle Bridge Kit flows for SDK-supported Mainnet USDC routes into the user's connected Arc Mainnet wallet. The dedicated **Solana to Arc** workspace moves supported SPL USDC from a connected Solana source wallet to that Arc wallet. Route availability is derived from the installed SDK rather than a fixed list in this README.
 
