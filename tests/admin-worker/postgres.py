@@ -9,6 +9,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261001000100_admin_worker_foundation.sql'
+PRIVILEGE_REPAIR = ROOT / 'supabase/migrations/20261001000110_admin_worker_least_privilege.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -71,10 +72,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20260926000200', '20260926000300', '20260926000400',
             '20260926000500', '20260928000100', '20260928000200',
             '20260928000300', '20261001000000', '20261001000030',
-            '20261001000100',
+            '20261001000100', '20261001000110',
         ]
         for migration in migrations:
-            if migration != MIGRATION:
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -86,6 +87,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             GRANT USAGE, SELECT ON SEQUENCES TO PUBLIC, anon, authenticated;
           ALTER DEFAULT PRIVILEGES IN SCHEMA public
             GRANT EXECUTE ON FUNCTIONS TO PUBLIC, anon, authenticated;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT ALL ON TABLES TO service_role;
+          ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT ALL ON SEQUENCES TO service_role;
         """)
 
         # Every statement is transaction-safe. A forced terminal error must
@@ -99,10 +104,24 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         assert sql("SELECT to_regprocedure('public.mahshar_worker_create_run(boolean)');") == ''
         sql(MIGRATION.read_text())
 
+        # Reproduce the production default-ACL drift before repairing it.
+        assert sql("SELECT has_table_privilege('service_role','public.worker_control','TRUNCATE');") == 't'
+        assert sql("SELECT has_sequence_privilege('service_role','public.worker_runs_run_number_seq','UPDATE');") == 't'
+        rollback_sql = "BEGIN;\n" + PRIVILEGE_REPAIR.read_text() + """
+          DO $rollback$ BEGIN RAISE EXCEPTION 'forced_worker_privilege_rollback'; END $rollback$;
+          COMMIT;
+        """
+        expect_failure(rollback_sql, 'forced_worker_privilege_rollback')
+        assert sql("SELECT has_table_privilege('service_role','public.worker_control','TRUNCATE');") == 't'
+        assert sql("SELECT has_sequence_privilege('service_role','public.worker_runs_run_number_seq','UPDATE');") == 't'
+        sql('BEGIN;\n' + PRIVILEGE_REPAIR.read_text() + '\nCOMMIT;')
+
         worker_tables = ['worker_control', 'worker_runs', 'worker_providers', 'worker_provider_identities',
                          'worker_products', 'worker_leads', 'worker_sources', 'worker_decisions']
         intended_table_privileges = {'SELECT', 'INSERT', 'UPDATE', 'DELETE'}
         all_table_privileges = intended_table_privileges | {'TRUNCATE', 'REFERENCES', 'TRIGGER'}
+        if int(sql('SHOW server_version_num;')) >= 170000:
+            all_table_privileges.add('MAINTAIN')
         for table in worker_tables:
             assert sql(f"SELECT relrowsecurity FROM pg_class WHERE oid='public.{table}'::regclass;") == 't'
             assert sql(f"SELECT count(*) FROM pg_policy WHERE polrelid='public.{table}'::regclass;") == '0'
