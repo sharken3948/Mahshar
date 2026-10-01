@@ -138,7 +138,8 @@ test('mobile menu maps every available approved item to a real route without pla
   const source = readFileSync('src/components/NavBar.tsx', 'utf8')
   const menu = source.slice(source.indexOf('id="mahshar-mobile-menu"'), source.indexOf('</div>\n      </>}', source.indexOf('id="mahshar-mobile-menu"')))
   for (const [label, href] of [
-    ['Marketplace', '/buyer'], ['Build', '/seller'], ['Agents', '/agents'], ['Docs', '/docs'],
+    ['Marketplace', '/marketplace'], ['What is Mahshar?', '/about'], ['For API Providers', '/providers'],
+    ['Agents', '/agents'], ['Docs', '/docs'],
     ['Dashboard', '/dashboard'], ['Wallet', '/dashboard/wallet'],
     ['Settings', '/dashboard/settings'], ['Support', '/support'],
   ]) assert.match(menu, new RegExp(`href="${href.replaceAll('/', '\\/')}"[^>]*>${label}`), label)
@@ -159,14 +160,21 @@ test('every approved mobile page renders the same shared NavBar and Dashboard ke
   assert.match(dashboardCss, /@media \(max-width: 767px\)[\s\S]*\.topbar \{ order: 0; \}[\s\S]*\.sidebar \{ order: 1; \}[\s\S]*\.main \{ order: 2; \}/)
 })
 
-test('Explore exposes only the three human-facing public destinations', () => {
+test('desktop Explore exposes the ordered public education and discovery destinations', () => {
   const source = readFileSync('src/components/NavBar.tsx', 'utf8')
   const menu = source.match(/id="landing-explore-menu"[\s\S]*?<\/div>\n\s*\)}/)?.[0] ?? ''
-  for (const [title, href] of [['Agents', '/agents'], ['Docs', '/docs'], ['Support', '/support']]) {
-    assert.match(menu, new RegExp(`href="${href}" title="${title}"`))
+  const destinations = [
+    ['Marketplace', '/marketplace'], ['What is Mahshar?', '/about'], ['For API Providers', '/providers'],
+    ['Agents', '/agents'], ['Docs', '/docs'], ['Support', '/support'],
+  ] as const
+  for (const [title, href] of destinations) {
+    assert.ok(menu.includes(`href="${href}" title="${title}"`), title)
   }
-  assert.doesNotMatch(menu, /title="(?:Marketplace|Build|Community)"/)
-  assert.equal((menu.match(/<ExploreLink /g) ?? []).length, 3)
+  const positions = destinations.map(([, href]) => menu.indexOf(`href="${href}"`))
+  assert.ok(positions.every(position => position >= 0))
+  assert.deepEqual(positions, [...positions].sort((a, b) => a - b))
+  assert.doesNotMatch(menu, /title="(?:Build|Community)"/)
+  assert.equal((menu.match(/<ExploreLink /g) ?? []).length, 6)
 })
 
 test('Explore remains closed initially and retains every close path', () => {

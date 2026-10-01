@@ -224,9 +224,11 @@ function MobileHeader({ isConnected, connectorIcon, displayedBalance, balanceUna
             <button type="button" className={styles.mobileExploreToggle} aria-expanded={exploreOpen} aria-controls="mahshar-mobile-explore" onClick={() => setExploreOpen(open => !open)}><span>Explore</span><ChevronIcon /></button>
             {exploreOpen && <div id="mahshar-mobile-explore" className={styles.mobileExploreLinks}>
               <MobileMenuLink href="/marketplace" onSelect={close}>Marketplace</MobileMenuLink>
-              <MobileMenuLink href="/seller" onSelect={close}>Build</MobileMenuLink>
+              <MobileMenuLink href="/about" onSelect={close}>What is Mahshar?</MobileMenuLink>
+              <MobileMenuLink href="/providers" onSelect={close}>For API Providers</MobileMenuLink>
               <MobileMenuLink href="/agents" onSelect={close}>Agents</MobileMenuLink>
               <MobileMenuLink href="/docs" onSelect={close}>Docs</MobileMenuLink>
+              <MobileMenuLink href="/support" onSelect={close}>Support</MobileMenuLink>
             </div>}
           </div>
           <MobileMenuLink href="/dashboard" onSelect={close}>Dashboard</MobileMenuLink>
@@ -300,6 +302,8 @@ function ExploreMenu() {
       {isOpen && (
         <div id="landing-explore-menu" className={styles.exploreMenu} role="menu">
           <ExploreLink href="/marketplace" title="Marketplace" copy="Browse active APIs" icon={<MarketplaceIcon />} onSelect={() => setIsOpen(false)} />
+          <ExploreLink href="/about" title="What is Mahshar?" copy="Understand the marketplace" icon={<AboutIcon />} onSelect={() => setIsOpen(false)} />
+          <ExploreLink href="/providers" title="For API Providers" copy="Offer an existing API" icon={<ProviderIcon />} onSelect={() => setIsOpen(false)} />
           <ExploreLink href="/agents" title="Agents" copy="Use the machine interface" icon={<AgentIcon />} onSelect={() => setIsOpen(false)} />
           <ExploreLink href="/docs" title="Docs" copy="Read Mahshar documentation" icon={<DocsIcon />} onSelect={() => setIsOpen(false)} />
           <ExploreLink href="/support" title="Support" copy="Get product help" icon={<SupportIcon />} onSelect={() => setIsOpen(false)} />
@@ -318,5 +322,7 @@ function HomeIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d
 function ChevronIcon() { return <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg> }
 function AgentIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="7" width="14" height="12" rx="3" /><path d="M12 3v4M9 12h.01M15 12h.01M2 12h3M19 12h3" /></svg> }
 function MarketplaceIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16l-1-4H5L4 8Z" /><path d="M5 8v12h14V8M9 20v-6h6v6" /></svg> }
+function AboutIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 10v7M12 7h.01" /></svg> }
+function ProviderIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5zM9 9h6M9 13h6M9 17h3" /><path d="M2 9h3M19 9h3M2 15h3M19 15h3" /></svg> }
 function DocsIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6V3Z" /><path d="M15 3v5h4M9 12h6M9 16h6" /></svg> }
 function SupportIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M9.8 9a2.4 2.4 0 1 1 3.2 2.27c-.62.25-1 .88-1 1.55V14M12 18h.01" /></svg> }

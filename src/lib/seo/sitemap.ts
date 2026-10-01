@@ -1,7 +1,7 @@
 import type { MetadataRoute } from 'next'
 import { apiListingCanonicalUrl, SITE_ORIGIN, type PublicSeoListing } from './listing'
 
-export const STATIC_PUBLIC_PATHS = ['/', '/marketplace', '/agents', '/docs', '/support'] as const
+export const STATIC_PUBLIC_PATHS = ['/', '/marketplace', '/about', '/providers', '/agents', '/docs', '/support'] as const
 
 export function buildSitemap(listings: PublicSeoListing[]): MetadataRoute.Sitemap {
   const staticEntries: MetadataRoute.Sitemap = STATIC_PUBLIC_PATHS.map((path, index) => ({

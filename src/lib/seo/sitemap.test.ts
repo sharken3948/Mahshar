@@ -30,6 +30,8 @@ test('sitemap contains static public routes and active listing detail URLs', () 
   for (const path of STATIC_PUBLIC_PATHS) {
     assert.ok(urls.includes(`https://mahshar.xyz${path}`), path)
   }
+  assert.ok(urls.includes('https://mahshar.xyz/about'))
+  assert.ok(urls.includes('https://mahshar.xyz/providers'))
   assert.ok(urls.includes('https://mahshar.xyz/apis/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/public-data-api'))
 })
 

@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
-const pages = ['agents', 'docs', 'support'] as const
+const pages = ['about', 'providers', 'agents', 'docs', 'support'] as const
 
-test('Agents, Docs, and Support are real App Router pages using the shared public shell', () => {
+test('public education and reference routes use the shared hook-free public shell', () => {
   for (const page of pages) {
     const path = `src/app/${page}/page.tsx`
     assert.ok(existsSync(path), path)
@@ -78,7 +78,7 @@ test('shared public layout has capped desktop width and explicit overflow safegu
   assert.match(css, /@media \(max-width: 800px\)[\s\S]*\.heroGrid[^}]*grid-template-columns:\s*1fr/)
   assert.match(css, /@media \(max-width: 520px\)[\s\S]*\.featureGrid, \.topicGrid, \.resourceGrid[^}]*grid-template-columns:\s*1fr/)
   assert.match(navigationCss, /max-width:\s*1560px/)
-  assert.match(navigationCss, /@media \(max-width: 900px\)[\s\S]*\.desktopLinks\s*\{\s*display:\s*none/)
+  assert.match(navigationCss, /@media \(max-width: 1280px\)[\s\S]*\.desktopLinks\s*\{\s*display:\s*none/)
   assert.match(navigationCss, /width:\s*min\(280px, calc\(100vw - 32px\)\)/)
 })
 

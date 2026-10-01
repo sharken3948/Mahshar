@@ -67,7 +67,7 @@
 .mobileMenu summary { list-style: none; }
 .mobileMenu summary::-webkit-details-marker { display: none; }
 
-@media (max-width: 900px) {
+@media (max-width: 1280px) {
   .inner { width: calc(100% - 48px); }
   .desktopLinks { display: none; }
   .mobileMenu { display: block; }

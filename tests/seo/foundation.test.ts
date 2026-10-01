@@ -34,10 +34,10 @@ test('public SEO shell and navigation contain no wallet, session, Gateway, or po
   for (const source of [shell, navigation]) {
     assert.doesNotMatch(source, /useAccount|useMarketplaceSession|gateway\/balance|useVisibilityRefresh|pollBalance/)
   }
-  for (const destination of ['/marketplace', '/agents', '/docs', '/support', '/buyer']) {
+  for (const destination of ['/marketplace', '/about', '/providers', '/agents', '/docs', '/support', '/buyer']) {
     assert.ok(navigation.includes(`href: '${destination}'`) || navigation.includes(`href="${destination}"`), destination)
   }
-  for (const route of ['marketplace', 'agents', 'docs', 'support']) {
+  for (const route of ['marketplace', 'about', 'providers', 'agents', 'docs', 'support']) {
     assert.match(read(`src/app/${route}/page.tsx`), /<PublicPageShell>/)
   }
   assert.match(read('src/app/apis/[id]/[slug]/page.tsx'), /<PublicPageShell>/)
@@ -56,6 +56,12 @@ test('route-specific social metadata does not inherit homepage title, descriptio
     assert.match(source, /openGraph:/)
     assert.match(source, /twitter:/)
     assert.ok(source.includes(`url: '${canonical}'`), canonical)
+  }
+  const education = read('src/lib/seo/education-metadata.ts')
+  for (const canonical of ['/about', '/providers']) {
+    assert.match(education, /openGraph:/)
+    assert.match(education, /twitter:/)
+    assert.ok(education.includes(`url: '${canonical}'`), canonical)
   }
 })
 
@@ -88,6 +94,8 @@ test('public canonical metadata covers the intended indexable routes', () => {
   const routes = [
     ['src/app/page.tsx', '/'],
     ['src/app/marketplace/page.tsx', '/marketplace'],
+    ['src/lib/seo/education-metadata.ts', '/about'],
+    ['src/lib/seo/education-metadata.ts', '/providers'],
     ['src/app/agents/page.tsx', '/agents'],
     ['src/app/docs/page.tsx', '/docs'],
     ['src/app/support/page.tsx', '/support'],
