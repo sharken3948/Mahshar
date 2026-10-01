@@ -7,7 +7,7 @@ import { useAdminRequest } from '@/components/AdminAccess'
 import type { OperationsIssuesDto } from '@/lib/admin/operations-types'
 import styles from './operations.module.css'
 
-type IconName = 'overview' | 'listings' | 'payments' | 'purchases' | 'earnings' | 'infrastructure' | 'health' | 'issues' | 'logs' | 'analytics'
+type IconName = 'overview' | 'listings' | 'payments' | 'purchases' | 'earnings' | 'infrastructure' | 'health' | 'issues' | 'logs' | 'analytics' | 'worker'
 
 const navigation: Array<{ label: string; icon: IconName; href?: string }> = [
   { label: 'Overview', icon: 'overview', href: '/admin/operations' },
@@ -34,12 +34,14 @@ function NavIcon({ name }: { name: IconName }) {
     issues: <><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4M12 16h.01"/></>,
     logs: <><path d="M6 3h12v18H6zM9 8h6M9 12h6M9 16h4"/></>,
     analytics: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></>,
+    worker: <><rect x="5" y="7" width="14" height="12" rx="3"/><path d="M9 3h6M12 3v4M9 12h.01M15 12h.01M9 16h6"/></>,
   }
   return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>
 }
 
 export function OperationsShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const workerPage = pathname.startsWith('/admin/worker')
   const request = useAdminRequest()
   const [collapsed, setCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -78,18 +80,18 @@ export function OperationsShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className={`${styles.shell} ${collapsed ? styles.shellCollapsed : ''}`}>
-      <button className={styles.mobileMenu} type="button" onClick={() => setDrawerOpen(true)} aria-label="Open operations navigation" aria-expanded={drawerOpen}>
+      <button className={styles.mobileMenu} type="button" onClick={() => setDrawerOpen(true)} aria-label="Open Admin navigation" aria-expanded={drawerOpen}>
         <span/><span/><span/>
       </button>
-      {drawerOpen && <button className={styles.scrim} type="button" onClick={() => setDrawerOpen(false)} aria-label="Close operations navigation"/>}
-      <aside className={`${styles.sidebar} ${drawerOpen ? styles.sidebarOpen : ''}`} aria-label="Operations navigation">
+      {drawerOpen && <button className={styles.scrim} type="button" onClick={() => setDrawerOpen(false)} aria-label="Close Admin navigation"/>}
+      <aside className={`${styles.sidebar} ${drawerOpen ? styles.sidebarOpen : ''}`} aria-label="Admin navigation">
         <div className={styles.identity}>
           <div className={styles.mark} aria-hidden="true">M</div>
-          <div className={styles.identityText}><strong>Mahshar</strong><span>Admin / Operations</span></div>
+          <div className={styles.identityText}><strong>Mahshar</strong><span>{workerPage ? 'Admin / Worker' : 'Admin / Operations'}</span></div>
           <button type="button" className={styles.collapseButton} onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg>
           </button>
-          <button type="button" className={styles.drawerClose} onClick={() => setDrawerOpen(false)} aria-label="Close operations navigation">×</button>
+          <button type="button" className={styles.drawerClose} onClick={() => setDrawerOpen(false)} aria-label="Close Admin navigation">×</button>
         </div>
         <nav className={styles.navigation}>
           <p className={styles.navLabel}>Workspace</p>
@@ -105,15 +107,19 @@ export function OperationsShell({ children }: { children: React.ReactNode }) {
               </div>
             )
           })}
+          <p className={styles.navLabel}>Automation</p>
+          <Link href="/admin/worker" className={`${styles.navItem} ${workerPage ? styles.navActive : ''}`} aria-current={workerPage ? 'page' : undefined} title={collapsed ? 'Worker Agent' : undefined}>
+            <NavIcon name="worker"/><span>Worker Agent</span>
+          </Link>
         </nav>
         <div className={styles.sidebarFooter}>
-          <span className={styles.readOnlyDot}/><div><strong>Read-only</strong><small>No control-plane actions</small></div>
+          <span className={styles.readOnlyDot}/><div><strong>{workerPage ? 'Bounded control' : 'Read-only'}</strong><small>{workerPage ? 'One batch at a time' : 'No control-plane actions'}</small></div>
         </div>
       </aside>
       <div className={styles.workspace}>
         <header className={styles.topbar}>
-          <div><span className={styles.environmentDot}/><strong>Arc Mainnet</strong><span className={styles.topbarDivider}/><span>Operations visibility</span></div>
-          <div className={styles.topbarReadOnly}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Read-only</div>
+          <div><span className={styles.environmentDot}/><strong>Arc Mainnet</strong><span className={styles.topbarDivider}/><span>{workerPage ? 'Worker foundation' : 'Operations visibility'}</span></div>
+          <div className={styles.topbarReadOnly}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>{workerPage ? 'Admin only' : 'Read-only'}</div>
         </header>
         <main className={styles.main}>{children}</main>
       </div>

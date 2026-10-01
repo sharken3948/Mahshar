@@ -1,0 +1,103 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import { workerRunDto } from '../../src/lib/admin-worker/repository'
+
+const read = (path: string) => readFileSync(path, 'utf8')
+const migrationPath = 'supabase/migrations/20261001000100_admin_worker_foundation.sql'
+
+test('Worker migration creates the bounded server-only schema and lifecycle RPCs', () => {
+  const sql = read(migrationPath)
+  for (const table of ['worker_control', 'worker_runs', 'worker_providers', 'worker_provider_identities',
+    'worker_products', 'worker_leads', 'worker_sources', 'worker_decisions']) {
+    assert.match(sql, new RegExp(`CREATE TABLE public\\.${table}`))
+    assert.match(sql, new RegExp(`ALTER TABLE public\\.${table} ENABLE ROW LEVEL SECURITY`))
+  }
+  assert.match(sql, /DEFAULT 'stopped'/)
+  assert.match(sql, /DEFAULT 50 CHECK \(batch_size BETWEEN 1 AND 100\)/)
+  assert.match(sql, /worker_runs_one_active[\s\S]*WHERE status IN \('queued', 'running', 'stop_requested'\)/)
+  assert.match(sql, /heartbeat_at timestamptz NOT NULL DEFAULT clock_timestamp\(\)/)
+  assert.match(sql, /checkpoint_run_id uuid/)
+  assert.match(sql, /worker_control_checkpoint_run_fk[\s\S]*REFERENCES public\.worker_runs\(id\)/)
+  assert.match(sql, /REVOKE ALL ON public\.worker_control[\s\S]*FROM PUBLIC, anon, authenticated/)
+  assert.match(sql, /REVOKE ALL ON SEQUENCE public\.worker_runs_run_number_seq FROM PUBLIC, anon, authenticated/)
+  assert.match(sql, /GRANT USAGE ON SEQUENCE public\.worker_runs_run_number_seq TO service_role/)
+  assert.doesNotMatch(sql, /GRANT (?:SELECT|UPDATE)[^;]*worker_runs_run_number_seq TO service_role/)
+  for (const fn of ['reconcile_stale_run', 'create_run', 'request_stop', 'claim_run', 'advance_run', 'complete_run', 'fail_run', 'attach_workflow_run']) {
+    assert.match(sql, new RegExp(`mahshar_worker_${fn}`))
+  }
+  assert.equal((sql.match(/SECURITY DEFINER\s+SET search_path = ''/g) ?? []).length, 8)
+  assert.match(sql, /interval '15 minutes'/)
+  assert.match(sql, /error_code = 'worker_run_stale'/)
+  assert.match(sql, /source_run\.checkpoint <> checkpoint_value/)
+  assert.match(sql, /decision IN \('approved', 'rejected', 'do_not_contact', 'reopened'\)/)
+  assert.doesNotMatch(sql, /raw_html|screenshot|llm_prompt|llm_response/)
+})
+
+test('Admin Worker routes use the existing Admin boundary and expose only intended methods', () => {
+  for (const action of ['start', 'stop', 'resume']) {
+    const source = read(`src/app/api/admin/worker/${action}/route.ts`)
+    assert.match(source, /withAdmin/)
+    assert.match(source, /export const POST/)
+    assert.doesNotMatch(source, /export const (?:GET|PUT|PATCH|DELETE)/)
+  }
+  for (const readRoute of ['status', 'runs']) {
+    const source = read(`src/app/api/admin/worker/${readRoute}/route.ts`)
+    assert.match(source, /withAdmin/)
+    assert.match(source, /export const GET/)
+    assert.doesNotMatch(source, /export const (?:POST|PUT|PATCH|DELETE)/)
+  }
+  assert.equal(existsSync('src/app/api/worker'), false)
+})
+
+test('Worker DTO is an explicit allowlist and drops unrestricted database fields', () => {
+  const dto = workerRunDto({
+    id: '00000000-0000-4000-8000-000000000001', run_number: 1, status: 'running', batch_size: 50,
+    processed_count: 10, discovered_count: 0, duplicate_count: 0, filtered_count: 0, qualified_count: 0,
+    persisted_count: 0, checkpoint: { version: 1, nextIndex: 10, batchSize: 50 }, workflow_run_id: 'wrun_fixture',
+    error_code: null, started_at: '2026-10-01T00:00:00.000Z', stopped_at: null, completed_at: null,
+    created_at: '2026-10-01T00:00:00.000Z', updated_at: '2026-10-01T00:00:01.000Z',
+    raw_exception: 'never-return', credential: 'never-return', arbitrary_payload: { secret: 'never-return' },
+  })
+  const serialized = JSON.stringify(dto)
+  assert.equal(serialized.includes('never-return'), false)
+  assert.deepEqual(Object.keys(dto).sort(), ['batch_size', 'checkpoint', 'completed_at', 'counts', 'created_at', 'error_code',
+    'id', 'processed_count', 'run_number', 'started_at', 'status', 'stopped_at', 'updated_at', 'workflow_run_id'].sort())
+})
+
+test('Admin UI includes separate Worker navigation, controls, notice, and resilient visible polling', () => {
+  const shell = read('src/app/admin/operations/operations-shell.tsx')
+  const client = read('src/app/admin/worker/worker-client.tsx')
+  assert.match(shell, /href="\/admin\/worker"/)
+  assert.match(shell, />Worker Agent</)
+  assert.match(client, /Discovery and AI qualification are not enabled in this foundation version\./)
+  for (const action of ['Start', 'Stop', 'Resume']) assert.match(client, new RegExp(`'${action.toLowerCase()}'|>${action}<`))
+  assert.match(client, /document\.visibilityState !== 'visible'/)
+  assert.match(client, /12_000/)
+  assert.match(client, /Showing the last known Worker state/)
+  assert.doesNotMatch(client, /dangerouslySetInnerHTML/)
+})
+
+test('Workflow is a bounded synthetic no-op with compact state and no external discovery or outreach', () => {
+  const workflow = read('src/workflows/admin-worker-batch.ts')
+  const steps = read('src/lib/admin-worker/workflow-steps.ts')
+  assert.match(workflow, /'use workflow'/)
+  assert.match(steps, /'use step'/)
+  assert.match(steps, /candidate-\$\{String\(index \+ 1\)\.padStart\(4, '0'\)\}/)
+  assert.match(workflow, /WORKER_MAX_BATCH_SIZE \/ WORKER_CHUNK_SIZE/)
+  assert.doesNotMatch(workflow + steps, /fetch\(|groq|github|postman|rapidapi|sendEmail|nodemailer|scrap/i)
+  assert.doesNotMatch(read('src/lib/admin-worker/checkpoint.ts'), /items|candidate/)
+})
+
+test('protected core source does not import the Admin Worker module', () => {
+  const excluded = ['src/app/api/admin', 'src/app/admin', 'src/lib/admin-worker', 'src/workflows']
+  const walk = (path: string): string[] => readdirSync(path).flatMap(name => {
+    const child = join(path, name)
+    if (excluded.some(prefix => child.startsWith(prefix))) return []
+    return statSync(child).isDirectory() ? walk(child) : /\.(?:ts|tsx)$/.test(child) ? [child] : []
+  })
+  for (const file of [...walk('src/app'), ...walk('src/lib')]) {
+    assert.doesNotMatch(read(file), /@\/lib\/admin-worker|workflows\/admin-worker/, file)
+  }
+})
