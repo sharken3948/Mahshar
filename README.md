@@ -32,6 +32,8 @@ For buyers and agents:
 Mahshar provides crawlable public discovery surfaces without requiring a wallet connection:
 
 - [Marketplace](https://mahshar.xyz/marketplace) for browsing active pay-per-call APIs.
+- [What is Mahshar?](https://mahshar.xyz/about) for a public overview of the marketplace and payment-aware API access.
+- [For API Providers](https://mahshar.xyz/providers) for provider education and the path to listing an existing API.
 - Stable API detail URLs at `/apis/<listing-id>/<slug>`.
 - Public [agent guidance](https://mahshar.xyz/agents), [documentation](https://mahshar.xyz/docs), and [support](https://mahshar.xyz/support).
 - [robots.txt](https://mahshar.xyz/robots.txt) and a generated [sitemap](https://mahshar.xyz/sitemap.xml) for public discovery.
