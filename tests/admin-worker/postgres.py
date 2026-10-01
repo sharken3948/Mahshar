@@ -59,11 +59,23 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             return json.loads(sql(f"SET ROLE service_role; SELECT row_to_json(r) FROM {expression} r;"))
 
         sql('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;')
-        sql((ROOT / 'supabase/schema.sql').read_text())
-        migrations = sorted((ROOT / 'supabase/migrations').glob('*.sql'))
+        migrations = list((ROOT / 'supabase/migrations').glob('*.sql'))
+        versions = [migration.name.split('_', 1)[0] for migration in migrations]
+        assert all(version.isdigit() for version in versions), versions
+        assert len(versions) == len(set(versions)), versions
+        migrations = sorted(migrations, key=lambda path: path.name.split('_', 1)[0])
+        assert [migration.name.split('_', 1)[0] for migration in migrations] == [
+            '20240626000000', '20240627', '20240627000001', '20260710',
+            '20260823', '20260823000001', '20260918', '20260919',
+            '20260919000001', '20260923000300', '20260926000100',
+            '20260926000200', '20260926000300', '20260926000400',
+            '20260926000500', '20260928000100', '20260928000200',
+            '20260928000300', '20261001000000', '20261001000030',
+            '20261001000100',
+        ]
         for migration in migrations:
             if migration != MIGRATION:
-                sql(migration.read_text())
+                sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
         # Worker migration must explicitly revoke these grants.
