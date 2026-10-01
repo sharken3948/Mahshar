@@ -28,4 +28,3 @@ export async function workerBatchWorkflow(runId: string): Promise<{ runId: strin
     throw error
   }
 }
-

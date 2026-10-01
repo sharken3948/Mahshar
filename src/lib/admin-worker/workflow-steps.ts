@@ -33,4 +33,3 @@ export async function failWorkerRunStep(runId: string): Promise<void> {
   'use step'
   await failWorkerRun(runId, 'workflow_execution_failed')
 }
-

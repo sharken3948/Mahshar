@@ -11,4 +11,3 @@ export const GET = withAdmin(async (_request: NextRequest) => {
     return NextResponse.json({ error: 'worker_status_unavailable' }, { status: 503 })
   }
 })
-

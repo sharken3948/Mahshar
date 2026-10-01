@@ -9,4 +9,3 @@ export function workerCommandError(error: unknown, fallback: string): NextRespon
   console.error(`[admin-worker] ${fallback}`, error)
   return NextResponse.json({ error: fallback }, { status: 503 })
 }
-

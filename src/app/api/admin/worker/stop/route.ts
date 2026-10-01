@@ -9,4 +9,3 @@ export const POST = withAdmin(async (_request: NextRequest) => {
   try { return NextResponse.json(await stopWorkerCommand(), { status: 202 }) }
   catch (error) { return workerCommandError(error, 'worker_stop_unavailable') }
 })
-

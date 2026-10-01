@@ -30,4 +30,3 @@ test('only a strict interior checkpoint is resumable', () => {
   assert.equal(isResumableCheckpoint({ version: 1, nextIndex: 50, batchSize: 50 }, 50), false)
   assert.equal(isResumableCheckpoint({ version: 1, nextIndex: 10, batchSize: 40 }, 50), false)
 })
-

@@ -16,4 +16,3 @@ export function startWorkerCommand(mode: WorkerStartMode) {
 export function stopWorkerCommand() {
   return stopWorkerBatch(workerControlRepository)
 }
-

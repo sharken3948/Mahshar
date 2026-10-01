@@ -9,4 +9,3 @@ export function workerControlAvailability(status: WorkerStatusDto | null) {
     canResume: status !== null && !active && status.can_resume,
   }
 }
-

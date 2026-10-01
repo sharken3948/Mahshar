@@ -37,4 +37,3 @@ export function advanceWorkerCheckpoint(checkpoint: WorkerCheckpoint, chunkSize:
     batchSize: checkpoint.batchSize,
   }
 }
-

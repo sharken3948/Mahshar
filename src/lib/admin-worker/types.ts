@@ -82,4 +82,3 @@ export type WorkerCommandDto = {
   run: WorkerRunDto | null
   workflow_run_id: string | null
 }
-

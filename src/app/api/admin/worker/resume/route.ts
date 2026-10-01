@@ -9,4 +9,3 @@ export const POST = withAdmin(async (_request: NextRequest) => {
   try { return NextResponse.json(await startWorkerCommand('resume'), { status: 202 }) }
   catch (error) { return workerCommandError(error, 'worker_resume_unavailable') }
 })
-

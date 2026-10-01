@@ -20,4 +20,3 @@ export function normalizeWorkerProductKey(value: string): string {
   if (!normalized || normalized.length > 160) throw new Error('worker_product_key_invalid')
   return normalized
 }
-
