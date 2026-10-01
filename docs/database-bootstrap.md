@@ -3,10 +3,14 @@
 The authoritative fresh-install procedure is:
 
 1. Create an empty PostgreSQL database with the Supabase roles `anon`, `authenticated`, and `service_role`.
-2. Apply `supabase/schema.sql` once.
-3. Apply every file in `supabase/migrations/` in lexicographic filename order.
+2. Apply every file in `supabase/migrations/` in parsed migration-version order.
 
-`supabase/schema.sql` is the reviewed base snapshot, not a replacement for the migration chain. Historical migrations must never be edited or skipped. New listings default to inactive and become public only through an explicit verified activation path.
+`20240626000000_core_schema_baseline.sql` creates the four original core tables
+needed by the historical chain. `supabase/schema.sql` remains a reviewed schema
+reference, but it is not applied before migrations. Migration numeric versions
+must be unique; historical SQL must never be edited or skipped. New listings
+default to inactive and become public only through an explicit verified
+activation path.
 
 Run `python3 tests/database/postgres.py` to prove that an empty disposable PostgreSQL cluster reaches the current schema and that the seller-withdrawal reservation serializes concurrent transactions. The test uses PostgreSQL tools from `PATH`, or from `MAHSHAR_PG_BIN` when CI installs them elsewhere. It starts a private socket-only cluster and never connects to Supabase or production.
 
