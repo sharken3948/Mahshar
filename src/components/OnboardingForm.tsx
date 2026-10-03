@@ -137,6 +137,15 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
   const allParameters = [...form.path_parameters.map(parameter => ({ ...parameter, location: 'path' as const })),
     ...form.query_parameters.map(parameter => ({ ...parameter, location: 'query' as const }))]
   const suggestionCount = useMemo(() => analysis ? countSuggestions(analysis) : 0, [analysis])
+  const publishGuidance = analyzing
+    ? 'Analysis is running. Publish will unlock after the endpoint passes.'
+    : !analysis
+      ? 'Analyze is required before publishing, and must be rerun after request changes.'
+      : !endpointVerified
+        ? 'Analysis found an issue. Review the guidance, update the setup, and analyze again.'
+        : publishReady
+          ? 'Analysis complete. Your listing is ready to publish.'
+          : 'Analysis complete. Finish the remaining required listing details to publish.'
 
   function update<K extends keyof FormState>(field: K, value: FormState[K]) {
     setForm(previous => {
@@ -338,18 +347,14 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
       <div className={styles.workspace}>
         <div className={styles.mainColumn}>
           <Card title="API Setup" eyebrow="Start with your endpoint">
-            <div className={styles.endpointRow}>
-              <Field label="Endpoint URL" error={fieldErrors.endpoint_url} className={styles.endpointField}>
-                <div className={styles.endpointInputWrap}>
-                  <span className={styles.lockIcon} aria-hidden="true">⌁</span>
-                  <input type="url" required value={form.endpoint_url}
-                    onChange={event => update('endpoint_url', event.target.value)}
-                    placeholder="https://api.example.com/v1/weather" className={inputClass(fieldErrors.endpoint_url)} />
-                </div>
-              </Field>
-              <button type="button" onClick={() => void analyzeEndpoint()} disabled={analyzing}
-                className={styles.analyzeButton}>{analyzing ? <><Spinner /> Checking</> : 'Analyze'}</button>
-            </div>
+            <Field label="Endpoint URL" error={fieldErrors.endpoint_url} className={styles.endpointField}>
+              <div className={styles.endpointInputWrap}>
+                <span className={styles.lockIcon} aria-hidden="true">⌁</span>
+                <input type="url" required value={form.endpoint_url}
+                  onChange={event => update('endpoint_url', event.target.value)}
+                  placeholder="https://api.example.com/v1/weather" className={inputClass(fieldErrors.endpoint_url)} />
+              </div>
+            </Field>
             <EndpointStatus analysis={analysis} analyzing={analyzing} />
 
             <div className={styles.setupGrid}>
@@ -451,10 +456,17 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
                 <p>{form.description || 'Your marketplace description will appear here.'}</p>
                 <b>{priceValid ? `${form.price_per_call} USDC` : 'Set a price'} <small>/ call</small></b>
               </div>
-              <button type="button" className={styles.previewButton} onClick={() => setShowPreview(true)}>Preview</button>
-              <button type="submit" className={styles.publishButton} disabled={!publishReady || publishing}>
-                {publishing ? <><Spinner /> Publishing</> : 'Publish API'}
-              </button>
+              <div className={styles.publishFooter}>
+                <p className={publishReady ? styles.publishReady : ''} aria-live="polite">{publishGuidance}</p>
+                <div className={styles.publishActions}>
+                  <button type="button" className={styles.previewButton} onClick={() => setShowPreview(true)}>Preview</button>
+                  <button type="button" onClick={() => void analyzeEndpoint()} disabled={analyzing || publishing}
+                    className={styles.analyzeButton}>{analyzing ? <><Spinner /> Checking</> : 'Analyze'}</button>
+                  <button type="submit" className={styles.publishButton} disabled={!publishReady || publishing || analyzing}>
+                    {publishing ? <><Spinner /> Publishing</> : 'Publish API'}
+                  </button>
+                </div>
+              </div>
             </div>
           </Card>
         </div>
@@ -515,9 +527,15 @@ function Assistant({ analysis, analyzing, suggestionCount, readyCount, readiness
         {analysis.suggestions.category && <Suggestion label="Category" value={analysis.suggestions.category} />}
         {analysis.suggestions.method && <Suggestion label="Method" value={analysis.suggestions.method} />}
         {analysis.suggestions.auth_type && <Suggestion label="Authentication" value={authLabel(analysis.suggestions.auth_type)} />}
+        {analysis.suggestions.auth_param_name && <Suggestion label="Credential parameter" value={analysis.suggestions.auth_param_name} />}
         {analysis.suggestions.description && <Suggestion label="Description" value={analysis.suggestions.description} />}
-        {(analysis.suggestions.path_parameters.length + analysis.suggestions.query_parameters.length) > 0 &&
-          <Suggestion label="Parameters" value={`${analysis.suggestions.path_parameters.length + analysis.suggestions.query_parameters.length} detected`} />}
+        {analysis.suggestions.example_request && <Suggestion label="Example request" value={analysis.suggestions.example_request} />}
+        {analysis.suggestions.example_response && <Suggestion label="Example response" value={analysis.suggestions.example_response} />}
+        {analysis.suggestions.body_required !== null && <Suggestion label="Request body" value={analysis.suggestions.body_required ? 'Required' : 'Optional'} />}
+        {analysis.suggestions.path_parameters.length > 0 && <Suggestion label="Path parameters"
+          value={analysis.suggestions.path_parameters.map(formatSuggestedParameter).join('\n')} />}
+        {analysis.suggestions.query_parameters.length > 0 && <Suggestion label="Query parameters"
+          value={analysis.suggestions.query_parameters.map(formatSuggestedParameter).join('\n')} />}
       </div>
       <button type="button" onClick={onApply} className={styles.applyButton}>Apply suggestions</button>
     </section>}
@@ -604,7 +622,13 @@ function countSuggestions(analysis: AnalysisResult) {
   const suggestion = analysis.suggestions
   return [suggestion.name, suggestion.description, suggestion.category, suggestion.method, suggestion.auth_type,
     suggestion.auth_param_name, suggestion.example_request, suggestion.example_response,
+    suggestion.body_required === null ? null : 'body_required',
     ...suggestion.path_parameters, ...suggestion.query_parameters].filter(Boolean).length
+}
+
+function formatSuggestedParameter(parameter: DeclaredParameter) {
+  return [parameter.name || 'Unnamed', parameter.type ?? 'string', parameter.required ? 'required' : 'optional']
+    .join(' · ')
 }
 
 function authLabel(auth: AuthType) {

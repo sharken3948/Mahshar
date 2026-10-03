@@ -19,7 +19,7 @@ export default function SellerPage() {
           <div className={styles.connectCard}>
             <h1>Connect Your Wallet</h1>
             <p>You need to connect your wallet to list an API on Mahshar.</p>
-            <ConnectButton />
+            <div className={styles.connectAction}><ConnectButton /></div>
           </div>
         </main>
       </>

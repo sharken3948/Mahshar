@@ -87,6 +87,7 @@
 }
 .connectCard h1 { margin-bottom: 10px; color: #182a43; font-size: 29px; font-weight: 740; letter-spacing: -.035em; }
 .connectCard p { margin-bottom: 24px; color: #718198; font-size: 15px; line-height: 1.65; }
+.connectAction { display: flex; width: 100%; justify-content: center; }
 
 @media (max-width: 1050px) {
   .main { padding-top: 112px; }
