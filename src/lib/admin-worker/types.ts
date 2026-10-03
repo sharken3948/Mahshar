@@ -82,3 +82,26 @@ export type WorkerCommandDto = {
   run: WorkerRunDto | null
   workflow_run_id: string | null
 }
+
+export type WorkerQualifiedLeadDto = {
+  id: string
+  provider: string
+  provider_domain: string
+  product: string
+  fit_score: number
+  summary: string
+  reason_codes: string[]
+  official_site: string | null
+  docs_url: string | null
+  pricing_available: boolean
+  contact_available: boolean
+  directory_sources: string[]
+  status: 'qualified' | 'reviewed' | 'contact_ready' | 'contacted' | 'replied' | 'interested' | 'listed'
+  discovered_at: string
+}
+
+export type WorkerQualifiedLeadsDto = {
+  leads: WorkerQualifiedLeadDto[]
+  limit: number
+  as_of: string
+}

@@ -79,6 +79,14 @@
 .tableViewport th:nth-child(2) { width: 17%; }
 .tableViewport th:nth-child(3) { width: 15%; }
 .tableViewport th:nth-child(4), .tableViewport th:nth-child(5) { width: 20.5%; }
+.leadsTable table { min-width: 1050px; table-layout: auto; }
+.leadsTable th:nth-child(n) { width: auto; }
+.leadsTable td:first-child { min-width: 180px; }
+.leadsTable td:nth-child(3) { min-width: 280px; line-height: 1.55; }
+.leadsTable td:nth-child(4) { min-width: 180px; }
+.leadsTable a { color: #8db8ff; text-decoration: none; }
+.leadsTable a:hover { text-decoration: underline; }
+.leadsTable td > span, .leadsTable td > a { line-height: 1.5; }
 
 @media (max-width: 980px) {
   .statusGrid { grid-template-columns: 1fr; }

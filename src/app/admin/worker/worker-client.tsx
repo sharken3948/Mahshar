@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAdminRequest } from '@/components/AdminAccess'
 import { workerControlAvailability } from '@/lib/admin-worker/availability'
-import type { WorkerRunDto, WorkerRunsDto, WorkerStatusDto } from '@/lib/admin-worker/types'
+import type { WorkerQualifiedLeadDto, WorkerQualifiedLeadsDto, WorkerRunDto, WorkerRunsDto, WorkerStatusDto } from '@/lib/admin-worker/types'
 import styles from './worker.module.css'
 
 const REFRESH_INTERVAL_MS = 12_000
 
-function statusLabel(value: WorkerStatusDto['status'] | WorkerRunDto['status']) {
+function statusLabel(value: string) {
   return value.replace(/_/g, ' ').replace(/^./, letter => letter.toUpperCase())
 }
 
@@ -28,7 +28,7 @@ function Progress({ run }: { run: WorkerRunDto }) {
   const percentage = Math.round(run.processed_count / run.batch_size * 100)
   return <div className={styles.progressGroup}>
     <div><span>{run.processed_count} / {run.batch_size}</span><strong>{percentage}%</strong></div>
-    <progress max={run.batch_size} value={run.processed_count} aria-label={`${run.processed_count} of ${run.batch_size} synthetic items processed`}/>
+    <progress max={run.batch_size} value={run.processed_count} aria-label={`${run.processed_count} of ${run.batch_size} discovery candidates processed`}/>
   </div>
 }
 
@@ -55,6 +55,8 @@ export function WorkerClient() {
   const hasKnownData = useRef(false)
   const [status, setStatus] = useState<WorkerStatusDto | null>(null)
   const [runs, setRuns] = useState<WorkerRunDto[]>([])
+  const [leads, setLeads] = useState<WorkerQualifiedLeadDto[]>([])
+  const [leadsPhase, setLeadsPhase] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [phase, setPhase] = useState<'loading' | 'ready' | 'degraded' | 'unavailable'>('loading')
   const [busy, setBusy] = useState<'start' | 'stop' | 'resume' | null>(null)
   const [commandError, setCommandError] = useState<string | null>(null)
@@ -72,9 +74,10 @@ export function WorkerClient() {
       if (!response.ok) throw new Error('worker_refresh_unavailable')
       return response.json() as Promise<T>
     }
-    const [statusResult, runsResult] = await Promise.allSettled([
+    const [statusResult, runsResult, leadsResult] = await Promise.allSettled([
       load<WorkerStatusDto>('/api/admin/worker/status'),
       load<WorkerRunsDto>('/api/admin/worker/runs?limit=10'),
+      load<WorkerQualifiedLeadsDto>('/api/admin/worker/leads?limit=25'),
     ])
     let failed = false
     if (statusResult.status === 'fulfilled') {
@@ -83,6 +86,9 @@ export function WorkerClient() {
     if (runsResult.status === 'fulfilled') {
       if (mounted.current) { setRuns(runsResult.value.runs); hasKnownData.current = true }
     } else failed = true
+    if (leadsResult.status === 'fulfilled') {
+      if (mounted.current) { setLeads(leadsResult.value.leads); setLeadsPhase('ready'); hasKnownData.current = true }
+    } else { if (mounted.current) setLeadsPhase('failed'); failed = true }
     if (mounted.current) setPhase(failed ? (hasKnownData.current ? 'degraded' : 'unavailable') : 'ready')
   }, [request])
 
@@ -119,7 +125,7 @@ export function WorkerClient() {
   const checkpoint = status?.checkpoint
   return <div className={styles.page}>
     <section className={styles.heading}>
-      <div><span className={styles.eyebrow}>Isolated execution control</span><h1>Worker Agent</h1><p>Start and observe one durable, bounded synthetic batch at a time.</p></div>
+      <div><span className={styles.eyebrow}>Isolated discovery control</span><h1>Worker Agent</h1><p>Discover and qualify one durable, bounded batch of public API candidates at a time.</p></div>
       <div className={`${styles.overallStatus} ${styles[`overall_${status?.status ?? 'stopped'}`]}`}>
         <i/><div><span>Worker status</span><strong>{status ? statusLabel(status.status) : 'Loading'}</strong></div>
       </div>
@@ -130,7 +136,7 @@ export function WorkerClient() {
     {commandError && <div className={styles.error} role="alert">{commandError}</div>}
 
     <section className={styles.statusGrid} aria-label="Worker configuration">
-      <article><span>Batch size</span><strong>{status?.batch_size ?? '—'}</strong><small>Maximum configured synthetic items</small></article>
+      <article><span>Raw candidate target</span><strong>{status?.batch_size ?? '—'}</strong><small>Qualified lead count can be lower</small></article>
       <article><span>Last checkpoint</span><strong>{checkpoint ? `${checkpoint.nextIndex} / ${checkpoint.batchSize}` : 'None'}</strong><small>Compact checkpoint version {checkpoint?.version ?? '—'}</small></article>
       <article><span>Last completed</span><strong className={styles.timeValue}>{timeLabel(status?.last_completed_at ?? null)}</strong><small>Durable completion timestamp</small></article>
     </section>
@@ -145,7 +151,24 @@ export function WorkerClient() {
     </section>
 
     <section className={styles.notice}>
-      <div aria-hidden="true">i</div><p><strong>Foundation version</strong>Discovery and AI qualification are not enabled in this foundation version.</p>
+      <div aria-hidden="true">i</div><p><strong>Discovery V1</strong>Bounded public API discovery and Groq fit qualification are enabled. Leads remain Admin-only; no outreach, account creation, or Marketplace listing occurs.</p>
+    </section>
+
+    <section className={styles.panel}>
+      <header><div><span>Bounded to 25 rows</span><h2>Qualified Leads</h2></div></header>
+      {leadsPhase === 'loading' ? <div className={styles.empty} role="status">Loading qualified leads…</div>
+        : leadsPhase === 'failed' ? <div className={styles.empty} role="alert">Qualified leads are temporarily unavailable.</div>
+          : leads.length === 0 ? <div className={styles.empty}>No qualified leads are available.</div> : <div className={`${styles.tableViewport} ${styles.leadsTable}`}><table>
+        <thead><tr><th>Provider / API</th><th>Potentially compatible</th><th>AI qualification summary</th><th>Verified evidence</th><th>Status</th><th>Discovered</th></tr></thead>
+        <tbody>{leads.map(lead => <tr key={lead.id}>
+          <td data-label="Provider / API"><strong>{lead.provider}</strong><span>{lead.product}</span></td>
+          <td data-label="Potentially compatible"><strong>{lead.fit_score}</strong><small>{lead.reason_codes.join(', ').replace(/_/g, ' ') || 'qualified'} · onboarding verification required</small></td>
+          <td data-label="AI qualification summary"><span>{lead.summary}</span></td>
+          <td data-label="Verified evidence">{lead.official_site && <a href={lead.official_site} target="_blank" rel="noopener noreferrer">Official site</a>}{lead.docs_url && <>{lead.official_site && ' · '}<a href={lead.docs_url} target="_blank" rel="noopener noreferrer">Official docs</a></>}<small>Verified pricing {lead.pricing_available ? 'available' : 'not found'} · verified contact {lead.contact_available ? 'available' : 'not found'}</small>{lead.directory_sources.length > 0 && <small>Directory assertions: {lead.directory_sources.map((url, index) => <span key={url}>{index > 0 && ' · '}<a href={url} target="_blank" rel="noopener noreferrer">Source {index + 1}</a></span>)}</small>}</td>
+          <td data-label="Status"><span className={styles.badge}>{statusLabel(lead.status)}</span></td>
+          <td data-label="Discovered"><span>{timeLabel(lead.discovered_at)}</span></td>
+        </tr>)}</tbody>
+      </table></div>}
     </section>
 
     <section className={styles.panel}>

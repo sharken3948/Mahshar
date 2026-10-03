@@ -3,7 +3,7 @@ import {
   claimWorkerRunStep,
   completeWorkerRunStep,
   failWorkerRunStep,
-  processSyntheticChunkStep,
+  processDiscoveryChunkStep,
 } from '@/lib/admin-worker/workflow-steps'
 import type { WorkerRunStatus } from '@/lib/admin-worker/types'
 
@@ -17,7 +17,7 @@ export async function workerBatchWorkflow(runId: string): Promise<{ runId: strin
 
     const maximumChunks = Math.ceil(WORKER_MAX_BATCH_SIZE / WORKER_CHUNK_SIZE)
     for (let chunk = 0; chunk < maximumChunks && run.checkpoint.nextIndex < run.batch_size; chunk += 1) {
-      run = await processSyntheticChunkStep(runId, run.checkpoint)
+      run = await processDiscoveryChunkStep(runId, run.checkpoint)
       if (terminalStatuses.has(run.status)) return { runId, status: run.status }
     }
 

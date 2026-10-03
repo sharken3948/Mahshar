@@ -1,98 +1,15 @@
-import Groq from 'groq-sdk';
 import { validateDeclaredParameterMetadata, type DeclaredParameter } from '@/lib/marketplace/proxy-target';
+import {
+  GROQ_MODEL, UNTRUSTED_CLOSE, UNTRUSTED_OPEN, ensureGroqAvailable, fenceUntrusted,
+  groq, redactSecrets, redactUrlSecrets, safePromptField,
+} from '@/lib/groq-neutral';
 
-// Keep module imports safe when Groq is not configured. Callers can then
-// degrade to deterministic analysis instead of making the entire route fail to load.
-const _groqKey = process.env.GROQ_API_KEY?.trim();
-export const groq = new Groq({
-  apiKey: _groqKey || 'groq-not-configured',
-  timeout: 8_000,
-  maxRetries: 0,
-});
+export {
+  GROQ_MODEL, GroqUnavailableError, ensureGroqAvailable, groq, redactSecrets, redactUrlSecrets,
+} from '@/lib/groq-neutral';
 
-export class GroqUnavailableError extends Error {
-  constructor(message = 'AI suggestions are temporarily unavailable.') {
-    super(message);
-    this.name = 'GroqUnavailableError';
-  }
-}
-
-export function ensureGroqAvailable() {
-  if (!process.env.GROQ_API_KEY?.trim()) throw new GroqUnavailableError();
-}
-
-// Single source of truth for the Groq model name. Overridable via env for
-// forward-compat when Groq deprecates or renames models.
-export const GROQ_MODEL = process.env.GROQ_MODEL?.trim() || 'openai/gpt-oss-120b';
-
-// Non-guessable sentinels so a seller can't emit them and break out of a fenced block.
-const UNTRUSTED_OPEN = '<<<BEGIN_UNTRUSTED_INPUT_9f2c7a>>>';
-const UNTRUSTED_CLOSE = '<<<END_UNTRUSTED_INPUT_9f2c7a>>>';
-
-// Any string that looks like a fence sentinel gets neutralised before we
-// wrap seller content — a hostile description can never close the block.
-const SENTINEL_LIKE = /<<<[^>]*UNTRUSTED[^>]*>>>/gi;
-
-// Common credential shapes. Additive; false positives redact benign strings,
-// which is acceptable for a quality-review prompt.
-const SECRET_PATTERNS: Array<[RegExp, string]> = [
-  // HTTP header form: "Authorization: Bearer <token>" — preserves the keyword.
-  [/(authorization\s*[:=]\s*)(bearer\s+|basic\s+|token\s+)?[A-Za-z0-9._~+/=-]{16,}/gi, '$1$2[redacted]'],
-  // JSON field form: {"Authorization": "Bearer ..."} / {"api_key": "..."} etc.
-  [/("(?:authorization|proxy[-_]authorization|api[_-]?key|apikey|access[_-]?token|token|secret|password|auth[_-]?token|x-api-key)"\s*:\s*)"[^"]{4,}"/gi, '$1"[redacted]"'],
-  // Bare bearer literals not covered by the header form.
-  [/\bbearer\s+[A-Za-z0-9._~+/=-]{16,}/gi, 'bearer [redacted]'],
-  // Stripe-style: sk_live_, rk_test_, pk_prod_ ...
-  [/\b(?:sk|rk|pk)_(?:live|test|prod)_[A-Za-z0-9]{16,}/g, '[redacted-key]'],
-  // OpenAI/Anthropic-style sk-... keys.
-  [/\bsk-[A-Za-z0-9._~+/=-]{16,}/g, '[redacted-key]'],
-  // Slack tokens.
-  [/\bxox[bpsa]-[A-Za-z0-9-]{10,}/g, '[redacted-slack]'],
-  // JWT-shaped triplets. Base64url segments contain [A-Za-z0-9_-] only — no
-  // literal '.' inside a segment. Minimums sized to still cover the smallest
-  // realistic HS256 header ("eyJhbGciOiJIUzI1NiJ9" = 20 chars).
-  [/\beyJ[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, '[redacted-jwt]'],
-  // AWS access key IDs.
-  [/\bAKIA[0-9A-Z]{16}\b/g, '[redacted-aws]'],
-];
-
-export function redactSecrets(input: string): string {
-  if (typeof input !== 'string' || input.length === 0) return input;
-  let out = input;
-  for (const [re, replacement] of SECRET_PATTERNS) out = out.replace(re, replacement);
-  return out;
-}
-
-// Strip URL query, fragment, and basic-auth credentials. The remaining
-// origin+path still runs through redactSecrets so path-embedded keys don't
-// reach the model.
-export function redactUrlSecrets(raw: string): string {
-  if (typeof raw !== 'string' || raw.length === 0) return raw;
-  try {
-    const url = new URL(raw);
-    url.search = '';
-    url.hash = '';
-    if (url.username || url.password) { url.username = ''; url.password = ''; }
-    return redactSecrets(url.toString());
-  } catch {
-    return redactSecrets(raw);
-  }
-}
-
-function sanitizeFenced(value: string): string {
-  return value.replace(SENTINEL_LIKE, '<<<sanitized-marker>>>');
-}
-
-function fence(label: string, value: string): string {
-  return `${UNTRUSTED_OPEN} ${label}\n${sanitizeFenced(value)}\n${UNTRUSTED_CLOSE}`;
-}
-
-function safeField(value: unknown, maxLen: number): string {
-  if (value === null || value === undefined) return '(not provided)';
-  const raw = typeof value === 'string' ? value : JSON.stringify(value);
-  const redacted = redactSecrets(raw);
-  return redacted.length > maxLen ? redacted.slice(0, maxLen) + '…' : redacted;
-}
+const fence = fenceUntrusted;
+const safeField = safePromptField;
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
-import { workerRunDto } from '../../src/lib/admin-worker/repository'
+import { dirname, join, resolve } from 'node:path'
+import { sortQualifiedLeadRows, sortQualifiedLeadSources, workerRunDto } from '../../src/lib/admin-worker/repository'
 
 const read = (path: string) => readFileSync(path, 'utf8')
 const migrationPath = 'supabase/migrations/20261001000100_admin_worker_foundation.sql'
+const discoveryMigrationPath = 'supabase/migrations/20261002000100_admin_worker_discovery_v1.sql'
 
 test('Worker migration creates the bounded server-only schema and lifecycle RPCs', () => {
   const sql = read(migrationPath)
@@ -42,7 +43,7 @@ test('Admin Worker routes use the existing Admin boundary and expose only intend
     assert.match(source, /export const POST/)
     assert.doesNotMatch(source, /export const (?:GET|PUT|PATCH|DELETE)/)
   }
-  for (const readRoute of ['status', 'runs']) {
+  for (const readRoute of ['status', 'runs', 'leads']) {
     const source = read(`src/app/api/admin/worker/${readRoute}/route.ts`)
     assert.match(source, /withAdmin/)
     assert.match(source, /export const GET/)
@@ -66,12 +67,32 @@ test('Worker DTO is an explicit allowlist and drops unrestricted database fields
     'id', 'processed_count', 'run_number', 'started_at', 'status', 'stopped_at', 'updated_at', 'workflow_run_id'].sort())
 })
 
-test('Admin UI includes separate Worker navigation, controls, notice, and resilient visible polling', () => {
+test('qualified lead and provenance ordering is stable for identical timestamps', () => {
+  const timestamp = '2026-10-03T12:00:00.000Z'
+  assert.deepEqual(sortQualifiedLeadRows([
+    { id: 'a', created_at: timestamp }, { id: 'c', created_at: timestamp }, { id: 'b', created_at: timestamp },
+  ]).map(row => row.id), ['c', 'b', 'a'])
+  assert.deepEqual(sortQualifiedLeadSources([
+    { id: 'b', source_role: 'directory_assertion', created_at: timestamp, url: 'https://directory.example/b' },
+    { id: 'c', source_role: 'official_docs', created_at: timestamp, url: 'https://docs.example/c' },
+    { id: 'a', source_role: 'official_docs', created_at: timestamp, url: 'https://docs.example/a' },
+  ]).map(row => row.id), ['c', 'a', 'b'])
+})
+
+test('Admin UI includes separate Worker navigation, controls, Discovery metrics, and qualified leads', () => {
   const shell = read('src/app/admin/operations/operations-shell.tsx')
   const client = read('src/app/admin/worker/worker-client.tsx')
   assert.match(shell, /href="\/admin\/worker"/)
   assert.match(shell, />Worker Agent</)
-  assert.match(client, /Discovery and AI qualification are not enabled in this foundation version\./)
+  assert.match(client, /Discovery V1/)
+  assert.match(client, /Qualified Leads/)
+  assert.match(client, /Loading qualified leads…/)
+  assert.match(client, /leadsPhase === 'loading'/)
+  assert.match(client, /Qualified leads are temporarily unavailable/)
+  assert.match(client, /Potentially compatible/)
+  assert.match(client, /AI qualification summary/)
+  assert.match(client, /Directory assertions/)
+  assert.match(client, /no outreach, account creation, or Marketplace listing occurs/i)
   for (const action of ['Start', 'Stop', 'Resume']) assert.match(client, new RegExp(`'${action.toLowerCase()}'|>${action}<`))
   assert.match(client, /document\.visibilityState !== 'visible'/)
   assert.match(client, /12_000/)
@@ -79,15 +100,39 @@ test('Admin UI includes separate Worker navigation, controls, notice, and resili
   assert.doesNotMatch(client, /dangerouslySetInnerHTML/)
 })
 
-test('Workflow is a bounded synthetic no-op with compact state and no external discovery or outreach', () => {
+test('Workflow remains bounded and compact while delegating isolated Discovery V1 work', () => {
   const workflow = read('src/workflows/admin-worker-batch.ts')
   const steps = read('src/lib/admin-worker/workflow-steps.ts')
   assert.match(workflow, /'use workflow'/)
   assert.match(steps, /'use step'/)
-  assert.match(steps, /candidate-\$\{String\(index \+ 1\)\.padStart\(4, '0'\)\}/)
+  assert.match(steps, /processDiscoveryRange/)
+  assert.match(steps, /advanceWorkerDiscoveryRun/)
   assert.match(workflow, /WORKER_MAX_BATCH_SIZE \/ WORKER_CHUNK_SIZE/)
-  assert.doesNotMatch(workflow + steps, /fetch\(|groq|github|postman|rapidapi|sendEmail|nodemailer|scrap/i)
+  assert.doesNotMatch(workflow + steps, /sendEmail|nodemailer|outreach|marketplace|gateway|settlement|withdraw/i)
   assert.doesNotMatch(read('src/lib/admin-worker/checkpoint.ts'), /items|candidate/)
+})
+
+test('Discovery migration adds durable work, bounded budgets, and server-only grants', () => {
+  const sql = read(discoveryMigrationPath)
+  assert.match(sql, /CREATE TABLE public\.worker_candidates/)
+  assert.match(sql, /CREATE TABLE public\.worker_budget_claims/)
+  assert.match(sql, /CREATE TABLE public\.worker_source_work/)
+  assert.match(sql, /discovery_batch_id uuid NOT NULL REFERENCES public\.worker_runs/)
+  assert.match(sql, /CHECK \(source_query_count BETWEEN 0 AND 60\)/)
+  assert.match(sql, /CHECK \(research_fetch_count BETWEEN 0 AND 50\)/)
+  assert.match(sql, /CHECK \(groq_call_count BETWEEN 0 AND 20\)/)
+  assert.match(sql, /deadline_at timestamptz/)
+  assert.match(sql, /retention_eligible_at timestamptz/)
+  assert.match(sql, /worker_leads_product_unique UNIQUE \(product_id\)/)
+  assert.match(sql, /mahshar_worker_claim_budget/)
+  assert.match(sql, /mahshar_worker_materialize_source_work/)
+  assert.match(sql, /mahshar_worker_claim_deferred_candidates/)
+  assert.match(sql, /mahshar_worker_resolve_discovery_lead/)
+  assert.match(sql, /mahshar_worker_advance_discovery_run/)
+  assert.match(sql, /ALTER TABLE public\.worker_candidates ENABLE ROW LEVEL SECURITY/)
+  assert.match(sql, /REVOKE ALL PRIVILEGES ON TABLE public\.worker_candidates[\s\S]*PUBLIC, anon, authenticated, service_role/)
+  assert.match(sql, /control_row\.batch_size <> 50/)
+  assert.doesNotMatch(sql, /raw_html|screenshot|llm_prompt|llm_response|groq_response/)
 })
 
 test('protected core source does not import the Admin Worker module', () => {
@@ -99,5 +144,28 @@ test('protected core source does not import the Admin Worker module', () => {
   })
   for (const file of [...walk('src/app'), ...walk('src/lib')]) {
     assert.doesNotMatch(read(file), /@\/lib\/admin-worker|workflows\/admin-worker/, file)
+  }
+})
+
+test('Admin Worker dependency graph never resolves into Marketplace implementation code', () => {
+  const queue = readdirSync('src/lib/admin-worker', { recursive: true })
+    .filter(name => typeof name === 'string' && /\.(?:ts|tsx)$/.test(name))
+    .map(name => join('src/lib/admin-worker', name as string))
+  const visited = new Set<string>()
+  while (queue.length) {
+    const file = queue.pop()!
+    if (visited.has(file) || !existsSync(file)) continue
+    visited.add(file)
+    assert.equal(file.includes('/marketplace/'), false, `Worker dependency reached ${file}`)
+    const imports = [...read(file).matchAll(/(?:import|export)\s+(?:[^'";]+?\s+from\s+)?['"]([^'"]+)['"]/g)]
+      .map(match => match[1])
+    for (const specifier of imports) {
+      const base = specifier.startsWith('@/') ? join('src', specifier.slice(2))
+        : specifier.startsWith('.') ? resolve(dirname(file), specifier) : null
+      if (!base) continue
+      for (const candidate of [`${base}.ts`, `${base}.tsx`, join(base, 'index.ts'), join(base, 'index.tsx')]) {
+        if (existsSync(candidate)) queue.push(candidate.startsWith('/') ? candidate.slice(process.cwd().length + 1) : candidate)
+      }
+    }
   }
 })

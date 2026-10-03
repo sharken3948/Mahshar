@@ -6,10 +6,12 @@ import pathlib
 import shutil
 import subprocess
 import tempfile
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261001000100_admin_worker_foundation.sql'
 PRIVILEGE_REPAIR = ROOT / 'supabase/migrations/20261001000110_admin_worker_least_privilege.sql'
+DISCOVERY = ROOT / 'supabase/migrations/20261002000100_admin_worker_discovery_v1.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -73,9 +75,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20260926000500', '20260928000100', '20260928000200',
             '20260928000300', '20261001000000', '20261001000030',
             '20261001000100', '20261001000110',
+            '20261002000100',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -115,9 +118,17 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         assert sql("SELECT has_table_privilege('service_role','public.worker_control','TRUNCATE');") == 't'
         assert sql("SELECT has_sequence_privilege('service_role','public.worker_runs_run_number_seq','UPDATE');") == 't'
         sql('BEGIN;\n' + PRIVILEGE_REPAIR.read_text() + '\nCOMMIT;')
+        rollback_sql = "BEGIN;\n" + DISCOVERY.read_text() + """
+          DO $rollback$ BEGIN RAISE EXCEPTION 'forced_worker_discovery_rollback'; END $rollback$;
+          COMMIT;
+        """
+        expect_failure(rollback_sql, 'forced_worker_discovery_rollback')
+        assert sql("SELECT to_regclass('public.worker_candidates');") == ''
+        sql('BEGIN;\n' + DISCOVERY.read_text() + '\nCOMMIT;')
 
         worker_tables = ['worker_control', 'worker_runs', 'worker_providers', 'worker_provider_identities',
-                         'worker_products', 'worker_leads', 'worker_sources', 'worker_decisions']
+                         'worker_products', 'worker_leads', 'worker_sources', 'worker_decisions',
+                         'worker_candidates', 'worker_budget_claims', 'worker_deferred_claims', 'worker_source_work']
         intended_table_privileges = {'SELECT', 'INSERT', 'UPDATE', 'DELETE'}
         all_table_privileges = intended_table_privileges | {'TRUNCATE', 'REFERENCES', 'TRIGGER'}
         if int(sql('SHOW server_version_num;')) >= 170000:
@@ -156,6 +167,13 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             'mahshar_worker_request_stop()', 'mahshar_worker_claim_run(uuid)',
             'mahshar_worker_advance_run(uuid,integer,integer)', 'mahshar_worker_complete_run(uuid)',
             'mahshar_worker_fail_run(uuid,text)', 'mahshar_worker_attach_workflow_run(uuid,text)',
+            'mahshar_worker_claim_budget(uuid,text,text)',
+            'mahshar_worker_materialize_source_work(uuid,text,text,jsonb)',
+            'mahshar_worker_claim_deferred_candidates(uuid,text,integer)',
+            'mahshar_worker_resolve_discovery_lead(uuid,uuid,text,text,text,text,text)',
+            'mahshar_worker_complete_candidate(uuid,uuid,text,text,text,text,uuid,uuid,uuid)',
+            'mahshar_worker_persist_qualification(uuid,uuid,uuid,uuid,uuid,jsonb,text,boolean,text)',
+            'mahshar_worker_advance_discovery_run(uuid,integer,integer,integer,integer,integer,integer,integer)',
         ]
         for function in worker_functions:
             for role in ['anon', 'authenticated']:
@@ -166,15 +184,94 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
               FROM pg_proc p WHERE p.oid='public.{function}'::regprocedure;
             """)
             assert function_config in {'true,search_path=', 'true,search_path=""'}, function_config
+            assert sql(f"SELECT pg_get_userbyid(proowner) FROM pg_proc WHERE oid='public.{function}'::regprocedure;") == 'worker_test'
             assert sql(f"""
               SELECT count(*) FROM pg_proc p,
                 LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) acl
               WHERE p.oid='public.{function}'::regprocedure AND acl.grantee=0;
             """) == '0'
 
+        for role in ['anon', 'authenticated', 'service_role']:
+            assert sql(f"SELECT has_schema_privilege('{role}','public','CREATE');") == 'f'
+        assert sql("""
+          SELECT count(*) FROM pg_namespace n,
+            LATERAL aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) acl
+          WHERE n.nspname='public' AND acl.grantee=0 AND acl.privilege_type='CREATE';
+        """) == '0'
+
         assert sql("SELECT desired_state||','||batch_size FROM worker_control WHERE id=1;") == 'stopped,50'
         assert sql("SELECT count(*) FROM worker_runs WHERE status IN ('queued','running','stop_requested');") == '0'
         expect_failure("SET ROLE service_role; UPDATE worker_control SET batch_size=101 WHERE id=1;")
+        for invalid_size in [49, 51, 77]:
+            sql(f"SET ROLE service_role; UPDATE worker_control SET batch_size={invalid_size} WHERE id=1;")
+            expect_failure("SET ROLE service_role; SELECT (mahshar_worker_create_run(false)).id;", 'worker_discovery_batch_size_invalid')
+            assert sql("SELECT count(*) FROM worker_runs;") == '0'
+        sql("SET ROLE service_role; UPDATE worker_control SET batch_size=50 WHERE id=1;")
+
+        # Discovery counters, budgets, and durable work items are bounded. A
+        # resumed run keeps its logical batch and cumulative usage.
+        discovery_run = rpc_json('mahshar_worker_create_run(false)')
+        discovery_id = discovery_run['id']
+        assert discovery_run['discovery_batch_id'] == discovery_id
+        assert discovery_run['batch_size'] == 50
+        rpc_json(f"mahshar_worker_claim_run('{discovery_id}')")
+        provider_window = json.dumps({'kind': 'provider_window', 'providers': ['original.example']})
+        changed_window = json.dumps({'kind': 'provider_window', 'providers': ['changed.example']})
+        materialized = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_worker_materialize_source_work('{discovery_id}','providers:0','provider_window',$work${provider_window}$work$::jsonb);"))
+        assert materialized['providers'] == ['original.example']
+        assert sql(f"SELECT count(*) FROM worker_candidates WHERE discovery_batch_id='{discovery_id}';") == '0'
+        replayed_materialization = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_worker_materialize_source_work('{discovery_id}','providers:0','provider_window',$work${changed_window}$work$::jsonb);"))
+        assert replayed_materialization == materialized
+        assert sql(f"SELECT source_query_count FROM worker_runs WHERE id='{discovery_id}';") == '1'
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            budget_results = [future.result() for future in [
+                pool.submit(sql, f"SET ROLE service_role; SELECT mahshar_worker_claim_budget('{discovery_id}','groq','candidate:{index}');")
+                for index in range(25)
+            ]]
+        assert budget_results.count('t') == 20, budget_results
+        assert budget_results.count('f') == 5, budget_results
+        assert sql(f"SELECT groq_call_count FROM worker_runs WHERE id='{discovery_id}';") == '20'
+        assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget('{discovery_id}','source','providers:0');") == 't'
+        assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget('{discovery_id}','source','providers:0');") == 't'
+        assert sql(f"SELECT source_query_count FROM worker_runs WHERE id='{discovery_id}';") == '1'
+        first_claim = sql(f"SELECT claim_key FROM worker_budget_claims WHERE discovery_batch_id='{discovery_id}' AND budget_type='groq' ORDER BY claim_key LIMIT 1;")
+        assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget('{discovery_id}','groq','{first_claim}');") == 'f'
+        assert sql(f"SELECT groq_call_count FROM worker_runs WHERE id='{discovery_id}';") == '20'
+        discovery_advanced = rpc_json(
+            f"mahshar_worker_advance_discovery_run('{discovery_id}',0,10,10,2,3,1,1)"
+        )
+        assert discovery_advanced['processed_count'] == 10
+        assert discovery_advanced['discovered_count'] == 10
+        assert discovery_advanced['duplicate_count'] == 2
+        assert discovery_advanced['filtered_count'] == 3
+        assert discovery_advanced['qualified_count'] == 1
+        assert discovery_advanced['persisted_count'] == 1
+        replayed_discovery = rpc_json(
+            f"mahshar_worker_advance_discovery_run('{discovery_id}',0,10,10,2,3,1,1)"
+        )
+        assert replayed_discovery['discovered_count'] == 10
+        assert replayed_discovery['qualified_count'] == 1
+        sql(f"""
+          SET ROLE service_role;
+          INSERT INTO worker_candidates(discovery_batch_id, ordinal, source_type, source_url, discovered_name)
+          VALUES('{discovery_id}',0,'api_directory','https://api.apis.guru/v2/example.com.json','example.com');
+        """)
+        expect_failure(f"SET ROLE service_role; INSERT INTO worker_candidates(discovery_batch_id,ordinal,source_type,source_url,discovered_name) VALUES('{discovery_id}',0,'api_directory','https://api.apis.guru/v2/example.com.json','duplicate');")
+        rpc_json('mahshar_worker_request_stop()')
+        stopped_discovery = rpc_json(
+            f"mahshar_worker_advance_discovery_run('{discovery_id}',10,20,10,0,0,0,0)"
+        )
+        assert stopped_discovery['status'] == 'stopped' and stopped_discovery['processed_count'] == 10
+        resumed_discovery = rpc_json('mahshar_worker_create_run(true)')
+        assert resumed_discovery['discovery_batch_id'] == discovery_id
+        assert resumed_discovery['batch_size'] == 50
+        assert resumed_discovery['discovered_count'] == 10
+        assert resumed_discovery['groq_call_count'] == 20
+        assert resumed_discovery['deadline_at'] == stopped_discovery['deadline_at']
+        rpc_json(f"mahshar_worker_claim_run('{resumed_discovery['id']}')")
+        assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget('{resumed_discovery['id']}','groq','{first_claim}');") == 'f'
+        assert sql(f"SELECT groq_call_count FROM worker_runs WHERE id='{resumed_discovery['id']}';") == '20'
+        sql(f"SET ROLE service_role; SELECT (mahshar_worker_fail_run('{resumed_discovery['id']}','test_cleanup')).status;")
 
         provider = '10000000-0000-4000-8000-000000000001'
         product = '20000000-0000-4000-8000-000000000001'
@@ -194,6 +291,200 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         """)
         assert sql("SELECT decision FROM worker_decisions;") == 'do_not_contact'
         expect_failure(f"SET ROLE service_role; INSERT INTO worker_provider_identities(provider_id,identity_type,normalized_value,original_value) VALUES('{provider}','domain','synthetic.invalid','duplicate');")
+        expect_failure(f"SET ROLE service_role; INSERT INTO worker_leads(provider_id,product_id,status) VALUES('{provider}','{product}','discovered');")
+
+        # A DNC committed by a separate client after research but before the
+        # atomic resolver prevents all new entity creation.
+        sql(f"""
+          SET ROLE service_role;
+          INSERT INTO worker_candidates(discovery_batch_id,ordinal,source_type,source_url,discovered_name,
+            discovered_domain,discovered_product,discovered_docs_url)
+          VALUES('{discovery_id}',1,'api_directory','https://api.apis.guru/v2/synthetic.invalid.json',
+            'Synthetic provider','synthetic.invalid','Blocked New API','https://api.synthetic.invalid/openapi.json');
+        """)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(sql, f"SET ROLE service_role; INSERT INTO worker_decisions(provider_id,lead_id,decision,reason_code) VALUES('{provider}',NULL,'do_not_contact','race_block');").result()
+        blocked_candidate = sql(f"SELECT id FROM worker_candidates WHERE discovery_batch_id='{discovery_id}' AND ordinal=1;")
+        blocked_resolution = json.loads(sql(f"""
+          SET ROLE service_role;
+          SELECT mahshar_worker_resolve_discovery_lead('{blocked_candidate}',NULL,'synthetic.invalid','blocked-new',
+            'Synthetic provider','synthetic.invalid','Blocked New API');
+        """))
+        assert blocked_resolution['action'] == 'blocked'
+        assert blocked_resolution['reasonCode'] == 'provider_do_not_contact'
+        assert sql(f"SELECT count(*) FROM worker_products WHERE provider_id='{provider}' AND normalized_product_key='blocked-new';") == '0'
+
+        # Deferred candidates are claimed in stable order by a fresh logical
+        # batch, reuse the same entities, and respect a DNC added while queued.
+        deferred_rows = []
+        for ordinal, domain in [(2, 'retry-one.invalid'), (3, 'retry-dnc.invalid'), (4, 'retry-one.invalid')]:
+            sql(f"""
+              SET ROLE service_role;
+              INSERT INTO worker_candidates(discovery_batch_id,ordinal,source_type,source_url,discovered_name,
+                discovered_domain,discovered_product,discovered_docs_url)
+              VALUES('{discovery_id}',{ordinal},'api_directory','https://api.apis.guru/v2/{domain}.json',
+                '{domain}','{domain}','Retry API','https://api.{domain}/openapi.json');
+            """)
+            candidate_id = sql(f"SELECT id FROM worker_candidates WHERE discovery_batch_id='{discovery_id}' AND ordinal={ordinal};")
+            resolved = json.loads(sql(f"""
+              SET ROLE service_role;
+              SELECT mahshar_worker_resolve_discovery_lead('{candidate_id}',NULL,'{domain}','retry-v1',
+                '{domain}','{domain}','Retry API');
+            """))
+            deferred_rows.append((candidate_id, resolved))
+        first_entity = deferred_rows[0][1]
+        duplicate_entity = deferred_rows[2][1]
+        assert first_entity['providerId'] == duplicate_entity['providerId']
+        assert first_entity['productId'] == duplicate_entity['productId']
+        assert first_entity['leadId'] == duplicate_entity['leadId']
+        assert sql("SELECT count(*) FROM worker_providers WHERE canonical_domain='retry-one.invalid';") == '1'
+        assert sql(f"SELECT count(*) FROM worker_products WHERE provider_id='{first_entity['providerId']}' AND normalized_product_key='retry-v1';") == '1'
+        assert sql(f"SELECT count(*) FROM worker_leads WHERE product_id='{first_entity['productId']}';") == '1'
+        sql(f"""
+          SET ROLE service_role;
+          UPDATE worker_leads SET qualification_status='deferred', qualification_retry_after='2026-01-01T00:00:00Z'
+          WHERE id IN ('{deferred_rows[0][1]['leadId']}','{deferred_rows[1][1]['leadId']}');
+          UPDATE worker_candidates SET status='deferred', reason_code='groq_budget_exhausted'
+          WHERE id IN ('{deferred_rows[0][0]}','{deferred_rows[1][0]}');
+          UPDATE worker_candidates SET status='duplicate', reason_code='existing_lead' WHERE id='{deferred_rows[2][0]}';
+          INSERT INTO worker_candidates(discovery_batch_id,ordinal,source_type,source_url,discovered_name,
+            discovered_domain,discovered_product,discovered_docs_url,status,reason_code)
+          VALUES('{discovery_id}',5,'api_directory','https://api.apis.guru/v2/research-retry.invalid.json',
+            'research-retry.invalid','research-retry.invalid','Research Retry API',
+            'https://api.research-retry.invalid/openapi.json','deferred','research_budget_exhausted');
+        """)
+        research_retry_candidate = sql(f"SELECT id FROM worker_candidates WHERE discovery_batch_id='{discovery_id}' AND ordinal=5;")
+        retry_run = rpc_json('mahshar_worker_create_run(false)')
+        retry_id = retry_run['id']
+        rpc_json(f"mahshar_worker_claim_run('{retry_id}')")
+        fresh_materialization = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_worker_materialize_source_work('{retry_id}','providers:0','provider_window',$work${changed_window}$work$::jsonb);"))
+        assert fresh_materialization['providers'] == ['changed.example']
+        claim_statement = f"SET ROLE service_role; SELECT coalesce(json_agg(candidate_id ORDER BY candidate_id),'[]') FROM mahshar_worker_claim_deferred_candidates('{retry_id}','workflow:deferred',5);"
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            concurrent_claims = [json.loads(future.result()) for future in [pool.submit(sql, claim_statement) for _ in range(2)]]
+        claimed = next(value for value in concurrent_claims if value)
+        assert sorted(len(value) for value in concurrent_claims) == [0, 3], concurrent_claims
+        assert set(claimed) == {deferred_rows[0][0], deferred_rows[1][0], research_retry_candidate}, (claimed, deferred_rows)
+        claimed_replay = json.loads(sql(f"SET ROLE service_role; SELECT coalesce(json_agg(candidate_id),'[]') FROM mahshar_worker_claim_deferred_candidates('{retry_id}','workflow:deferred',5);"))
+        assert claimed_replay == []
+        first_lease = sql(f"SELECT processing_lease_id FROM worker_candidates WHERE id='{deferred_rows[0][0]}';")
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_worker_complete_candidate('{deferred_rows[0][0]}','00000000-0000-4000-8000-000000000001','persisted','qualified');", 'worker_candidate_lease_mismatch')
+        dnc_provider = deferred_rows[1][1]['providerId']
+        sql(f"SET ROLE service_role; INSERT INTO worker_decisions(provider_id,lead_id,decision,reason_code) VALUES('{dnc_provider}',NULL,'do_not_contact','deferred_block');")
+        retry_resolution = json.loads(sql(f"""
+          SET ROLE service_role;
+          SELECT mahshar_worker_resolve_discovery_lead('{deferred_rows[0][0]}',(SELECT processing_lease_id FROM worker_candidates WHERE id='{deferred_rows[0][0]}'),'retry-one.invalid','retry-v1',
+            'retry-one.invalid','retry-one.invalid','Retry API');
+        """))
+        assert retry_resolution['action'] == 'continue'
+        dnc_resolution = json.loads(sql(f"""
+          SET ROLE service_role;
+          SELECT mahshar_worker_resolve_discovery_lead('{deferred_rows[1][0]}',(SELECT processing_lease_id FROM worker_candidates WHERE id='{deferred_rows[1][0]}'),'retry-dnc.invalid','retry-v1',
+            'retry-dnc.invalid','retry-dnc.invalid','Retry API');
+        """))
+        assert dnc_resolution['action'] == 'blocked' and dnc_resolution['reasonCode'] == 'provider_do_not_contact'
+        sql(f"SET ROLE service_role; SELECT mahshar_worker_complete_candidate('{deferred_rows[0][0]}','{first_lease}','persisted','qualified');")
+        dnc_lease = sql(f"SELECT processing_lease_id FROM worker_candidates WHERE id='{deferred_rows[1][0]}';")
+        sql(f"SET ROLE service_role; SELECT mahshar_worker_complete_candidate('{deferred_rows[1][0]}','{dnc_lease}','blocked','provider_do_not_contact');")
+        abandoned_lease = sql(f"SELECT processing_lease_id FROM worker_candidates WHERE id='{research_retry_candidate}';")
+        sql(f"SET ROLE service_role; UPDATE worker_candidates SET processing_lease_expires_at=clock_timestamp()-interval '1 second' WHERE id='{research_retry_candidate}';")
+        reclaimed = json.loads(sql(f"SET ROLE service_role; SELECT coalesce(json_agg(json_build_object('id',candidate_id,'lease',lease_id)),'[]') FROM mahshar_worker_claim_deferred_candidates('{retry_id}','workflow:reclaim',5);"))
+        assert len(reclaimed) == 1 and reclaimed[0]['id'] == research_retry_candidate
+        assert reclaimed[0]['lease'] != abandoned_lease
+        sql(f"SET ROLE service_role; SELECT mahshar_worker_complete_candidate('{research_retry_candidate}','{reclaimed[0]['lease']}','filtered','test_cleanup');")
+        assert json.loads(sql(f"SET ROLE service_role; SELECT coalesce(json_agg(candidate_id),'[]') FROM mahshar_worker_claim_deferred_candidates('{retry_id}','workflow:reclaim',5);")) == []
+        expect_failure(f"SET ROLE service_role; SELECT * FROM mahshar_worker_claim_deferred_candidates('{retry_id}','workflow:wrong-limit',4);", 'worker_deferred_limit_invalid')
+
+        # Two independent clients resolving the same provider/product race to
+        # one durable entity set under the advisory lock and unique keys.
+        sql(f"""
+          SET ROLE service_role;
+          INSERT INTO worker_candidates(discovery_batch_id,ordinal,source_type,source_url,discovered_name,discovered_domain,discovered_product,discovered_docs_url)
+          VALUES
+            ('{discovery_id}',6,'api_directory','https://api.apis.guru/v2/resolver-race.invalid.json','Resolver race','resolver-race.invalid','Race API','https://api.resolver-race.invalid/openapi.json'),
+            ('{discovery_id}',7,'api_directory','https://api.apis.guru/v2/resolver-race.invalid.json','Resolver race','resolver-race.invalid','Race API','https://api.resolver-race.invalid/openapi.json');
+        """)
+        resolver_candidates = sql(f"SELECT string_agg(id::text,',' ORDER BY ordinal) FROM worker_candidates WHERE discovery_batch_id='{discovery_id}' AND ordinal IN (6,7);").split(',')
+        resolver_statements = [f"SET ROLE service_role; SELECT mahshar_worker_resolve_discovery_lead('{candidate_id}',NULL,'resolver-race.invalid','race-v1','Resolver race','resolver-race.invalid','Race API');" for candidate_id in resolver_candidates]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            resolver_results = [json.loads(future.result()) for future in [pool.submit(sql, statement) for statement in resolver_statements]]
+        assert len({value['providerId'] for value in resolver_results}) == 1
+        assert len({value['productId'] for value in resolver_results}) == 1
+        assert len({value['leadId'] for value in resolver_results}) == 1
+        assert sql("SELECT count(*) FROM worker_providers WHERE canonical_domain='resolver-race.invalid';") == '1'
+
+        qualification_json = json.dumps({
+            'fitScore': 88, 'commercialApi': True, 'agentUtility': 'high', 'payPerCallFit': 'high',
+            'integrationDifficulty': 'medium', 'providerCredibility': 'high',
+            'reasonCodes': ['useful_tool'], 'summary': 'Strong fit.',
+        })
+
+        def create_qualification_candidate(ordinal, domain):
+            sql(f"""
+              SET ROLE service_role;
+              INSERT INTO worker_candidates(discovery_batch_id,ordinal,source_type,source_url,discovered_name,discovered_domain,discovered_product,discovered_docs_url)
+              VALUES('{discovery_id}',{ordinal},'api_directory','https://api.apis.guru/v2/{domain}.json','{domain}','{domain}','Qualification API','https://api.{domain}/openapi.json');
+            """)
+            candidate_id = sql(f"SELECT id FROM worker_candidates WHERE discovery_batch_id='{discovery_id}' AND ordinal={ordinal};")
+            resolved = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_worker_resolve_discovery_lead('{candidate_id}',NULL,'{domain}','qualification-v1','{domain}','{domain}','Qualification API');"))
+            return candidate_id, resolved
+
+        def qualification_statement(candidate_id, resolved):
+            return (f"SET ROLE service_role; SELECT mahshar_worker_persist_qualification('{candidate_id}',NULL,"
+                    f"'{resolved['providerId']}','{resolved['productId']}','{resolved['leadId']}',"
+                    f"$qualification${qualification_json}$qualification$::jsonb,'fixture-model',true,NULL);")
+
+        def wait_for_marker(marker):
+            for _ in range(40):
+                if sql(f"SELECT count(*) FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND state='active' AND query LIKE '%{marker}%';") != '0':
+                    return
+                time.sleep(0.05)
+            raise AssertionError(f'concurrent marker not observed: {marker}')
+
+        # A manual status committed after resolution but before persistence
+        # holds the lead row; the atomic RPC waits and preserves the status.
+        human_candidate, human_entity = create_qualification_candidate(8, 'human-race.invalid')
+        human_admin = f"BEGIN; UPDATE worker_leads SET status='reviewed' WHERE id='{human_entity['leadId']}'; SELECT pg_sleep(1) /* race_human_lock */; COMMIT;"
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            admin_future = pool.submit(sql, human_admin)
+            wait_for_marker('race_human_lock')
+            qualification_future = pool.submit(sql, qualification_statement(human_candidate, human_entity))
+            human_result = json.loads(qualification_future.result())
+            admin_future.result()
+        assert human_result['status'] == 'duplicate' and human_result['reasonCode'] == 'existing_human_state'
+        assert sql(f"SELECT status||','||qualification_status FROM worker_leads WHERE id='{human_entity['leadId']}';") == 'reviewed,pending'
+
+        # A concurrent Admin DNC transaction wins over Discovery persistence.
+        dnc_candidate, dnc_entity = create_qualification_candidate(9, 'dnc-race.invalid')
+        dnc_admin = f"BEGIN; INSERT INTO worker_decisions(provider_id,lead_id,decision,reason_code) VALUES('{dnc_entity['providerId']}','{dnc_entity['leadId']}','do_not_contact','manual_block'); UPDATE worker_leads SET status='do_not_contact' WHERE id='{dnc_entity['leadId']}'; SELECT pg_sleep(1) /* race_dnc_lock */; COMMIT;"
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            admin_future = pool.submit(sql, dnc_admin)
+            wait_for_marker('race_dnc_lock')
+            qualification_future = pool.submit(sql, qualification_statement(dnc_candidate, dnc_entity))
+            dnc_result = json.loads(qualification_future.result())
+            admin_future.result()
+        assert dnc_result['status'] == 'blocked' and dnc_result['reasonCode'] == 'do_not_contact'
+        assert sql(f"SELECT status||','||qualification_status FROM worker_leads WHERE id='{dnc_entity['leadId']}';") == 'do_not_contact,pending'
+
+        # Failure injected on candidate completion rolls the preceding lead
+        # write back; retry persists once and replay is idempotent.
+        atomic_candidate, atomic_entity = create_qualification_candidate(10, 'atomic-persist.invalid')
+        sql(f"""
+          CREATE FUNCTION public.fail_candidate_completion() RETURNS trigger LANGUAGE plpgsql AS $trigger$
+          BEGIN IF NEW.id='{atomic_candidate}' AND NEW.status='persisted' THEN RAISE EXCEPTION 'injected_candidate_completion_failure'; END IF; RETURN NEW; END $trigger$;
+          CREATE TRIGGER fail_candidate_completion BEFORE UPDATE ON worker_candidates FOR EACH ROW EXECUTE FUNCTION public.fail_candidate_completion();
+        """)
+        expect_failure(qualification_statement(atomic_candidate, atomic_entity), 'injected_candidate_completion_failure')
+        assert sql(f"SELECT status||','||qualification_status FROM worker_leads WHERE id='{atomic_entity['leadId']}';") == 'discovered,pending'
+        assert sql(f"SELECT status FROM worker_candidates WHERE id='{atomic_candidate}';") == 'pending'
+        sql("DROP TRIGGER fail_candidate_completion ON worker_candidates; DROP FUNCTION public.fail_candidate_completion();")
+        atomic_result = json.loads(sql(qualification_statement(atomic_candidate, atomic_entity)))
+        replay_result = json.loads(sql(qualification_statement(atomic_candidate, atomic_entity)))
+        assert atomic_result['status'] == 'persisted' and replay_result['status'] == 'persisted'
+        assert sql(f"SELECT status||','||qualification_status FROM worker_leads WHERE id='{atomic_entity['leadId']}';") == 'qualified,qualified'
+        sql(f"SET ROLE service_role; UPDATE worker_runs SET deadline_at=clock_timestamp()-interval '1 second' WHERE id='{retry_id}';")
+        assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget('{retry_id}','source','deadline:test');") == 'f'
+        sql(f"SET ROLE service_role; SELECT (mahshar_worker_fail_run('{retry_id}','test_cleanup')).status;")
 
         # Healthy active work must not be reconciled or duplicated.
         healthy = rpc_json('mahshar_worker_create_run(false)')

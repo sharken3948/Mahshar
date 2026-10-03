@@ -1,7 +1,11 @@
 import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
+import { canonicalExternalUrl } from './discovery/sanitize'
 import { isResumableCheckpoint, parseWorkerCheckpoint } from './checkpoint'
-import { activeWorkerRunStatuses, WORKER_RECENT_RUNS_DEFAULT, WORKER_RECENT_RUNS_MAX, workerRunStatuses } from './constants'
+import {
+  activeWorkerRunStatuses, WORKER_QUALIFIED_LEADS_DEFAULT, WORKER_QUALIFIED_LEADS_MAX,
+  WORKER_RECENT_RUNS_DEFAULT, WORKER_RECENT_RUNS_MAX, workerRunStatuses,
+} from './constants'
 import type {
   WorkerControlRecord,
   WorkerDesiredState,
@@ -9,6 +13,8 @@ import type {
   WorkerRunsDto,
   WorkerRunStatus,
   WorkerStatusDto,
+  WorkerQualifiedLeadDto,
+  WorkerQualifiedLeadsDto,
 } from './types'
 import type { WorkerStartMode } from './control'
 
@@ -23,6 +29,23 @@ function dbFailure(scope: string, error: DbError): never {
 function objectRow(value: unknown): Record<string, unknown> | null {
   const candidate = Array.isArray(value) ? value[0] : value
   return candidate && typeof candidate === 'object' ? candidate as Record<string, unknown> : null
+}
+
+const provenanceRoleOrder = new Map([
+  ['official_site', 0], ['official_docs', 1], ['official_pricing', 2], ['official_contact', 3], ['directory_assertion', 4],
+])
+
+export function sortQualifiedLeadRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return [...rows].sort((left, right) => String(right.created_at).localeCompare(String(left.created_at))
+    || String(right.id).localeCompare(String(left.id)))
+}
+
+export function sortQualifiedLeadSources(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return [...rows].sort((left, right) => (provenanceRoleOrder.get(String(left.source_role)) ?? 99)
+    - (provenanceRoleOrder.get(String(right.source_role)) ?? 99)
+    || String(right.created_at).localeCompare(String(left.created_at))
+    || String(right.id).localeCompare(String(left.id))
+    || String(left.url).localeCompare(String(right.url)))
 }
 
 function safeInteger(value: unknown, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): number {
@@ -73,11 +96,11 @@ export function workerRunDto(value: unknown): WorkerRunDto {
     batch_size: batchSize,
     processed_count: processedCount,
     counts: {
-      discovered: safeInteger(row.discovered_count, 0, processedCount),
-      duplicate: safeInteger(row.duplicate_count, 0, processedCount),
-      filtered: safeInteger(row.filtered_count, 0, processedCount),
-      qualified: safeInteger(row.qualified_count, 0, processedCount),
-      persisted: safeInteger(row.persisted_count, 0, processedCount),
+      discovered: safeInteger(row.discovered_count),
+      duplicate: safeInteger(row.duplicate_count),
+      filtered: safeInteger(row.filtered_count),
+      qualified: safeInteger(row.qualified_count),
+      persisted: safeInteger(row.persisted_count),
     },
     checkpoint,
     workflow_run_id: safeOptionalWorkflowId(row.workflow_run_id),
@@ -136,6 +159,32 @@ export async function advanceWorkerRun(runId: string, expectedNextIndex: number,
   }))
 }
 
+export type WorkerDiscoveryCounters = {
+  discovered: number
+  duplicate: number
+  filtered: number
+  qualified: number
+  persisted: number
+}
+
+export async function advanceWorkerDiscoveryRun(
+  runId: string,
+  expectedNextIndex: number,
+  nextIndex: number,
+  counters: WorkerDiscoveryCounters,
+): Promise<WorkerRunDto> {
+  return workerRunDto(await rpc('mahshar_worker_advance_discovery_run', {
+    p_run_id: runId,
+    p_expected_next_index: expectedNextIndex,
+    p_next_index: nextIndex,
+    p_discovered: counters.discovered,
+    p_duplicate: counters.duplicate,
+    p_filtered: counters.filtered,
+    p_qualified: counters.qualified,
+    p_persisted: counters.persisted,
+  }))
+}
+
 export async function completeWorkerRun(runId: string): Promise<WorkerRunDto> {
   return workerRunDto(await rpc('mahshar_worker_complete_run', { p_run_id: runId }))
 }
@@ -190,6 +239,65 @@ export async function getWorkerStatus(): Promise<WorkerStatusDto> {
     latest_run: latest,
     as_of: new Date().toISOString(),
   }
+}
+
+export function parseWorkerLeadsLimit(url: URL): number | null {
+  const limit = Number(url.searchParams.get('limit') ?? WORKER_QUALIFIED_LEADS_DEFAULT)
+  return Number.isInteger(limit) && limit >= 1 && limit <= WORKER_QUALIFIED_LEADS_MAX ? limit : null
+}
+
+export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEFAULT): Promise<WorkerQualifiedLeadsDto> {
+  if (!Number.isInteger(limit) || limit < 1 || limit > WORKER_QUALIFIED_LEADS_MAX) throw new Error('worker_limit_invalid')
+  const db = createServiceClient()
+  const leadsResult = await db.from('worker_leads').select(
+    'id,provider_id,product_id,status,fit_score,fit_reason,qualification_reason_codes,created_at',
+  ).in('status', ['qualified', 'reviewed', 'contact_ready', 'contacted', 'replied', 'interested', 'listed'])
+    .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(limit) as DbResult
+  if (leadsResult.error) dbFailure('worker_qualified_leads', leadsResult.error)
+  if (!Array.isArray(leadsResult.data)) throw new Error('worker_leads_invalid')
+  const leads = sortQualifiedLeadRows(leadsResult.data.map(objectRow).filter(Boolean) as Record<string, unknown>[])
+  const providerIds = [...new Set(leads.map(item => item.provider_id).filter((id): id is string => typeof id === 'string'))]
+  const productIds = [...new Set(leads.map(item => item.product_id).filter((id): id is string => typeof id === 'string'))]
+  const leadIds = leads.map(item => item.id).filter((id): id is string => typeof id === 'string')
+  const [providersResult, productsResult, sourcesResult] = await Promise.all([
+    providerIds.length ? db.from('worker_providers').select('id,canonical_name,canonical_domain').in('id', providerIds) : Promise.resolve({ data: [], error: null }),
+    productIds.length ? db.from('worker_products').select('id,display_name').in('id', productIds) : Promise.resolve({ data: [], error: null }),
+    leadIds.length ? db.from('worker_sources').select('id,lead_id,source_role,url,created_at').in('lead_id', leadIds)
+      .order('created_at', { ascending: false }).order('id', { ascending: false }) : Promise.resolve({ data: [], error: null }),
+  ]) as [DbResult, DbResult, DbResult]
+  if (providersResult.error) dbFailure('worker_lead_providers', providersResult.error)
+  if (productsResult.error) dbFailure('worker_lead_products', productsResult.error)
+  if (sourcesResult.error) dbFailure('worker_lead_sources', sourcesResult.error)
+  const providers = new Map((providersResult.data as unknown[]).map(value => { const item = objectRow(value)!; return [item.id, item] }))
+  const products = new Map((productsResult.data as unknown[]).map(value => { const item = objectRow(value)!; return [item.id, item] }))
+  const sources = sortQualifiedLeadSources((sourcesResult.data as unknown[]).map(objectRow).filter(Boolean) as Record<string, unknown>[])
+  const result: WorkerQualifiedLeadDto[] = leads.map(item => {
+    const provider = providers.get(item.provider_id)
+    const product = products.get(item.product_id)
+    const leadSources = sources.filter(source => source.lead_id === item.id)
+    if (!provider || !product || typeof item.id !== 'string' || typeof provider.canonical_name !== 'string'
+      || typeof provider.canonical_domain !== 'string' || typeof product.display_name !== 'string'
+      || typeof item.fit_score !== 'number' || typeof item.fit_reason !== 'string') throw new Error('worker_lead_invalid')
+    const sourceUrl = (role: string) => {
+      const url = leadSources.find(source => source.source_role === role)?.url
+      return typeof url === 'string' ? canonicalExternalUrl(url) ?? null : null
+    }
+    const directory_sources = leadSources.filter(source => source.source_role === 'directory_assertion')
+      .flatMap(source => typeof source.url === 'string' ? [canonicalExternalUrl(source.url)].filter((url): url is string => Boolean(url)) : [])
+      .slice(0, 3)
+    return {
+      id: item.id, provider: provider.canonical_name, provider_domain: provider.canonical_domain,
+      product: product.display_name, fit_score: item.fit_score, summary: item.fit_reason,
+      reason_codes: Array.isArray(item.qualification_reason_codes)
+        ? item.qualification_reason_codes.filter(code => typeof code === 'string').slice(0, 8) as string[] : [],
+      official_site: sourceUrl('official_site'), docs_url: sourceUrl('official_docs'),
+      pricing_available: Boolean(sourceUrl('official_pricing')), contact_available: Boolean(sourceUrl('official_contact')),
+      directory_sources,
+      status: item.status as WorkerQualifiedLeadDto['status'],
+      discovered_at: safeTimestamp(item.created_at, false) as string,
+    }
+  })
+  return { leads: result, limit, as_of: new Date().toISOString() }
 }
 
 export const workerControlRepository = {
