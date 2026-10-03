@@ -1,8 +1,20 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
+import { LISTING_VERIFICATION_TIMEOUT_MS } from '../../src/lib/marketplace/listing-verification-timeout'
 
 const read = (path: string) => readFileSync(path, 'utf8')
+
+test('listing verification uses 15 seconds without changing paid proxy or Worker Discovery timeouts', () => {
+  assert.equal(LISTING_VERIFICATION_TIMEOUT_MS, 15_000)
+  for (const path of ['src/app/api/ai/score/route.ts', 'src/app/api/apis/[id]/verify/route.ts']) {
+    const route = read(path)
+    assert.match(route, /timeoutMs: LISTING_VERIFICATION_TIMEOUT_MS/)
+    assert.match(route, /setTimeout\(\(\) => controller\.abort\(\), LISTING_VERIFICATION_TIMEOUT_MS\)/)
+  }
+  assert.match(read('src/lib/proxy.ts'), /signal: AbortSignal\.timeout\(10_000\)/)
+  assert.match(read('src/lib/admin-worker/constants.ts'), /WORKER_EXTERNAL_TIMEOUT_MS = 6_000/)
+})
 
 test('Seller is a compact three-card workspace with one supporting assistant rail', () => {
   const form = read('src/components/OnboardingForm.tsx')

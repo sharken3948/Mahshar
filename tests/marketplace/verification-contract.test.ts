@@ -5,6 +5,7 @@ import { encryptKey } from '../../src/lib/crypto'
 import { POST as verify } from '../../src/app/api/apis/[id]/verify/route'
 import { alice, origin, reset, sessionHeaders, state } from './fixtures'
 import { resetVerificationState, verificationState } from './verification-contract-register.mjs'
+import { LISTING_VERIFICATION_TIMEOUT_MS } from '../../src/lib/marketplace/listing-verification-timeout'
 
 test('verification executes the declared representative query and injects all four auth models afterward', async () => {
   const models = [
@@ -28,6 +29,8 @@ test('verification executes the declared representative query and injects all fo
     })
     const response = await verify(request, { params: Promise.resolve({ id: 'representative' }) })
     assert.equal(response.status, 200, model.auth_type)
+    assert.equal(verificationState.timeoutMs, 15_000)
+    assert.equal(verificationState.timeoutMs, LISTING_VERIFICATION_TIMEOUT_MS)
     const url = new URL(verificationState.url!)
     assert.equal(url.searchParams.get('limit'), '10')
     assert.equal(url.searchParams.get('sort'), 'volume24h')

@@ -15,6 +15,7 @@ import { readBoundedJson, RequestBodyError } from '@/lib/request-body'
 import { validateListingRequestContract } from '@/lib/marketplace/request-contract'
 import { buildUpstreamAuthentication } from '@/lib/marketplace/upstream-auth'
 import type { DeclaredParameter } from '@/lib/marketplace/proxy-target'
+import { LISTING_VERIFICATION_TIMEOUT_MS } from '@/lib/marketplace/listing-verification-timeout'
 
 export const runtime = 'nodejs'
 
@@ -273,7 +274,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
   }
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 5_000)
+  const timeoutId = setTimeout(() => controller.abort(), LISTING_VERIFICATION_TIMEOUT_MS)
   const startedAt = Date.now()
   let timedOut = false
   let realTestResult: RealTestResult = { success: false, error: 'Endpoint request failed' }
@@ -296,7 +297,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
         redirect: 'manual',
         signal: controller.signal,
       } }
-    }, { timeoutMs: 5_000 })
+    }, { timeoutMs: LISTING_VERIFICATION_TIMEOUT_MS })
     clearTimeout(timeoutId)
     const latency = Date.now() - startedAt
     contentType = response.headers.get('content-type')
@@ -339,7 +340,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
       timedOut = (error instanceof OutboundPolicyError && error.classification === 'timeout') ||
         (error instanceof Error && error.name === 'AbortError')
       realTestResult = { success: false, latency_ms: Date.now() - startedAt,
-        error: timedOut ? 'Request timed out after 5 seconds' : 'Endpoint request failed' }
+        error: timedOut ? 'Request timed out after 15 seconds' : 'Endpoint request failed' }
     }
   }
 
@@ -371,7 +372,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     } else if (timedOut || status == null) {
       blockingIssue = transientCount >= 3
         ? 'The endpoint has repeatedly timed out. Check its firewall, allowlist, availability, or response time.'
-        : 'The endpoint did not respond within 5 seconds. Check that it is publicly reachable and try again.'
+        : 'The endpoint did not respond within 15 seconds. Check that it is publicly reachable and try again.'
     } else if (isTransientStatus(status, false)) {
       blockingIssue = `${statusLabel(status)} may be temporary. Wait a moment, then analyze the endpoint again.`
     } else if (status === 405) {
@@ -444,7 +445,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
   const verified = realTestResult.success === true
   const endpointNote = verified
     ? `${statusLabel(status)} in ${realTestResult.latency_ms}ms`
-    : timedOut ? 'No response within 5 seconds' : statusLabel(status)
+    : timedOut ? 'No response within 15 seconds' : statusLabel(status)
   const positives = [...(aiResult?.positives ?? [])]
   if (verified && !positives.some(item => /reachable/i.test(item))) positives.unshift('Endpoint is reachable')
   if (contentType?.toLowerCase().includes('json') && !positives.some(item => /json/i.test(item))) {

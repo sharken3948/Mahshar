@@ -10,6 +10,7 @@ import { assessRepresentativeResponseSize, MAX_SAFE_SERIALIZED_RESPONSE_BYTES, r
   ResponseTooLargeError } from '@/lib/proxy-response'
 import { validateListingRequestContract } from '@/lib/marketplace/request-contract'
 import { buildUpstreamAuthentication } from '@/lib/marketplace/upstream-auth'
+import { LISTING_VERIFICATION_TIMEOUT_MS } from '@/lib/marketplace/listing-verification-timeout'
 
 export const runtime = 'nodejs'
 
@@ -49,7 +50,7 @@ export const POST = withWalletSession(async (
   }
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 5000)
+  const timeoutId = setTimeout(() => controller.abort(), LISTING_VERIFICATION_TIMEOUT_MS)
   const startTime = Date.now()
 
   try {
@@ -67,7 +68,7 @@ export const POST = withWalletSession(async (
         redirect: 'manual',
         signal: controller.signal,
       } }
-    }, { timeoutMs: 5000 })
+    }, { timeoutMs: LISTING_VERIFICATION_TIMEOUT_MS })
 
     clearTimeout(timeoutId)
     const latency_ms = Date.now() - startTime
