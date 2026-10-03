@@ -250,8 +250,8 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
   if (!Number.isInteger(limit) || limit < 1 || limit > WORKER_QUALIFIED_LEADS_MAX) throw new Error('worker_limit_invalid')
   const db = createServiceClient()
   const leadsResult = await db.from('worker_leads').select(
-    'id,provider_id,product_id,status,fit_score,fit_reason,qualification_reason_codes,created_at',
-  ).in('status', ['qualified', 'reviewed', 'contact_ready', 'contacted', 'replied', 'interested', 'listed'])
+    'id,provider_id,product_id,status,qualification_status,fit_score,fit_reason,qualification_reason_codes,created_at',
+  ).or('status.in.(qualified,reviewed,contact_ready,contacted,replied,interested,listed),and(status.eq.discovered,qualification_status.eq.review_candidate)')
     .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(limit) as DbResult
   if (leadsResult.error) dbFailure('worker_qualified_leads', leadsResult.error)
   if (!Array.isArray(leadsResult.data)) throw new Error('worker_leads_invalid')
@@ -293,7 +293,8 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
       official_site: sourceUrl('official_site'), docs_url: sourceUrl('official_docs'),
       pricing_available: Boolean(sourceUrl('official_pricing')), contact_available: Boolean(sourceUrl('official_contact')),
       directory_sources,
-      status: item.status as WorkerQualifiedLeadDto['status'],
+      status: item.status === 'discovered' && item.qualification_status === 'review_candidate'
+        ? 'review_candidate' : item.status as WorkerQualifiedLeadDto['status'],
       discovered_at: safeTimestamp(item.created_at, false) as string,
     }
   })

@@ -1,6 +1,6 @@
 import 'server-only'
 import { normalizeWorkerIdentity, normalizeWorkerProductKey } from '../normalization'
-import { WORKER_QUALIFICATION_MODEL, qualifiesForMahshar, qualifyCandidate } from './qualification'
+import { WORKER_QUALIFICATION_MODEL, qualificationDisposition, qualifyCandidate } from './qualification'
 import { deterministicCandidateFilter } from './filters'
 import { discoverApiDirectoryRange } from './registry'
 import { researchCandidate } from './research'
@@ -36,7 +36,10 @@ function outcome(status: CandidateOutcome['status'], reasonCode: string, values:
 
 function replayOutcome(candidate: DurableCandidate, discovered = 1): CandidateOutcome {
   const references = { providerId: candidate.providerId ?? undefined, productId: candidate.productId ?? undefined, leadId: candidate.leadId ?? undefined, discovered }
-  if (candidate.status === 'persisted') return outcome('persisted', candidate.reasonCode ?? 'qualified', { ...references, qualified: 1, persisted: 1 })
+  if (candidate.status === 'persisted') {
+    const reasonCode = candidate.reasonCode ?? 'qualified'
+    return outcome('persisted', reasonCode, { ...references, qualified: reasonCode === 'qualified' ? 1 : 0, persisted: 1 })
+  }
   if (candidate.status === 'filtered') return outcome('filtered', candidate.reasonCode ?? 'filtered', { ...references, filtered: 1 })
   if (candidate.status === 'duplicate' || candidate.status === 'blocked') return outcome(candidate.status, candidate.reasonCode ?? 'duplicate', { ...references, duplicate: 1 })
   if (candidate.status === 'deferred') return outcome('deferred', candidate.reasonCode ?? 'qualification_deferred', references)
@@ -154,12 +157,14 @@ export async function processDiscoveryCandidate(
       duplicate: persisted.status === 'duplicate' || persisted.status === 'blocked' ? 1 : 0,
       filtered: persisted.status === 'filtered' ? 1 : 0 })
   }
+  const disposition = qualificationDisposition(qualification)
   const persisted = await deps.saveQualification({ candidate, ...entity, result: qualification,
-    model: WORKER_QUALIFICATION_MODEL, qualified: qualifiesForMahshar(qualification) })
+    model: WORKER_QUALIFICATION_MODEL, qualified: disposition === 'qualified' })
   return outcome(persisted.status, persisted.reasonCode, { ...entity, discovered,
     duplicate: persisted.status === 'duplicate' || persisted.status === 'blocked' ? 1 : 0,
     filtered: persisted.status === 'filtered' ? 1 : 0,
-    qualified: persisted.status === 'persisted' ? 1 : 0, persisted: persisted.status === 'persisted' ? 1 : 0 })
+    qualified: persisted.status === 'persisted' && persisted.reasonCode === 'qualified' ? 1 : 0,
+    persisted: persisted.status === 'persisted' ? 1 : 0 })
 }
 
 export type DiscoveryRangeDependencies = {

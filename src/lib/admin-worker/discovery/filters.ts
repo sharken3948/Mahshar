@@ -1,9 +1,9 @@
 import { isOutboundUrlShapeAllowed } from '@/lib/outbound-fetch'
 import type { RawCandidate } from './types'
 
-const UNSUPPORTED_PROTOCOL = /\b(?:soap|graphql subscription|websocket-only|mqtt-only|grpc-only)\b/i
+const UNSUPPORTED_PROTOCOL = /\b(?:soap api|soap-only|graphql-subscription-only|websocket-only|mqtt-only|grpc-only)\b/i
 const PROHIBITED = /\b(?:credential resale|stolen api|malware|ransomware|carding|ddos-for-hire)\b/i
-const OBSOLETE = /\b(?:deprecated|obsolete|discontinued|sunset)\b/i
+const OBSOLETE = /\b(?:(?:api|service|product)\s+(?:is|was|has been|marked)\s+(?:deprecated|obsolete|discontinued|sunset)|(?:deprecated|obsolete|discontinued|sunset)\s+(?:api|service|product))\b/i
 
 export function deterministicCandidateFilter(candidate: RawCandidate): string | null {
   if (!candidate.discoveredName.trim() || !candidate.discoveredDomain?.trim()) return 'provider_identity_missing'

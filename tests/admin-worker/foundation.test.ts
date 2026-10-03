@@ -7,6 +7,7 @@ import { sortQualifiedLeadRows, sortQualifiedLeadSources, workerRunDto } from '.
 const read = (path: string) => readFileSync(path, 'utf8')
 const migrationPath = 'supabase/migrations/20261001000100_admin_worker_foundation.sql'
 const discoveryMigrationPath = 'supabase/migrations/20261002000100_admin_worker_discovery_v1.sql'
+const reviewMigrationPath = 'supabase/migrations/20261004000100_admin_worker_discovery_review_candidates.sql'
 
 test('Worker migration creates the bounded server-only schema and lifecycle RPCs', () => {
   const sql = read(migrationPath)
@@ -85,7 +86,8 @@ test('Admin UI includes separate Worker navigation, controls, Discovery metrics,
   assert.match(shell, /href="\/admin\/worker"/)
   assert.match(shell, />Worker Agent</)
   assert.match(client, /Discovery V1/)
-  assert.match(client, /Qualified Leads/)
+  assert.match(client, /Qualified & Review Candidates/)
+  assert.match(client, /manual review 60–69/)
   assert.match(client, /Loading qualified leads…/)
   assert.match(client, /leadsPhase === 'loading'/)
   assert.match(client, /Qualified leads are temporarily unavailable/)
@@ -98,6 +100,25 @@ test('Admin UI includes separate Worker navigation, controls, Discovery metrics,
   assert.match(client, /12_000/)
   assert.match(client, /Showing the last known Worker state/)
   assert.doesNotMatch(client, /dangerouslySetInnerHTML/)
+})
+
+test('Admin lead query exposes only active review candidates and preserves later human status', () => {
+  const repository = read('src/lib/admin-worker/repository.ts')
+  assert.match(repository, /and\(status\.eq\.discovered,qualification_status\.eq\.review_candidate\)/)
+  assert.match(repository, /item\.status === 'discovered' && item\.qualification_status === 'review_candidate'/)
+})
+
+test('review-candidate migration adds the 60-69 band without weakening hard gates', () => {
+  const sql = read(reviewMigrationPath)
+  assert.match(sql, /qualification_status IN \('pending', 'qualified', 'review_candidate', 'rejected', 'deferred'\)/)
+  assert.match(sql, /WHEN \(p_qualification->>'fitScore'\)::numeric >= 70 THEN 'qualified'/)
+  assert.match(sql, /WHEN \(p_qualification->>'fitScore'\)::numeric >= 60 THEN 'review_candidate'/)
+  assert.match(sql, /WHEN qualification_disposition = 'review_candidate' THEN 'discovered'/)
+  assert.match(sql, /outcome_status := 'persisted'; outcome_reason := 'review_candidate'/)
+  assert.match(sql, /existing_human_state/)
+  assert.match(sql, /do_not_contact/)
+  assert.match(sql, /SET search_path = ''/)
+  assert.doesNotMatch(sql, /api_listings|purchases|api_calls|settlement|withdraw|gateway|wallet|seller_credentials/i)
 })
 
 test('Workflow remains bounded and compact while delegating isolated Discovery V1 work', () => {

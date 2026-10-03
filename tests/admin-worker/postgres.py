@@ -12,6 +12,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 MIGRATION = ROOT / 'supabase/migrations/20261001000100_admin_worker_foundation.sql'
 PRIVILEGE_REPAIR = ROOT / 'supabase/migrations/20261001000110_admin_worker_least_privilege.sql'
 DISCOVERY = ROOT / 'supabase/migrations/20261002000100_admin_worker_discovery_v1.sql'
+REVIEW_BAND = ROOT / 'supabase/migrations/20261004000100_admin_worker_discovery_review_candidates.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -75,10 +76,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20260926000500', '20260928000100', '20260928000200',
             '20260928000300', '20261001000000', '20261001000030',
             '20261001000100', '20261001000110',
-            '20261002000100',
+            '20261002000100', '20261004000100',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -125,6 +126,15 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         expect_failure(rollback_sql, 'forced_worker_discovery_rollback')
         assert sql("SELECT to_regclass('public.worker_candidates');") == ''
         sql('BEGIN;\n' + DISCOVERY.read_text() + '\nCOMMIT;')
+        assert 'review_candidate' not in sql("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.worker_leads'::regclass AND pg_get_constraintdef(oid) LIKE '%qualification_status%';")
+        rollback_sql = "BEGIN;\n" + REVIEW_BAND.read_text() + """
+          DO $rollback$ BEGIN RAISE EXCEPTION 'forced_worker_review_band_rollback'; END $rollback$;
+          COMMIT;
+        """
+        expect_failure(rollback_sql, 'forced_worker_review_band_rollback')
+        assert 'review_candidate' not in sql("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.worker_leads'::regclass AND pg_get_constraintdef(oid) LIKE '%qualification_status%';")
+        sql('BEGIN;\n' + REVIEW_BAND.read_text() + '\nCOMMIT;')
+        assert 'review_candidate' in sql("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.worker_leads'::regclass AND pg_get_constraintdef(oid) LIKE '%qualification_status%';")
 
         worker_tables = ['worker_control', 'worker_runs', 'worker_providers', 'worker_provider_identities',
                          'worker_products', 'worker_leads', 'worker_sources', 'worker_decisions',
@@ -429,10 +439,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             resolved = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_worker_resolve_discovery_lead('{candidate_id}',NULL,'{domain}','qualification-v1','{domain}','{domain}','Qualification API');"))
             return candidate_id, resolved
 
-        def qualification_statement(candidate_id, resolved):
+        def qualification_statement(candidate_id, resolved, payload=qualification_json, qualified=True):
             return (f"SET ROLE service_role; SELECT mahshar_worker_persist_qualification('{candidate_id}',NULL,"
                     f"'{resolved['providerId']}','{resolved['productId']}','{resolved['leadId']}',"
-                    f"$qualification${qualification_json}$qualification$::jsonb,'fixture-model',true,NULL);")
+                    f"$qualification${payload}$qualification$::jsonb,'fixture-model',{'true' if qualified else 'false'},NULL);")
 
         def wait_for_marker(marker):
             for _ in range(40):
@@ -482,6 +492,57 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         replay_result = json.loads(sql(qualification_statement(atomic_candidate, atomic_entity)))
         assert atomic_result['status'] == 'persisted' and replay_result['status'] == 'persisted'
         assert sql(f"SELECT status||','||qualification_status FROM worker_leads WHERE id='{atomic_entity['leadId']}';") == 'qualified,qualified'
+
+        # Score bands are database-authoritative: review candidates persist
+        # without inflating qualified counts or rejecting the product, while
+        # the legacy boolean argument cannot override the score.
+        review_candidate, review_entity = create_qualification_candidate(11, 'review-band.invalid')
+        review_json = json.dumps({
+            'fitScore': 65, 'commercialApi': False, 'agentUtility': 'high', 'payPerCallFit': 'medium',
+            'integrationDifficulty': 'medium', 'providerCredibility': 'medium',
+            'reasonCodes': ['niche_provider', 'pricing_unavailable'], 'summary': 'Technically compatible; manual review is useful.',
+        })
+        review_result = json.loads(sql(qualification_statement(review_candidate, review_entity, review_json, False)))
+        review_replay = json.loads(sql(qualification_statement(review_candidate, review_entity, review_json, False)))
+        assert review_result['status'] == 'persisted' and review_result['reasonCode'] == 'review_candidate'
+        assert review_replay['status'] == 'persisted' and review_replay['reasonCode'] == 'review_candidate' and not review_replay['applied']
+        assert sql(f"SELECT status||','||qualification_status||','||fit_score FROM worker_leads WHERE id='{review_entity['leadId']}';") == 'discovered,review_candidate,65.00'
+        assert sql(f"SELECT status FROM worker_products WHERE id='{review_entity['productId']}';") == 'discovered'
+        assert sql(f"SELECT count(*) FROM worker_decisions WHERE lead_id='{review_entity['leadId']}';") == '0'
+
+        sql(f"""
+          SET ROLE service_role;
+          INSERT INTO worker_candidates(discovery_batch_id,ordinal,source_type,source_url,discovered_name,discovered_domain,discovered_product,discovered_docs_url)
+          VALUES('{discovery_id}',12,'api_directory','https://api.apis.guru/v2/review-band.invalid.json','Review band','review-band.invalid','Qualification API','https://api.review-band.invalid/openapi.json');
+        """)
+        review_duplicate_candidate = sql(f"SELECT id FROM worker_candidates WHERE discovery_batch_id='{discovery_id}' AND ordinal=12;")
+        review_resolution = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_worker_resolve_discovery_lead('{review_duplicate_candidate}',NULL,'review-band.invalid','qualification-v1','review-band.invalid','review-band.invalid','Qualification API');"))
+        assert review_resolution['action'] == 'duplicate' and review_resolution['reasonCode'] == 'existing_review_candidate'
+
+        qualified_candidate, qualified_entity = create_qualification_candidate(13, 'score-authoritative.invalid')
+        qualified_json = json.dumps({**json.loads(qualification_json), 'fitScore': 70, 'commercialApi': False})
+        qualified_result = json.loads(sql(qualification_statement(qualified_candidate, qualified_entity, qualified_json, False)))
+        assert qualified_result['status'] == 'persisted' and qualified_result['reasonCode'] == 'qualified'
+        assert sql(f"SELECT status||','||qualification_status FROM worker_leads WHERE id='{qualified_entity['leadId']}';") == 'qualified,qualified'
+
+        low_candidate, low_entity = create_qualification_candidate(14, 'low-fit.invalid')
+        low_json = json.dumps({**json.loads(qualification_json), 'fitScore': 59})
+        low_result = json.loads(sql(qualification_statement(low_candidate, low_entity, low_json, True)))
+        assert low_result['status'] == 'filtered' and low_result['reasonCode'] == 'fit_below_threshold'
+        assert sql(f"SELECT status||','||qualification_status FROM worker_leads WHERE id='{low_entity['leadId']}';") == 'rejected,rejected'
+
+        for ordinal, score, expected_status, expected_reason, application_flag in [
+            (15, 60, 'discovered,review_candidate', 'review_candidate', True),
+            (16, 69, 'discovered,review_candidate', 'review_candidate', True),
+            (17, 100, 'qualified,qualified', 'qualified', False),
+        ]:
+            boundary_candidate, boundary_entity = create_qualification_candidate(ordinal, f'score-{score}.invalid')
+            boundary_json = json.dumps({**json.loads(qualification_json), 'fitScore': score})
+            boundary_result = json.loads(sql(qualification_statement(
+                boundary_candidate, boundary_entity, boundary_json, application_flag,
+            )))
+            assert boundary_result['status'] == 'persisted' and boundary_result['reasonCode'] == expected_reason
+            assert sql(f"SELECT status||','||qualification_status FROM worker_leads WHERE id='{boundary_entity['leadId']}';") == expected_status
         sql(f"SET ROLE service_role; UPDATE worker_runs SET deadline_at=clock_timestamp()-interval '1 second' WHERE id='{retry_id}';")
         assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget('{retry_id}','source','deadline:test');") == 'f'
         sql(f"SET ROLE service_role; SELECT (mahshar_worker_fail_run('{retry_id}','test_cleanup')).status;")

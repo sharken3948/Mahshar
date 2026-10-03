@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAdminRequest } from '@/components/AdminAccess'
 import { workerControlAvailability } from '@/lib/admin-worker/availability'
 import type { WorkerQualifiedLeadDto, WorkerQualifiedLeadsDto, WorkerRunDto, WorkerRunsDto, WorkerStatusDto } from '@/lib/admin-worker/types'
+import { QualificationLabel } from './qualification-label'
 import styles from './worker.module.css'
 
 const REFRESH_INTERVAL_MS = 12_000
@@ -155,14 +156,14 @@ export function WorkerClient() {
     </section>
 
     <section className={styles.panel}>
-      <header><div><span>Bounded to 25 rows</span><h2>Qualified Leads</h2></div></header>
+      <header><div><span>Qualified 70+ · manual review 60–69 · bounded to 25 rows</span><h2>Qualified & Review Candidates</h2></div></header>
       {leadsPhase === 'loading' ? <div className={styles.empty} role="status">Loading qualified leads…</div>
         : leadsPhase === 'failed' ? <div className={styles.empty} role="alert">Qualified leads are temporarily unavailable.</div>
-          : leads.length === 0 ? <div className={styles.empty}>No qualified leads are available.</div> : <div className={`${styles.tableViewport} ${styles.leadsTable}`}><table>
+          : leads.length === 0 ? <div className={styles.empty}>No qualified or review candidates are available.</div> : <div className={`${styles.tableViewport} ${styles.leadsTable}`}><table>
         <thead><tr><th>Provider / API</th><th>Potentially compatible</th><th>AI qualification summary</th><th>Verified evidence</th><th>Status</th><th>Discovered</th></tr></thead>
         <tbody>{leads.map(lead => <tr key={lead.id}>
           <td data-label="Provider / API"><strong>{lead.provider}</strong><span>{lead.product}</span></td>
-          <td data-label="Potentially compatible"><strong>{lead.fit_score}</strong><small>{lead.reason_codes.join(', ').replace(/_/g, ' ') || 'qualified'} · onboarding verification required</small></td>
+          <td data-label="Potentially compatible"><strong>{lead.fit_score}</strong><QualificationLabel status={lead.status} reasonCodes={lead.reason_codes}/></td>
           <td data-label="AI qualification summary"><span>{lead.summary}</span></td>
           <td data-label="Verified evidence">{lead.official_site && <a href={lead.official_site} target="_blank" rel="noopener noreferrer">Official site</a>}{lead.docs_url && <>{lead.official_site && ' · '}<a href={lead.docs_url} target="_blank" rel="noopener noreferrer">Official docs</a></>}<small>Verified pricing {lead.pricing_available ? 'available' : 'not found'} · verified contact {lead.contact_available ? 'available' : 'not found'}</small>{lead.directory_sources.length > 0 && <small>Directory assertions: {lead.directory_sources.map((url, index) => <span key={url}>{index > 0 && ' · '}<a href={url} target="_blank" rel="noopener noreferrer">Source {index + 1}</a></span>)}</small>}</td>
           <td data-label="Status"><span className={styles.badge}>{statusLabel(lead.status)}</span></td>

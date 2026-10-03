@@ -96,7 +96,7 @@ export type WorkerQualifiedLeadDto = {
   pricing_available: boolean
   contact_available: boolean
   directory_sources: string[]
-  status: 'qualified' | 'reviewed' | 'contact_ready' | 'contacted' | 'replied' | 'interested' | 'listed'
+  status: 'qualified' | 'review_candidate' | 'reviewed' | 'contact_ready' | 'contacted' | 'replied' | 'interested' | 'listed'
   discovered_at: string
 }
 

@@ -216,6 +216,7 @@ export async function preflightCandidate(domain: string, productKey: string): Pr
     return { action: 'duplicate', reasonCode: 'qualification_deferred', providerId, productId: productRow.id, leadId: leadRow.id }
   }
   if (leadRow.qualification_status === 'qualified') return { action: 'duplicate', reasonCode: 'existing_qualified_lead', providerId, productId: productRow.id, leadId: leadRow.id }
+  if (leadRow.qualification_status === 'review_candidate') return { action: 'duplicate', reasonCode: 'existing_review_candidate', providerId, productId: productRow.id, leadId: leadRow.id }
   if (leadRow.qualification_status === 'rejected') return { action: 'duplicate', reasonCode: 'existing_rejected_lead', providerId, productId: productRow.id, leadId: leadRow.id }
   return { action: 'continue', providerId, productId: productRow.id, leadId: leadRow.id }
 }
