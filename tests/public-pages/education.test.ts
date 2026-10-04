@@ -11,8 +11,8 @@ const educationPages = [
 
 test('education pages export their directly verified route metadata', () => {
   const expected = [
-    [educationPages[0], aboutMetadata, 'What Is Mahshar? AI API Marketplace with USDC'],
-    [educationPages[1], providersMetadata, 'For API Providers — Pay-per-Call API Monetization | Mahshar'],
+    [educationPages[0], aboutMetadata, 'About Mahshar'],
+    [educationPages[1], providersMetadata, 'For API Providers | Mahshar'],
   ] as const
   for (const [[path, canonical], metadata, title] of expected) {
     const source = read(path)
@@ -43,10 +43,15 @@ test('education pages are server-rendered public content with no application dep
 test('public and application Explore navigation contain the exact ordered public routes', () => {
   const publicNav = read('src/components/PublicOnlyNav.tsx')
   const appNav = read('src/components/NavBar.tsx')
-  const expected = ['/marketplace', '/about', '/providers', '/agents', '/docs', '/support']
+  const footer = read('src/components/PublicSiteFooter.tsx')
+  const expected = ['/marketplace', '/providers', '/agents', '/docs', '/about', '/support']
+  const labels = ['Marketplace', 'For API Providers', 'Agents', 'Docs', 'About', 'Support']
 
   const publicLinks = publicNav.slice(publicNav.indexOf('const publicLinks'), publicNav.indexOf('] as const'))
   assert.deepEqual([...publicLinks.matchAll(/href: '([^']+)'/g)].map(match => match[1]), expected)
+  assert.deepEqual([...publicLinks.matchAll(/label: '([^']+)'/g)].map(match => match[1]), labels)
+
+  assert.deepEqual([...footer.matchAll(/<Link href="([^"]+)">([^<]+)<\/Link>/g)].map(match => [match[1], match[2]]), expected.map((route, index) => [route, labels[index]]))
 
   const mobileStart = appNav.indexOf('id="mahshar-mobile-explore"')
   const mobile = appNav.slice(mobileStart, appNav.indexOf('</div>}', mobileStart))
@@ -58,7 +63,10 @@ test('public and application Explore navigation contain the exact ordered public
 })
 
 test('homepage buyer CTA remains on the wallet-enabled buyer application', () => {
-  assert.match(read('src/app/page.tsx'), /href="\/buyer"[^>]*>Buy in Marketplace/)
+  const home = read('src/app/page.tsx')
+  assert.match(home, /href="\/buyer"[^>]*>Buy in Marketplace/)
+  assert.match(home, /href="\/about"[^>]*>About Mahshar/)
+  assert.doesNotMatch(home, />Learn more</)
 })
 
 test('education copy avoids affiliation, guarantees, and transient ecosystem statistics', () => {

@@ -5,19 +5,19 @@ import { PublicPageShell } from '@/components/PublicPageShell'
 import styles from '../public-pages.module.css'
 
 export const metadata: Metadata = {
-  title: 'Agents | Mahshar',
+  title: 'AI Agents | Mahshar',
   description: 'Use Mahshar’s public discovery, OpenAPI, proxy, and x402 contracts from an autonomous client.',
   alternates: { canonical: '/agents' },
   openGraph: {
     type: 'website',
     siteName: 'Mahshar',
-    title: 'Agents | Mahshar',
+    title: 'AI Agents | Mahshar',
     description: 'Use Mahshar’s public discovery, OpenAPI, proxy, and x402 contracts from an autonomous client.',
     url: '/agents',
   },
   twitter: {
     card: 'summary',
-    title: 'Agents | Mahshar',
+    title: 'AI Agents | Mahshar',
     description: 'Use Mahshar’s public discovery, OpenAPI, proxy, and x402 contracts from an autonomous client.',
   },
 }

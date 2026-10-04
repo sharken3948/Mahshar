@@ -5,19 +5,19 @@ import { PublicPageShell } from '@/components/PublicPageShell'
 import styles from '../public-pages.module.css'
 
 export const metadata: Metadata = {
-  title: 'Documentation | Mahshar',
+  title: 'Docs | Mahshar',
   description: 'A human-readable index for Mahshar’s current marketplace, agent, payment, access, and wallet flows.',
   alternates: { canonical: '/docs' },
   openGraph: {
     type: 'website',
     siteName: 'Mahshar',
-    title: 'Documentation | Mahshar',
+    title: 'Docs | Mahshar',
     description: 'A human-readable index for Mahshar’s current marketplace, agent, payment, access, and wallet flows.',
     url: '/docs',
   },
   twitter: {
     card: 'summary',
-    title: 'Documentation | Mahshar',
+    title: 'Docs | Mahshar',
     description: 'A human-readable index for Mahshar’s current marketplace, agent, payment, access, and wallet flows.',
   },
 }

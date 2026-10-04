@@ -3,24 +3,25 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { NavBar } from '@/components/NavBar'
 import { PublicSiteFooter } from '@/components/PublicSiteFooter'
+import { HOME_DESCRIPTION, HOME_TITLE, homepageStructuredData } from '@/lib/seo/brand'
 import styles from './landing.module.css'
 
 export const metadata: Metadata = {
-  title: 'Mahshar — AI API Marketplace Powered by USDC',
-  description: 'Discover APIs for AI agents and applications, then pay per call with USDC via x402 on Arc Mainnet.',
+  title: HOME_TITLE,
+  description: HOME_DESCRIPTION,
   alternates: { canonical: '/' },
   openGraph: {
     type: 'website',
     siteName: 'Mahshar',
-    title: 'Mahshar — AI API Marketplace Powered by USDC',
-    description: 'Discover APIs for AI agents and applications, then pay per call with USDC via x402 on Arc Mainnet.',
+    title: HOME_TITLE,
+    description: HOME_DESCRIPTION,
     url: '/',
     images: [{ url: '/logo.png', width: 1024, height: 559, alt: 'Mahshar' }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Mahshar — AI API Marketplace Powered by USDC',
-    description: 'Discover APIs for AI agents and applications, then pay per call with USDC via x402 on Arc Mainnet.',
+    title: HOME_TITLE,
+    description: HOME_DESCRIPTION,
     images: ['/logo.png'],
   },
 }
@@ -32,19 +33,11 @@ const workflow = [
 ]
 
 export default function LandingPage() {
-  const jsonLd = {
-    '@context': 'https://schema.org',
-    '@graph': [
-      { '@type': 'WebSite', name: 'Mahshar', url: 'https://mahshar.xyz' },
-      { '@type': 'Organization', name: 'Mahshar', url: 'https://mahshar.xyz', logo: 'https://mahshar.xyz/logo.png' },
-    ],
-  }
-
   return (
     <main className={styles.page}>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(homepageStructuredData).replace(/</g, '\\u003c') }}
       />
       <NavBar landing />
 
@@ -79,7 +72,7 @@ export default function LandingPage() {
         <div className={styles.stepsInner}>
           <div className={styles.stepsHeading}>
             <div><p className={styles.eyebrow}>HOW IT WORKS</p><h2>Three simple steps.</h2></div>
-            <Link href="/buyer" className={styles.learnLink}>Learn more <ArrowIcon /></Link>
+            <Link href="/about" className={styles.learnLink}>About Mahshar <ArrowIcon /></Link>
           </div>
           <div className={styles.stepsGrid}>
             {workflow.map((step) => (

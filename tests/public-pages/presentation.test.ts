@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
+import { MAHSHAR_ORIGIN } from '../../src/lib/seo/brand'
 
 const pages = ['about', 'providers', 'agents', 'docs', 'support'] as const
 
@@ -61,7 +62,8 @@ test('canonical production hosts permanently redirect without widening auth orig
   for (const host of ['www.mahshar.xyz', 'mahshar.vercel.app']) assert.ok(config.includes(host), host)
   assert.match(config, /destination: 'https:\/\/mahshar\.xyz\/:path\*'/)
   assert.equal((config.match(/permanent: true/g) ?? []).length, 2)
-  assert.match(layout, /metadataBase: new URL\('https:\/\/mahshar\.xyz'\)/)
+  assert.match(layout, /metadataBase: new URL\(MAHSHAR_ORIGIN\)/)
+  assert.equal(MAHSHAR_ORIGIN, 'https://mahshar.xyz')
   assert.match(server, /request\.headers\.get\('origin'\) !== marketplaceOrigin\(\)/)
   assert.doesNotMatch(server, /www\.mahshar\.xyz|vercel\.app/)
 })

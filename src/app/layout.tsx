@@ -5,6 +5,7 @@ import { headers } from 'next/headers';
 import { cookieToInitialState } from 'wagmi';
 import { Providers, wagmiConfig } from './providers';
 import { SolanaProviders } from './SolanaProviders';
+import { BRAND_ICONS, HOME_DESCRIPTION, HOME_TITLE, MAHSHAR_ORIGIN } from '@/lib/seo/brand';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -17,9 +18,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Mahshar — AI API Marketplace Powered by USDC',
-  description: 'Discover APIs for AI agents and applications, then pay per call with USDC via x402 on Arc Mainnet.',
-  metadataBase: new URL('https://mahshar.xyz'),
+  title: HOME_TITLE,
+  description: HOME_DESCRIPTION,
+  metadataBase: new URL(MAHSHAR_ORIGIN),
   openGraph: {
     type: 'website',
     siteName: 'Mahshar',
@@ -29,15 +30,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     images: ['/logo.png'],
   },
-  icons: {
-    icon: [
-      { url: '/icon.png', sizes: '512x512', type: 'image/png' },
-      { url: '/icon.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icon.png', sizes: '32x32', type: 'image/png' },
-      { url: '/icon.png', sizes: '16x16', type: 'image/png' },
-    ],
-    apple: '/icon.png',
-  },
+  icons: BRAND_ICONS,
 };
 
 export default async function RootLayout({

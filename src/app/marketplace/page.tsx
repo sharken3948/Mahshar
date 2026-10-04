@@ -6,19 +6,19 @@ import { apiListingPath } from '@/lib/seo/listing'
 import styles from './marketplace.module.css'
 
 export const metadata: Metadata = {
-  title: 'AI API Marketplace — Pay per Call with USDC | Mahshar',
+  title: 'API Marketplace | Mahshar',
   description: 'Discover APIs for AI agents and applications, with pay-per-call USDC payments via x402 on Arc Mainnet.',
   alternates: { canonical: '/marketplace' },
   openGraph: {
     type: 'website',
     siteName: 'Mahshar',
-    title: 'AI API Marketplace — Pay per Call with USDC | Mahshar',
+    title: 'API Marketplace | Mahshar',
     description: 'Discover APIs for AI agents and applications, with pay-per-call USDC payments via x402 on Arc Mainnet.',
     url: '/marketplace',
   },
   twitter: {
     card: 'summary',
-    title: 'AI API Marketplace — Pay per Call with USDC | Mahshar',
+    title: 'API Marketplace | Mahshar',
     description: 'Discover APIs for AI agents and applications, with pay-per-call USDC payments via x402 on Arc Mainnet.',
   },
 }

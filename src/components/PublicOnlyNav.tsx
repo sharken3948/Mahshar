@@ -4,10 +4,10 @@ import styles from './public-only-nav.module.css'
 
 const publicLinks = [
   { href: '/marketplace', label: 'Marketplace' },
-  { href: '/about', label: 'What is Mahshar?' },
   { href: '/providers', label: 'For API Providers' },
-  { href: '/agents', label: 'For AI Agents' },
-  { href: '/docs', label: 'Documentation' },
+  { href: '/agents', label: 'Agents' },
+  { href: '/docs', label: 'Docs' },
+  { href: '/about', label: 'About' },
   { href: '/support', label: 'Support' },
 ] as const
 

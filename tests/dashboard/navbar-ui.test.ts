@@ -138,8 +138,8 @@ test('mobile menu maps every available approved item to a real route without pla
   const source = readFileSync('src/components/NavBar.tsx', 'utf8')
   const menu = source.slice(source.indexOf('id="mahshar-mobile-menu"'), source.indexOf('</div>\n      </>}', source.indexOf('id="mahshar-mobile-menu"')))
   for (const [label, href] of [
-    ['Marketplace', '/marketplace'], ['What is Mahshar?', '/about'], ['For API Providers', '/providers'],
-    ['Agents', '/agents'], ['Docs', '/docs'],
+    ['Marketplace', '/marketplace'], ['For API Providers', '/providers'], ['Agents', '/agents'],
+    ['Docs', '/docs'], ['About', '/about'],
     ['Dashboard', '/dashboard'], ['Wallet', '/dashboard/wallet'],
     ['Settings', '/dashboard/settings'], ['Support', '/support'],
   ]) assert.match(menu, new RegExp(`href="${href.replaceAll('/', '\\/')}"[^>]*>${label}`), label)
@@ -164,8 +164,8 @@ test('desktop Explore exposes the ordered public education and discovery destina
   const source = readFileSync('src/components/NavBar.tsx', 'utf8')
   const menu = source.match(/id="landing-explore-menu"[\s\S]*?<\/div>\n\s*\)}/)?.[0] ?? ''
   const destinations = [
-    ['Marketplace', '/marketplace'], ['What is Mahshar?', '/about'], ['For API Providers', '/providers'],
-    ['Agents', '/agents'], ['Docs', '/docs'], ['Support', '/support'],
+    ['Marketplace', '/marketplace'], ['For API Providers', '/providers'], ['Agents', '/agents'],
+    ['Docs', '/docs'], ['About', '/about'], ['Support', '/support'],
   ] as const
   for (const [title, href] of destinations) {
     assert.ok(menu.includes(`href="${href}" title="${title}"`), title)

@@ -224,10 +224,10 @@ function MobileHeader({ isConnected, connectorIcon, displayedBalance, balanceUna
             <button type="button" className={styles.mobileExploreToggle} aria-expanded={exploreOpen} aria-controls="mahshar-mobile-explore" onClick={() => setExploreOpen(open => !open)}><span>Explore</span><ChevronIcon /></button>
             {exploreOpen && <div id="mahshar-mobile-explore" className={styles.mobileExploreLinks}>
               <MobileMenuLink href="/marketplace" onSelect={close}>Marketplace</MobileMenuLink>
-              <MobileMenuLink href="/about" onSelect={close}>What is Mahshar?</MobileMenuLink>
               <MobileMenuLink href="/providers" onSelect={close}>For API Providers</MobileMenuLink>
               <MobileMenuLink href="/agents" onSelect={close}>Agents</MobileMenuLink>
               <MobileMenuLink href="/docs" onSelect={close}>Docs</MobileMenuLink>
+              <MobileMenuLink href="/about" onSelect={close}>About</MobileMenuLink>
               <MobileMenuLink href="/support" onSelect={close}>Support</MobileMenuLink>
             </div>}
           </div>
@@ -302,10 +302,10 @@ function ExploreMenu() {
       {isOpen && (
         <div id="landing-explore-menu" className={styles.exploreMenu} role="menu">
           <ExploreLink href="/marketplace" title="Marketplace" copy="Browse active APIs" icon={<MarketplaceIcon />} onSelect={() => setIsOpen(false)} />
-          <ExploreLink href="/about" title="What is Mahshar?" copy="Understand the marketplace" icon={<AboutIcon />} onSelect={() => setIsOpen(false)} />
           <ExploreLink href="/providers" title="For API Providers" copy="Offer an existing API" icon={<ProviderIcon />} onSelect={() => setIsOpen(false)} />
           <ExploreLink href="/agents" title="Agents" copy="Use the machine interface" icon={<AgentIcon />} onSelect={() => setIsOpen(false)} />
           <ExploreLink href="/docs" title="Docs" copy="Read Mahshar documentation" icon={<DocsIcon />} onSelect={() => setIsOpen(false)} />
+          <ExploreLink href="/about" title="About" copy="Understand Mahshar" icon={<AboutIcon />} onSelect={() => setIsOpen(false)} />
           <ExploreLink href="/support" title="Support" copy="Get product help" icon={<SupportIcon />} onSelect={() => setIsOpen(false)} />
         </div>
       )}
