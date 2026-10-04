@@ -10,7 +10,7 @@ import styles from './dashboard.module.css'
 
 export { MahsharFlowMotif } from '@/components/MahsharFlowMotif'
 
-type IconName = 'dashboard' | 'wallet' | 'bridge' | 'bank' | 'earnings' | 'balance' | 'solana' | 'apis' | 'settings'
+type IconName = 'dashboard' | 'wallet' | 'bridge' | 'bank' | 'earnings' | 'balance' | 'transactions' | 'solana' | 'apis' | 'settings'
 
 export function DashboardIcon({ name }: { name: IconName }) {
   const paths: Record<IconName, React.ReactNode> = {
@@ -20,6 +20,7 @@ export function DashboardIcon({ name }: { name: IconName }) {
     bank: <><path d="M2.5 9 12 4l9.5 5M3 10h18M4 20h16M6 11v8m4-8v8m4-8v8m4-8v8" /></>,
     earnings: <><path d="m4 15 6-6 4 4 6-9M15 4h5v5M4 21h16" /></>,
     balance: <><circle cx="12" cy="12" r="9" /><path d="M15 8h-4a2 2 0 0 0 0 4h2a2 2 0 0 1 0 4H9m3-10v2m0 8v2" /></>,
+    transactions: <><path d="M6 3h12a2 2 0 0 1 2 2v16l-3-2-3 2-2-2-2 2-3-2-3 2V5a2 2 0 0 1 2-2Z" /><path d="M8 8h8M8 12h8M8 16h5" /></>,
     solana: <><path d="m6 5-3 3h15l3-3H6Zm-3 6 3 3h15l-3-3H3Zm3 6-3 3h15l3-3H6Z" /></>,
     apis: <><path d="m8 6-6 6 6 6m8-12 6 6-6 6m-3-15-2 18" /></>,
     settings: <><path d="M4 7h16M4 17h16" /><circle cx="8" cy="7" r="3" fill="currentColor" /><circle cx="16" cy="17" r="3" fill="currentColor" /></>,
@@ -34,6 +35,7 @@ export function DashboardSidebar() {
     { icon: 'wallet', label: 'Wallet', href: '/dashboard/wallet', available: true },
     { icon: 'bridge', label: 'Bridge', href: '/dashboard/wallet/bridge', available: true },
     { icon: 'earnings', label: 'Earnings', href: '/dashboard/earnings', available: true },
+    { icon: 'transactions', label: 'Transactions', href: '/dashboard/transactions', available: true },
     { icon: 'solana', label: 'Solana to Arc', href: '/dashboard/solana', available: true },
     { icon: 'apis', label: 'APIs', href: '/dashboard/apis', available: true },
     { icon: 'settings', label: 'Settings', href: '/dashboard/settings', available: true },

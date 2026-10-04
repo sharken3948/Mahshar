@@ -43,7 +43,7 @@ export async function operationHeaders(path: string, method = 'GET', body?: unkn
 class Query {
   predicates: ((r: Record<string, any>) => boolean)[] = []
   columns = '*'; take = Infinity; skip = 0; singleRow = false; countMode = false; head = false
-  orderBy: { key: string; ascending: boolean } | null = null
+  orderBy: Array<{ key: string; ascending: boolean }> = []
   mutation?: { kind: string; value?: Record<string, any> }
   constructor(readonly table: string) {}
   select(columns = '*', options?: { count?: string; head?: boolean }) {
@@ -63,7 +63,7 @@ class Query {
   gte(key: string, value: unknown) { this.predicates.push(r => r[key] >= (value as any)); return this }
   gt(key: string, value: unknown) { this.predicates.push(r => r[key] > (value as any)); return this }
   lte(key: string, value: unknown) { this.predicates.push(r => r[key] <= (value as any)); return this }
-  order(key: string, options?: { ascending?: boolean }) { this.orderBy = { key, ascending: options?.ascending !== false }; return this }
+  order(key: string, options?: { ascending?: boolean }) { this.orderBy.push({ key, ascending: options?.ascending !== false }); return this }
   limit(n: number) { this.take = n; return this }
   range(from: number, to: number) { this.skip = from; this.take = to - from + 1; return this }
   single<T = unknown>() { this.singleRow = true; return this as Query & PromiseLike<{ data: T; error: null }> }
@@ -86,9 +86,14 @@ class Query {
     }
     let rows = table.filter(r => this.predicates.every(p => p(r))) as Record<string, any>[]
     const count = rows.length
-    if (this.orderBy) {
-      const { key, ascending } = this.orderBy
-      rows = [...rows].sort((a, b) => String(a[key] ?? '').localeCompare(String(b[key] ?? '')) * (ascending ? 1 : -1))
+    if (this.orderBy.length > 0) {
+      rows = [...rows].sort((a, b) => {
+        for (const { key, ascending } of this.orderBy) {
+          const comparison = String(a[key] ?? '').localeCompare(String(b[key] ?? ''))
+          if (comparison !== 0) return comparison * (ascending ? 1 : -1)
+        }
+        return 0
+      })
     }
     rows = rows.slice(this.skip, this.skip + this.take)
     if (this.mutation?.kind === 'update') rows.forEach(r => Object.assign(r, this.mutation!.value))
