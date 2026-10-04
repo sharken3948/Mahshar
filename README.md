@@ -72,6 +72,13 @@ Settlement, delivery, and response recovery have distinct durable identities. A 
 
 Mahshar's production network is Arc Mainnet, chain ID `5042` (`eip155:5042`). Marketplace prices, buyer payments, platform accounting, and seller earnings are denominated in USDC.
 
+### Public Arc Mainnet Verification
+
+- **Platform wallet:** `0x052650D1764406d702252B20B2294346A594A1ef`
+- **Verified Arc Mainnet transaction:** [`0xa3efb83ad9ac4f2164d36b2579104cb7fb19c986cd623206b27387330e33fa33`](https://explorer.arc.io/tx/0xa3efb83ad9ac4f2164d36b2579104cb7fb19c986cd623206b27387330e33fa33)
+
+The public address above is Mahshar's platform wallet on Arc Mainnet. The linked transaction is a successful Arc Mainnet transaction from that wallet and can be independently verified in the Arc explorer. Private signing material is never committed to the repository.
+
 The installed Circle x402 runtime requires explicit Arc Mainnet RPC configuration and its current Mainnet compatibility settings. See [.env.example](.env.example) and [agent integration](docs/agent-integration.md) for the repository's operational contract.
 
 ## Wallet Authentication
