@@ -187,6 +187,22 @@
 .headingStatus strong { font-size: 15px; }
 .headingStatus small { margin-top: 4px; color: #73839a; font-size: 13.5px; }
 
+.treasuryCard { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, .8fr); align-items: center; gap: 34px; overflow: hidden; padding: 28px 31px; border: 1px solid rgba(57, 212, 154, .19); border-radius: 16px; background: linear-gradient(120deg, rgba(32, 127, 94, .13), rgba(14, 22, 37, .95) 48%, rgba(40, 73, 133, .12)); box-shadow: 0 18px 50px rgba(0, 0, 0, .15); }
+.treasuryCard::after { position: absolute; right: -70px; bottom: -110px; width: 250px; height: 250px; border-radius: 50%; background: rgba(57, 212, 154, .08); filter: blur(18px); content: ''; pointer-events: none; }
+.treasuryIntro { position: relative; z-index: 1; }
+.treasuryIntro > span { color: #67d7ae; font-size: 13px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+.treasuryIntro h2 { margin: 8px 0 0; font-size: 24px; letter-spacing: -.02em; }
+.treasuryIntro p { max-width: 720px; margin: 10px 0 0; color: #8494ad; font-size: 14.5px; line-height: 1.6; }
+.treasuryValue { position: relative; z-index: 1; display: grid; justify-items: end; gap: 11px; min-width: 0; text-align: right; }
+.treasuryValue > strong { color: #f4f8ff; font-size: clamp(30px, 3vw, 43px); line-height: 1; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+.treasuryValue > strong small { color: #8ca0be; font-size: 16px; font-weight: 650; letter-spacing: .03em; }
+.treasuryValue > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 14px; color: #71829d; font-size: 13.5px; }
+.treasuryValue a { color: #87abdf; font-family: var(--font-geist-mono), monospace; text-decoration: none; }
+.treasuryValue a:hover { color: #b9d2f7; }
+.treasuryValue button { padding: 9px 13px; border: 1px solid var(--ops-border); border-radius: 8px; color: #aab8ce; background: rgba(255, 255, 255, .025); font: inherit; cursor: pointer; }
+.treasuryValue .treasuryUnavailable { color: #b4bfd2; font-size: 23px; }
+.treasurySkeleton { width: min(280px, 80%); height: 38px; border-radius: 8px; background: linear-gradient(90deg, #172137, #20304a, #172137); background-size: 180% 100%; animation: shimmer 1.4s infinite; }
+
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .metricCard,
 .panel,
@@ -434,6 +450,9 @@
   .topbarDivider { display: none; }
   .main { padding: 25px 16px 40px; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .treasuryCard { grid-template-columns: 1fr; gap: 22px; }
+  .treasuryValue { justify-items: start; text-align: left; }
+  .treasuryValue > div { justify-content: flex-start; }
   .twoColumn { grid-template-columns: 1fr; }
   .filterPanel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .issueSummary { grid-template-columns: 120px minmax(0, 1fr); }
@@ -452,6 +471,8 @@
   .primaryButton { justify-content: center; }
   .metrics { grid-template-columns: 1fr; }
   .metricCard { min-height: 185px; }
+  .treasuryCard { padding: 23px 20px; }
+  .treasuryValue > div { display: grid; }
   .filterPanel { grid-template-columns: 1fr 1fr; }
   .searchField { grid-column: 1 / -1; }
   .compactFilters,
@@ -510,5 +531,6 @@
   .collapseButton svg,
   .navItem { transition: none; }
   .metricSkeleton,
+  .treasurySkeleton,
   .sectionLoading span { animation: none; }
 }

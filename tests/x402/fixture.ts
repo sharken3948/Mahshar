@@ -4,7 +4,7 @@ import { DeliveryRequestMismatchError } from '../../src/lib/payments/delivery'
 export const payer = '0x' + '11'.repeat(20)
 export const seller = '0x' + '22'.repeat(20)
 export const apiId = '00000000-0000-4000-8000-000000000001'
-export const requirements: Requirements = { scheme: 'exact', network: 'eip155:5042', asset: '0x'+'33'.repeat(20), amount: '1100', payTo: '0x'+'44'.repeat(20), maxTimeoutSeconds: 345600, extra: { name: 'GatewayWalletBatched', version: '1', verifyingContract: '0x'+'55'.repeat(20) } }
+export const requirements: Requirements = { scheme: 'exact', network: 'eip155:5042', asset: '0x'+'33'.repeat(20), amount: '1100', payTo: '0xe239cdc5fbe977a8a141B72194D3CF8c41bC5BC6', maxTimeoutSeconds: 345600, extra: { name: 'GatewayWalletBatched', version: '1', verifyingContract: '0x'+'55'.repeat(20) } }
 export const payment: Payment = { x402Version: 2, payload: { signature: '0x'+'ab'.repeat(65), authorization: { from: payer, to: requirements.payTo, value: '1100', validAfter: '1', validBefore: '9999999999', nonce: '0x'+'66'.repeat(32) } } }
 export class MemoryStore implements Store {
   rows = new Map<string, Attempt>()

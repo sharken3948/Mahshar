@@ -44,11 +44,25 @@ test('edit workspace mirrors Seller structure but exposes existing-listing lifec
   assert.doesNotMatch(html, />Publish API</)
 })
 
+test('Edit Listing places its one primary Analyze action with Preview and Save at the bottom', () => {
+  const html = renderToStaticMarkup(React.createElement(EditListingForm, {
+    listing, onClose: () => {}, onListingChange: () => {},
+  }))
+  const setup = html.slice(html.indexOf('API Setup'), html.indexOf('Request &amp; Response'))
+  const publish = html.slice(html.indexOf('Pricing &amp; Publish'))
+  assert.doesNotMatch(setup, />Analyze<\/button>/)
+  assert.equal(html.match(/>Analyze<\/button>/g)?.length, 1)
+  assert.ok(publish.indexOf('>Preview</button>') < publish.indexOf('>Analyze</button>'))
+  assert.ok(publish.indexOf('>Analyze</button>') < publish.indexOf('>Save changes</button>'))
+  assert.match(publish, /No unsaved changes/)
+})
+
 test('draft analysis and preview are explicit, advisory, and non-publishing in source', () => {
   const source = readFileSync('src/components/EditListingForm.tsx', 'utf8')
   assert.match(source, /draft: true/)
   assert.match(source, /Apply suggestions/)
   assert.match(source, /setShowPreview\(true\)/)
+  assert.match(source, /onClick=\{\(\) => void analyzeEndpoint\(\)\}/)
   assert.match(source, /Suggestions applied to this draft/)
   assert.doesNotMatch(source, /useEffect\([^)]*analyzeEndpoint/)
   assert.doesNotMatch(source, /is_active: true[\s\S]*PreviewModal/)

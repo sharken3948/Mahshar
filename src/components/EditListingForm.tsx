@@ -127,6 +127,19 @@ export function EditListingForm({ listing, onClose, onListingChange }: {
   const suggestionCount = useMemo(() => analysis ? countSuggestions(analysis) : 0, [analysis])
   const categoryOptions = CATEGORIES.includes(form.category) ? CATEGORIES : [form.category, ...CATEGORIES]
   const methodOptions = form.method && !HTTP_METHODS.includes(form.method) ? [form.method, ...HTTP_METHODS] : HTTP_METHODS
+  const finalActionGuidance = analyzing
+    ? { title: 'Analysis running', detail: 'Mahshar is checking this draft. Its result will appear here when complete.' }
+    : analysis?.endpoint_verified && analysis.field_errors.length === 0
+      ? { title: 'Analysis complete', detail: dirty ? 'Review the result, then save your deliberate changes.' : 'This draft has been analyzed and has no unsaved changes.' }
+      : analysis
+        ? { title: 'Analysis failed', detail: 'Review the endpoint guidance before saving or try the analysis again.' }
+        : executableChanged
+          ? { title: 'Analyze this draft', detail: 'Check endpoint and request-contract changes here before saving. Saving sensitive changes still clears verification.' }
+          : dirty
+            ? { title: 'Save required', detail: 'Preview or analyze if needed, then save the current draft.' }
+            : !baseline.verified_at
+              ? { title: 'Verification required', detail: 'The saved configuration must be verified before this listing can be activated.' }
+              : { title: 'No unsaved changes', detail: 'Preview or analyze the stored configuration at any time.' }
 
   function update<K extends keyof EditState>(field: K, value: EditState[K]) {
     setForm(previous => {
@@ -355,15 +368,11 @@ export function EditListingForm({ listing, onClose, onListingChange }: {
     <div className={styles.workspace}>
       <div className={styles.mainColumn}>
         <Card title="API Setup" eyebrow="Review the stored endpoint">
-          <div className={styles.endpointRow}>
-            <Field label="Endpoint URL" error={fieldErrors.endpoint_url} className={styles.endpointField}>
-              <div className={styles.endpointInputWrap}><span className={styles.lockIcon} aria-hidden="true">⌁</span>
-                <input type="url" required value={form.endpoint_url} onChange={event => update('endpoint_url', event.target.value)}
-                  className={inputClass(fieldErrors.endpoint_url)} /></div>
-            </Field>
-            <button type="button" onClick={() => void analyzeEndpoint()} disabled={analyzing} className={styles.analyzeButton}>
-              {analyzing ? <><Spinner /> Checking</> : 'Analyze'}</button>
-          </div>
+          <Field label="Endpoint URL" error={fieldErrors.endpoint_url} className={styles.endpointField}>
+            <div className={styles.endpointInputWrap}><span className={styles.lockIcon} aria-hidden="true">⌁</span>
+              <input type="url" required value={form.endpoint_url} onChange={event => update('endpoint_url', event.target.value)}
+                className={inputClass(fieldErrors.endpoint_url)} /></div>
+          </Field>
           <EndpointStatus analysis={analysis} analyzing={analyzing} storedVerified={storedVerified} />
 
           <div className={styles.setupGrid}>
@@ -421,8 +430,15 @@ export function EditListingForm({ listing, onClose, onListingChange }: {
             <Field label="Price per Call" required className={styles.priceField}><div className={styles.priceInputWrap}>
               <input required type="number" min="0.000001" step="0.000001" value={form.price_per_call} onChange={event => update('price_per_call', event.target.value)} className={inputClass()} /><span>USDC</span></div></Field>
             <div className={styles.miniPreview}><div><span>{form.method ?? '—'}</span><strong>{form.name || 'Your API'}</strong></div><p>{form.description || 'Your marketplace description will appear here.'}</p><b>{priceValid ? `${form.price_per_call} USDC` : 'Set a price'} <small>/ call</small></b></div>
-            <button type="button" className={styles.previewButton} onClick={() => setShowPreview(true)}>Preview</button>
-            <button type="submit" className={styles.saveButton} disabled={!dirty || saving}>{saving ? <><Spinner /> Saving</> : 'Save changes'}</button>
+            <div className={styles.publishFooter}>
+              <p className={styles.finalActionGuidance} role="status"><strong>{finalActionGuidance.title}</strong><span>{finalActionGuidance.detail}</span></p>
+              <div className={styles.publishActions}>
+                <button type="button" className={styles.previewButton} onClick={() => setShowPreview(true)}>Preview</button>
+                <button type="button" onClick={() => void analyzeEndpoint()} disabled={analyzing} className={styles.analyzeButton}>
+                  {analyzing ? <><Spinner /> Checking</> : 'Analyze'}</button>
+                <button type="submit" className={styles.saveButton} disabled={!dirty || saving}>{saving ? <><Spinner /> Saving</> : 'Save changes'}</button>
+              </div>
+            </div>
           </div>
           <div className={styles.lifecycleActions}>
             {!baseline.verified_at && <button type="button" onClick={() => void verifyStoredConfiguration()} disabled={dirty || verifying}>{verifying ? 'Verifying…' : 'Verify saved setup'}</button>}

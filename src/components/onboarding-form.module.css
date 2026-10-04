@@ -178,6 +178,9 @@ textarea.input { resize: vertical; }
 .publishFooter > p { max-width: 620px; margin: 0; color: #7d6640; font-size: 13px; line-height: 1.5; }
 .publishFooter > p.publishReady { color: #247d57; }
 .publishActions { display: grid; flex: 0 0 auto; grid-template-columns: repeat(3, auto); gap: 10px; }
+.finalActionGuidance { display: grid; gap: 3px; }
+.finalActionGuidance strong { color: #312819; font-size: 13px; }
+.finalActionGuidance span { color: #7d6640; }
 .saveButton { display: inline-flex; min-width: 136px; min-height: 48px; align-items: center; justify-content: center; gap: 8px; padding: 0 20px; border: 0; border-radius: 11px; background: #2775ca; color: #fff; font-size: 14px; font-weight: 750; box-shadow: 0 7px 16px #2775ca24; cursor: pointer; }
 .saveButton:disabled { cursor: not-allowed; opacity: .5; }
 .lifecycleNotice { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid #ead3a9; border-radius: 11px; background: #fff9ed; color: #795b2a; font-size: 13px; line-height: 1.45; }
@@ -292,7 +295,8 @@ textarea.input { resize: vertical; }
   .cardBody { padding: 19px; }
   .publishButton,
   .analyzeButton,
-  .previewButton { width: 100%; min-width: 0; padding-inline: 9px; }
+  .previewButton,
+  .saveButton { width: 100%; min-width: 0; padding-inline: 9px; }
   .publishFooter { align-items: stretch; flex-direction: column; gap: 12px; }
   .publishActions { width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .miniPreview { grid-template-columns: minmax(0, 1fr); }

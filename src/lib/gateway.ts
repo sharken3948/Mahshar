@@ -6,6 +6,7 @@ import { ARC_MAINNET } from '@/lib/arc'
 import { encodePaymentResponseHeader } from '@x402/core/http'
 import type { Network } from '@x402/core/types'
 import { marketplaceOrigin } from '@/lib/marketplace/server'
+import { verifyPlatformWalletConfiguration } from '@/lib/platform-wallet-config'
 
 // USDC decimals are 6 on every supported chain — kept as a constant here
 // because reading decimals() at request time would add an RPC round-trip to
@@ -33,16 +34,9 @@ const CHAINS: Record<NetworkId, ChainConfig> = {
 
 const NETWORK_ORDER: NetworkId[] = ['eip155:5042']
 
-const _platformAddress = process.env.PLATFORM_WALLET_ADDRESS
-const _platformPrivateKey = process.env.PLATFORM_WALLET_PRIVATE_KEY
-if (!_platformAddress || !/^0x[a-fA-F0-9]{40}$/.test(_platformAddress)) {
-  throw new Error('PLATFORM_WALLET_ADDRESS must be a valid Ethereum address (0x + 40 hex chars)')
-}
-if (!_platformPrivateKey || !/^0x[a-fA-F0-9]{64}$/.test(_platformPrivateKey)) {
-  throw new Error('PLATFORM_WALLET_PRIVATE_KEY must be a valid private key (0x + 64 hex chars)')
-}
-const PLATFORM_ADDRESS = _platformAddress as `0x${string}`
-export const PLATFORM_PRIVATE_KEY = _platformPrivateKey as `0x${string}`
+const platformWallet = verifyPlatformWalletConfiguration()
+const PLATFORM_ADDRESS = platformWallet.address
+export const PLATFORM_PRIVATE_KEY = platformWallet.privateKey
 
 const BUYER_FEE_RATE = 0.10
 const SELLER_FEE_RATE = 0.10

@@ -5,6 +5,9 @@ import { ARC } from '@/lib/arc'
 import { arcMainnet } from '@/lib/chains'
 import { ArcBalanceReader, type ArcBalanceSnapshot } from '@/lib/arc-balance-read'
 
+// Six seconds applies to each transport attempt. Viem may make one bounded
+// retry after 150 ms; this is deliberately not described as a six-second
+// total request deadline.
 const SERVER_RPC_TIMEOUT_MS = 6_000
 const serverReader = new ArcBalanceReader()
 let serverClient: ReturnType<typeof createPublicClient> | undefined

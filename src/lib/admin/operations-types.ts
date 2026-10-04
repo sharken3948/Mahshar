@@ -8,6 +8,15 @@ export type ListingCountsDto = {
   as_of: string
 }
 
+export type TreasuryBalanceDto = {
+  wallet: string
+  balance_usdc: string
+  status: 'fresh' | 'stale'
+  chain_id: 5042
+  explorer_url: string
+  as_of: string
+}
+
 export type StateCount = { state: string; count: number }
 
 export type OperationsSnapshotDto = {
