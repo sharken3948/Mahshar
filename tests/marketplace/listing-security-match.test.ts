@@ -18,7 +18,7 @@ test('matchListingConfiguration serializes jsonb array columns as JSON strings',
   const listing = {
     endpoint_url: 'https://seller.example/data', auth_type: 'apikey',
     encrypted_key: 'ciphertext', auth_param_name: null, method: 'GET',
-    body_required: false, dynamic_path_supported: false,
+    body_required: false, request_schema: { type: 'object' }, dynamic_path_supported: false,
     path_parameters: [], query_parameters: [{ name: 'x', required: true }],
   }
   matchListingConfiguration(builder, listing)
@@ -27,6 +27,8 @@ test('matchListingConfiguration serializes jsonb array columns as JSON strings',
   assert.deepEqual(findCall(calls, 'path_parameters'), { column: 'path_parameters', operator: 'eq', value: '[]' })
   assert.deepEqual(findCall(calls, 'query_parameters'),
     { column: 'query_parameters', operator: 'eq', value: '[{"name":"x","required":true}]' })
+  assert.deepEqual(findCall(calls, 'request_schema'),
+    { column: 'request_schema', operator: 'eq', value: '{"type":"object"}' })
 })
 
 test('matchListingConfiguration uses "is null" for null jsonb columns', () => {
@@ -34,7 +36,7 @@ test('matchListingConfiguration uses "is null" for null jsonb columns', () => {
   matchListingConfiguration(builder, {
     endpoint_url: 'https://seller.example/data', auth_type: 'public',
     encrypted_key: null, auth_param_name: null, method: 'GET',
-    body_required: null, dynamic_path_supported: false,
+    body_required: null, request_schema: null, dynamic_path_supported: false,
     path_parameters: null, query_parameters: null,
   })
 
@@ -43,6 +45,7 @@ test('matchListingConfiguration uses "is null" for null jsonb columns', () => {
   assert.deepEqual(findCall(calls, 'encrypted_key'), { column: 'encrypted_key', operator: 'is', value: null })
   assert.deepEqual(findCall(calls, 'auth_param_name'), { column: 'auth_param_name', operator: 'is', value: null })
   assert.deepEqual(findCall(calls, 'body_required'), { column: 'body_required', operator: 'is', value: null })
+  assert.deepEqual(findCall(calls, 'request_schema'), { column: 'request_schema', operator: 'is', value: null })
 })
 
 test('matchListingConfiguration passes text and boolean columns through unchanged', () => {
@@ -50,7 +53,7 @@ test('matchListingConfiguration passes text and boolean columns through unchange
   matchListingConfiguration(builder, {
     endpoint_url: 'https://seller.example/data', auth_type: 'bearer',
     encrypted_key: 'ciphertext', auth_param_name: 'X-Api-Key', method: 'POST',
-    body_required: true, dynamic_path_supported: true,
+    body_required: true, request_schema: null, dynamic_path_supported: true,
     path_parameters: null, query_parameters: null,
   })
 
@@ -69,7 +72,7 @@ test('verification compare-and-set also binds the representative request and exp
   const { calls, builder } = recorder()
   matchListingVerificationConfiguration(builder, {
     endpoint_url: 'https://seller.example/data', auth_type: 'public', encrypted_key: null,
-    auth_param_name: null, method: 'POST', body_required: true, dynamic_path_supported: false,
+    auth_param_name: null, method: 'POST', body_required: true, request_schema: { type: 'object' }, dynamic_path_supported: false,
     path_parameters: [], query_parameters: [], example_request: '{"value":1}', expected_status_codes: [400, 422],
   })
 
@@ -78,4 +81,6 @@ test('verification compare-and-set also binds the representative request and exp
     { column: 'example_request', operator: 'eq', value: '{"value":1}' })
   assert.deepEqual(findCall(calls, 'expected_status_codes'),
     { column: 'expected_status_codes', operator: 'eq', value: '{400,422}' })
+  assert.deepEqual(findCall(calls, 'request_schema'),
+    { column: 'request_schema', operator: 'eq', value: '{"type":"object"}' })
 })

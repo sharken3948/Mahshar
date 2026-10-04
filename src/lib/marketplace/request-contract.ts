@@ -6,6 +6,7 @@ import {
   type DeclaredParameter,
   type ProxyTargetListing,
 } from './proxy-target'
+import { validateRequestBody, validateSupportedRequestSchema } from './request-body-schema'
 
 export const SUPPORTED_LISTING_METHODS = ['GET', 'POST', 'PUT', 'DELETE'] as const
 export type SupportedListingMethod = typeof SUPPORTED_LISTING_METHODS[number]
@@ -14,6 +15,7 @@ export type ListingRequestContract = ProxyTargetListing & {
   method?: unknown
   example_request?: unknown
   body_required?: unknown
+  request_schema?: unknown
 }
 
 export type ExecutableRequestExample = {
@@ -26,7 +28,7 @@ export type ExecutableRequestExample = {
 
 export type RequestContractValidation =
   | { ok: true; method: SupportedListingMethod; example: ExecutableRequestExample }
-  | { ok: false; error: string; field: 'method' | 'dynamic_path_supported' | 'path_parameters' | 'query_parameters' | 'example_request' | 'body_required' | 'auth_param_name' | 'endpoint_url' }
+  | { ok: false; error: string; field: 'method' | 'dynamic_path_supported' | 'path_parameters' | 'query_parameters' | 'example_request' | 'body_required' | 'request_schema' | 'auth_param_name' | 'endpoint_url' }
 
 function scalarString(value: unknown): string | null {
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value)
@@ -87,6 +89,8 @@ export function validateListingRequestContract(listing: ListingRequestContract):
   if (!validateDeclaredParameterMetadata(listing.query_parameters ?? null)) {
     return { ok: false, field: 'query_parameters', error: 'Query parameters contain an invalid, duplicate, or unsafe declaration' }
   }
+  const schema = validateSupportedRequestSchema(listing.request_schema)
+  if (!schema.ok) return { ok: false, field: 'request_schema', error: schema.error }
 
   const pathParameters = declaredParameters(listing.path_parameters)
   const queryParameters = declaredParameters(listing.query_parameters)
@@ -167,6 +171,10 @@ export function validateListingRequestContract(listing: ListingRequestContract):
       return { ok: false, field: 'example_request', error: `${method} listing requires a JSON body example` }
     }
     body = parsed.present ? parsed.value : null
+    if (parsed.present && listing.request_schema != null) {
+      const bodyResult = validateRequestBody(listing.request_schema, parsed.value)
+      if (!bodyResult.ok) return { ok: false, field: 'example_request', error: bodyResult.error }
+    }
   }
 
   const built = appendExampleSuffix(pathParameters, pathExamples.values, query)

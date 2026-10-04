@@ -21,7 +21,7 @@ export const runtime = 'nodejs'
 
 export interface FieldError {
   field: 'method' | 'example_request' | 'endpoint_url' | 'auth_key' | 'path_parameters' | 'query_parameters' |
-    'body_required' | 'auth_param_name' | 'dynamic_path_supported'
+    'body_required' | 'request_schema' | 'auth_param_name' | 'dynamic_path_supported'
   message: string
 }
 
@@ -49,6 +49,7 @@ type AnalysisBody = {
   auth_param_name?: string
   expected_status_codes?: number[]
   body_required?: boolean | null
+  request_schema?: Record<string, unknown> | null
   dynamic_path_supported?: boolean
   path_parameters?: unknown[] | null
   query_parameters?: unknown[] | null
@@ -209,6 +210,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     body.example_response = persistedListing.example_response ?? body.example_response
     body.expected_status_codes = (persistedListing.expected_status_codes as number[] | null) ?? undefined
     body.body_required = persistedListing.body_required
+    body.request_schema = persistedListing.request_schema
     body.dynamic_path_supported = persistedListing.dynamic_path_supported
     body.path_parameters = persistedListing.path_parameters
     body.query_parameters = persistedListing.query_parameters
@@ -248,6 +250,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     auth_param_name: body.auth_param_name,
     example_request: body.example_request,
     body_required: body.body_required,
+    request_schema: body.request_schema,
     dynamic_path_supported: body.dynamic_path_supported ?? false,
     path_parameters: body.path_parameters ?? null,
     query_parameters: body.query_parameters ?? null,

@@ -104,7 +104,7 @@ export const PATCH = withWalletSession(async (request: NextRequest, wallet: stri
   if (!contractResult.ok) return NextResponse.json({ error: contractResult.error }, { status: 400 })
   Object.assign(patch, contractResult.patch)
   const updated = { ...listing, ...patch }
-  const contractFields = ['endpoint_url', 'method', 'auth_type', 'auth_param_name', 'example_request', 'body_required',
+  const contractFields = ['endpoint_url', 'method', 'auth_type', 'auth_param_name', 'example_request', 'body_required', 'request_schema',
     'dynamic_path_supported', 'path_parameters', 'query_parameters']
   const contractChanged = contractFields.some(key => patch[key] !== undefined && !sameConfiguration(patch[key], listing[key]))
   if (contractChanged || patch.is_active === true) {

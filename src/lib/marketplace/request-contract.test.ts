@@ -50,6 +50,29 @@ test('method-specific body semantics cover GET, POST, PUT, and DELETE', () => {
   assert.equal(validateListingRequestContract({ ...common, method: 'DELETE', body_required: true, example_request: '{"reason":"test"}' }).ok, true)
 })
 
+test('request schemas validate the representative body used for listing verification', () => {
+  const common = { endpoint_url: 'https://api.example/analyze', auth_type: 'public', dynamic_path_supported: false,
+    path_parameters: [], query_parameters: [], method: 'POST', body_required: true }
+  const request_schema = { type: 'object', required: ['address', 'chain'], properties: {
+    address: { type: 'string', minLength: 1 }, chain: { type: 'string', enum: ['arc'] },
+  } }
+  assert.equal(validateListingRequestContract({ ...common, request_schema,
+    example_request: '{"address":"0x1234","chain":"arc"}' }).ok, true)
+  const invalid = validateListingRequestContract({ ...common, request_schema,
+    example_request: '{"address":"","chain":"arc"}' })
+  assert.equal(invalid.ok, false)
+  if (!invalid.ok) assert.equal(invalid.field, 'example_request')
+})
+
+test('an optional schema allows an absent example and validates any supplied example', () => {
+  const common = { endpoint_url: 'https://api.example/analyze', auth_type: 'public', dynamic_path_supported: false,
+    path_parameters: [], query_parameters: [], method: 'POST', body_required: false,
+    request_schema: { type: 'object', required: ['chain'], properties: { chain: { type: 'string', enum: ['arc'] } } } }
+  assert.equal(validateListingRequestContract({ ...common, example_request: '' }).ok, true)
+  assert.equal(validateListingRequestContract({ ...common, example_request: '{"chain":"arc"}' }).ok, true)
+  assert.equal(validateListingRequestContract({ ...common, example_request: '{"chain":"base"}' }).ok, false)
+})
+
 test('four auth models preserve one request contract while injecting only stored credentials after validation', () => {
   const models = [
     { auth_type: 'public' as const, auth_param_name: null },

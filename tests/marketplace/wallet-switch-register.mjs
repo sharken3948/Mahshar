@@ -9,6 +9,7 @@ export const state = globalThis.__mahsharWalletSwitchState ??= {
   signatures: 0, fetches: [], protectedFetches: [], rejectNextSignature: false, protectedError: null,
   deferSignatures: false, pendingSignatures: [], sessionExpired: false,
   deferSessionBodies: false, pendingSessionBodies: [],
+  hangSessionGet: false, hangChallenge: false, hangSessionPost: false, hangProvider: false,
   providerChainId: 5042, providerConfirmationReady: true, pendingProviderChainId: null,
   switchRequests: 0, rejectNextSwitch: false, providerReads: 0, chainEvents: [],
   chainListeners: new Set(),
@@ -22,6 +23,7 @@ export function reset() {
   state.protectedFetches = []; state.rejectNextSignature = false; state.protectedError = null
   state.deferSignatures = false; state.pendingSignatures = []; state.sessionExpired = false
   state.deferSessionBodies = false; state.pendingSessionBodies = []
+  state.hangSessionGet = false; state.hangChallenge = false; state.hangSessionPost = false; state.hangProvider = false
   state.providerChainId = 5042; state.providerConfirmationReady = true; state.pendingProviderChainId = null
   state.switchRequests = 0; state.rejectNextSwitch = false; state.providerReads = 0; state.chainEvents = []
   state.chainListeners = new Set()
@@ -93,11 +95,16 @@ export async function flush() {
 }
 
 globalThis.window = { location: { origin: 'https://mahshar.xyz' } }
+function hangUntilAbort(signal) {
+  return new Promise((_, reject) => signal?.addEventListener('abort', () =>
+    reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true }))
+}
 globalThis.fetch = async (input, init = {}) => {
   const url = String(input)
   state.fetches.push({ input: url, init })
   state.chainEvents.push(`fetch:${url}`)
   if (url.startsWith('/api/auth/session?')) {
+    if (state.hangSessionGet) return hangUntilAbort(init.signal)
     const requested = new URL(url, globalThis.window.location.origin).searchParams.get('wallet')
     const valid = state.serverWallet === requested && !state.sessionExpired
     if (!valid) return Response.json({ error: state.sessionExpired ? 'Wallet session expired' : 'Wallet session required' }, { status: 401 })
@@ -118,11 +125,13 @@ globalThis.fetch = async (input, init = {}) => {
     }
   }
   if (url === '/api/auth/challenge') {
+    if (state.hangChallenge) return hangUntilAbort(init.signal)
     const wallet = JSON.parse(init.body).wallet
     return Response.json({ challenge_id: '11111111-1111-4111-8111-111111111111', wallet,
       nonce: `0x${'44'.repeat(32)}`, issued_at: 100, deadline: 400, origin: globalThis.window.location.origin })
   }
   if (url === '/api/auth/session' && init.method === 'POST') {
+    if (state.hangSessionPost) return hangUntilAbort(init.signal)
     const wallet = JSON.parse(init.body).wallet
     state.serverWallet = wallet
     state.sessionExpired = false
@@ -150,7 +159,7 @@ const provider = {
   on: (event, listener) => { if (event === 'chainChanged') state.chainListeners.add(listener) },
   removeListener: (event, listener) => { if (event === 'chainChanged') state.chainListeners.delete(listener) },
 }
-const connector = { getProvider: async () => provider }
+const connector = { getProvider: async () => state.hangProvider ? new Promise(() => {}) : provider }
 
 Module._load = function (id, parent, main) {
   if (id === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) }

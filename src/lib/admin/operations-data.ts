@@ -217,6 +217,7 @@ const contractReasons: Record<ContractFailure['field'], { code: string; message:
   query_parameters: { code: 'invalid_query_parameters', message: 'Query parameter declarations are invalid or incomplete.' },
   example_request: { code: 'invalid_example_request', message: 'The representative request is invalid or incomplete.' },
   body_required: { code: 'invalid_body_configuration', message: 'Request body requirements are inconsistent.' },
+  request_schema: { code: 'invalid_request_schema', message: 'The request body schema is invalid or unsupported.' },
   auth_param_name: { code: 'invalid_auth_parameter_configuration', message: 'Credential parameter configuration is invalid.' },
   endpoint_url: { code: 'invalid_endpoint_configuration', message: 'The endpoint configuration is invalid.' },
 }

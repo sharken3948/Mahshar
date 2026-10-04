@@ -12,6 +12,8 @@ import { beginDelivery, DeliveryRequestMismatchError, deliveryError, deliveryReq
 import { enforceRateLimit } from '@/lib/rate-limit'
 import { authorizeProxyTarget, ProxyTargetError } from '@/lib/marketplace/proxy-target'
 import { marketplaceOrigin } from '@/lib/marketplace/server'
+import { validateRequestBody } from '@/lib/marketplace/request-body-schema'
+import { readBoundedText, RequestBodyError } from '@/lib/request-body'
 
 export const runtime = 'nodejs'
 
@@ -25,7 +27,7 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
   const supabase = createServiceClient()
   const { data: listing, error } = await supabase
     .from('api_listings')
-    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method, endpoint_url, auth_type, auth_param_name, body_required, dynamic_path_supported, path_parameters, query_parameters')
+    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method, endpoint_url, auth_type, auth_param_name, body_required, request_schema, dynamic_path_supported, path_parameters, query_parameters')
     .eq('id', apiId)
     .single()
 
@@ -57,9 +59,11 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
   // never charged for JSON that Mahshar cannot forward.
   let upstreamBody: unknown = undefined
   if (method === 'POST') {
-    const rawBody = await request.clone().text()
-    if (Buffer.byteLength(rawBody, 'utf8') > 256 * 1024) {
-      return NextResponse.json({ error: 'request_too_large' }, { status: 413 })
+    let rawBody: string
+    try { rawBody = await readBoundedText(request.clone(), 256 * 1024) }
+    catch (error) {
+      const tooLarge = error instanceof RequestBodyError && error.code === 'body_too_large'
+      return NextResponse.json({ error: tooLarge ? 'request_too_large' : 'invalid_request' }, { status: tooLarge ? 413 : 400 })
     }
     if (rawBody.trim()) {
       try { upstreamBody = JSON.parse(rawBody) }
@@ -68,6 +72,12 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
   }
   if (listing.body_required === true && upstreamBody === undefined) {
     return NextResponse.json({ error: 'request_body_required', message: 'POST listing requires a JSON request body.' }, { status: 400 })
+  }
+  if (upstreamBody !== undefined) {
+    const bodyValidation = validateRequestBody(listing.request_schema, upstreamBody)
+    if (!bodyValidation.ok) {
+      return NextResponse.json({ error: 'request_contract_invalid', message: bodyValidation.error }, { status: 400 })
+    }
   }
 
   const resourceUrl = new URL(`/api/proxy/${encodeURIComponent(apiId)}${requestSuffix}`, marketplaceOrigin()).toString()

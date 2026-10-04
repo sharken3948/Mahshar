@@ -13,6 +13,7 @@ import { enforceRateLimit } from '@/lib/rate-limit'
 import { authorizeProxyTarget, ProxyTargetError } from '@/lib/marketplace/proxy-target'
 import { marketplaceOrigin } from '@/lib/marketplace/server'
 import { readBoundedJson, RequestBodyError } from '@/lib/request-body'
+import { validateRequestBody } from '@/lib/marketplace/request-body-schema'
 
 export const runtime = 'nodejs'
 
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { api_id, buyer_wallet, method, path, incomingHeaders, body: reqBody } = body
+  const requestBodyPresent = Object.prototype.hasOwnProperty.call(body, 'body')
 
   if (!api_id || !buyer_wallet) {
     return NextResponse.json({ error: 'api_id and buyer_wallet are required' }, { status: 400 })
@@ -47,7 +49,7 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceClient()
   const { data: listing, error } = await supabase
     .from('api_listings')
-    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method, endpoint_url, auth_type, auth_param_name, body_required, dynamic_path_supported, path_parameters, query_parameters')
+    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method, endpoint_url, auth_type, auth_param_name, body_required, request_schema, dynamic_path_supported, path_parameters, query_parameters')
     .eq('id', api_id)
     .single()
 
@@ -72,6 +74,12 @@ export async function POST(request: NextRequest) {
   }
   if (listing.body_required === true && (reqBody === undefined || reqBody === null)) {
     return NextResponse.json({ error: 'request_body_required', message: `${resolvedMethod.method} listing requires a JSON request body.` }, { status: 400 })
+  }
+  if (requestBodyPresent) {
+    const bodyValidation = validateRequestBody(listing.request_schema, reqBody)
+    if (!bodyValidation.ok) {
+      return NextResponse.json({ error: 'request_contract_invalid', message: bodyValidation.error }, { status: 400 })
+    }
   }
 
   let canonicalTarget: string

@@ -1,5 +1,5 @@
 export const SENSITIVE_CONFIGURATION = ['endpoint_url', 'auth_type', 'encrypted_key', 'auth_param_name', 'method',
-  'body_required', 'dynamic_path_supported', 'path_parameters', 'query_parameters'] as const
+  'body_required', 'request_schema', 'dynamic_path_supported', 'path_parameters', 'query_parameters'] as const
 
 // Verification covers the executable configuration plus the representative
 // request and accepted response set. Keep this separate from
@@ -11,7 +11,7 @@ export function credentialProxyAllowed(listing: { encrypted_key: unknown; verifi
   return !listing.encrypted_key || Boolean(listing.verified_at)
 }
 
-const JSONB_CONFIGURATION_KEYS = new Set<string>(['path_parameters', 'query_parameters'])
+const JSONB_CONFIGURATION_KEYS = new Set<string>(['request_schema', 'path_parameters', 'query_parameters'])
 const POSTGRES_ARRAY_CONFIGURATION_KEYS = new Set<string>(['expected_status_codes'])
 
 function comparableFilterValue(key: string, value: unknown) {

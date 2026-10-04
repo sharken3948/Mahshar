@@ -9,7 +9,13 @@ import { POST as reconcile } from '../../src/app/api/payments/reconcile/route'
 import { POST as retiredLegacy } from '../../src/app/api/payments/x402/route'
 import { GET as pathProxyGet, POST as pathProxyPost } from '../../src/app/api/proxy/[api_id]/route'
 
-function reset() { state.store = new MemoryStore(); state.storageReady = true; state.settled = 0; state.proxied = 0; state.verified = 0; state.upstreamStatus = 200; state.deliveryOutcome = undefined; state.listingMethod = 'POST'; state.listingPrice = 0.001; state.listingBodyRequired = false; state.listingDynamicPath = false; state.listingPathParameters = null; state.listingQueryParameters = null; state.lastProxyInput = null }
+function reset() { state.store = new MemoryStore(); state.storageReady = true; state.settled = 0; state.proxied = 0; state.verified = 0; state.upstreamStatus = 200; state.deliveryOutcome = undefined; state.listingMethod = 'POST'; state.listingPrice = 0.001; state.listingBodyRequired = false; state.listingRequestSchema = null; state.listingDynamicPath = false; state.listingPathParameters = null; state.listingQueryParameters = null; state.lastProxyInput = null }
+const ioscopeSchema = {
+  type: 'object', required: ['address', 'chain'], properties: {
+    address: { type: 'string', minLength: 1 },
+    chain: { type: 'string', enum: ['arc'] },
+  },
+}
 function paid() { return new NextRequest('https://mahshar.xyz/api/proxy', { method: 'POST', headers: { 'content-type': 'application/json', 'payment-signature': Buffer.from(JSON.stringify(payment)).toString('base64') }, body: JSON.stringify({ api_id: apiId, buyer_wallet: payer, method: 'POST', body: { input: true } }) }) }
 test('real gateway pricing and normal paid proxy retain authoritative amount and Arc facilitator configuration', async () => {
   reset()
@@ -29,7 +35,7 @@ test('real gateway pricing and normal paid proxy retain authoritative amount and
   assert.equal(typeof (await replay.json()).purchase_access_token, 'string')
 })
 test('Ioscope-style POST charges the fee-inclusive total and forwards the actual fixture body', async () => {
-  reset(); state.listingPrice = 0.1
+  reset(); state.listingPrice = 0.1; state.listingBodyRequired = true; state.listingRequestSchema = ioscopeSchema
   const ioscopePayment = structuredClone(payment)
   ioscopePayment.payload.authorization.value = '110000'
   const ioscopeBody = { address: '0x1234567890123456789012345678901234567890', chain: 'arc' }
@@ -45,6 +51,66 @@ test('Ioscope-style POST charges the fee-inclusive total and forwards the actual
   assert.deepEqual(state.lastProxyInput?.body, ioscopeBody)
   assert.equal([...state.store.rows.values()][0].binding.amount_atomic, '110000')
   assert.equal([...state.store.rows.values()][0].binding.seller_atomic, '90000')
+})
+test('Ioscope request contract rejects invalid bodies before payment verification or settlement', async () => {
+  const cases = [
+    { envelope: {}, error: 'request_body_required' },
+    { envelope: { body: { chain: 'arc' } }, error: 'request_contract_invalid' },
+    { envelope: { body: { address: '0x1234' } }, error: 'request_contract_invalid' },
+    { envelope: { body: { address: 123, chain: 'arc' } }, error: 'request_contract_invalid' },
+    { envelope: { body: { address: '0x1234', chain: 'ethereum' } }, error: 'request_contract_invalid' },
+  ]
+  for (const item of cases) {
+    reset(); state.listingPrice = 0.1; state.listingBodyRequired = true; state.listingRequestSchema = ioscopeSchema
+    const response = await POST(new NextRequest('https://mahshar.xyz/api/proxy', {
+      method: 'POST', headers: { 'content-type': 'application/json', 'payment-signature': 'must-not-be-read' },
+      body: JSON.stringify({ api_id: apiId, buyer_wallet: payer, method: 'POST', ...item.envelope }),
+    }))
+    assert.equal(response.status, 400)
+    const body = await response.json()
+    assert.equal(body.error, item.error)
+    assert.match(body.message, /request body|Request body/i)
+    assert.equal(state.verified, 0); assert.equal(state.settled, 0); assert.equal(state.proxied, 0)
+    assert.equal(state.store.purchases.size, 0)
+  }
+})
+test('optional request schema permits an absent body but validates a supplied body before payment', async () => {
+  reset(); state.listingBodyRequired = false; state.listingRequestSchema = ioscopeSchema
+  const absent = await POST(new NextRequest('https://mahshar.xyz/api/proxy', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ api_id: apiId, buyer_wallet: payer, method: 'POST' }),
+  }))
+  assert.equal(absent.status, 402)
+  assert.equal(state.verified, 0); assert.equal(state.settled, 0); assert.equal(state.proxied, 0)
+
+  const context = { params: Promise.resolve({ api_id: apiId }) }
+  const pathAbsent = await pathProxyPost(new NextRequest(`https://mahshar.xyz/api/proxy/${apiId}`, { method: 'POST' }), context)
+  assert.equal(pathAbsent.status, 402)
+  assert.equal(state.verified, 0); assert.equal(state.settled, 0); assert.equal(state.proxied, 0)
+
+  const invalid = await POST(new NextRequest('https://mahshar.xyz/api/proxy', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'payment-signature': 'must-not-be-read' },
+    body: JSON.stringify({ api_id: apiId, buyer_wallet: payer, method: 'POST', body: { chain: 'arc' } }),
+  }))
+  assert.equal(invalid.status, 400)
+  assert.equal((await invalid.json()).error, 'request_contract_invalid')
+  assert.equal(state.verified, 0); assert.equal(state.settled, 0); assert.equal(state.proxied, 0)
+})
+test('a syntactically valid Ioscope request keeps settled upstream 404 behavior without a refund path', async () => {
+  reset(); state.listingPrice = 0.1; state.listingBodyRequired = true; state.listingRequestSchema = ioscopeSchema
+  state.upstreamStatus = 404
+  const ioscopePayment = structuredClone(payment)
+  ioscopePayment.payload.authorization.value = '110000'
+  const response = await POST(new NextRequest('https://mahshar.xyz/api/proxy', {
+    method: 'POST', headers: { 'content-type': 'application/json',
+      'payment-signature': Buffer.from(JSON.stringify(ioscopePayment)).toString('base64') },
+    body: JSON.stringify({ api_id: apiId, buyer_wallet: payer, method: 'POST',
+      body: { address: '0x1234567890123456789012345678901234567890', chain: 'arc' } }),
+  }))
+  assert.equal(response.status, 404)
+  assert.equal(state.verified, 1); assert.equal(state.settled, 1); assert.equal(state.proxied, 1)
+  assert.equal(state.store.purchases.size, 1)
+  assert.equal([...state.store.rows.values()][0].delivery_state, 'FAILED_FINAL')
 })
 test('envelope proxy forwards declared query input without enabling variable paths', async () => {
   reset(); state.listingMethod = 'GET'; state.listingQueryParameters = [{ name: 'limit', type: 'integer', maximum: 100 }]

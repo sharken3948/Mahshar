@@ -155,6 +155,10 @@ test('endpoint, auth semantics, and credential changes require an exact fresh pr
 test('path, query, method, and body-required edits require exact fresh proof and deactivate verification', async () => {
   const patches = [
     { seller_wallet: a, method: 'POST', body_required: true, example_request: '{"value":1}' },
+    { seller_wallet: a, method: 'POST', body_required: true, example_request: '{"address":"0x1234","chain":"arc"}',
+      request_schema: { type: 'object', required: ['address', 'chain'], properties: {
+        address: { type: 'string', minLength: 1 }, chain: { type: 'string', enum: ['arc'] },
+      } } },
     { seller_wallet: a, dynamic_path_supported: true, path_parameters: [{ name: 'address', required: true, example: '0x1234' }] },
     { seller_wallet: a, query_parameters: [{ name: 'limit', type: 'integer', maximum: 100, example: 10 }] },
   ]

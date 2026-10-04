@@ -14,6 +14,8 @@ type SessionStatus = 'disconnected' | 'checking' | 'signing' | 'authenticated' |
 type NetworkStatus = 'disconnected' | 'checking' | 'switching' | 'ready' | 'required'
 type SessionCheckResult = 'authenticated' | 'unauthenticated' | 'unavailable'
 type LoginResult = { authenticated: boolean; rejected: boolean; error: string | null }
+type Coordinated<T> = { generation: number; promise: Promise<T> }
+type LoginAttempt = { generation: number; active: boolean }
 type SessionContextValue = {
   status: SessionStatus
   networkStatus: NetworkStatus
@@ -25,9 +27,9 @@ type SessionContextValue = {
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null)
-const loginInFlight = new Map<string, Promise<LoginResult>>()
-const checkInFlight = new Map<string, Promise<SessionCheckResult>>()
-const chainInFlight = new Map<string, Promise<{ ready: boolean; rejected: boolean; error: string | null }>>()
+const loginInFlight = new Map<string, Coordinated<LoginResult>>()
+const checkInFlight = new Map<string, Coordinated<SessionCheckResult>>()
+const chainInFlight = new Map<string, Coordinated<{ ready: boolean; rejected: boolean; error: string | null }>>()
 const automaticChainAttempts = new Set<string>()
 // The server session belongs to the browser, not to a particular React mount.
 // Keep the successful hand-off visible across Strict Mode remounts and to every
@@ -35,6 +37,51 @@ const automaticChainAttempts = new Set<string>()
 let establishedSessionWallet: string | null = null
 let establishedSessionGeneration = 0
 let signatureQueue: Promise<void> = Promise.resolve()
+let coordinatorWallet: string | null = null
+let coordinatorGeneration = 0
+const DEFAULT_AUTH_STAGE_TIMEOUT_MS = 30_000
+let authStageTimeoutMs = DEFAULT_AUTH_STAGE_TIMEOUT_MS
+const responseControllers = new WeakMap<Response, AbortController>()
+
+class AuthTimeoutError extends Error {
+  constructor(stage: string) {
+    super(`${stage} timed out`)
+    this.name = 'AuthTimeoutError'
+  }
+}
+
+function coordinateWallet(wallet: string | null) {
+  if (coordinatorWallet !== wallet) {
+    coordinatorWallet = wallet
+    coordinatorGeneration += 1
+  }
+  return coordinatorGeneration
+}
+
+function invalidateCoordinator(wallet: string) {
+  if (coordinatorWallet === wallet) coordinatorGeneration += 1
+  return coordinatorGeneration
+}
+
+function bounded<T>(operation: Promise<T>, stage: string, onTimeout?: () => void): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      onTimeout?.()
+      reject(new AuthTimeoutError(stage))
+    }, authStageTimeoutMs)
+    if (typeof timeoutId === 'object' && 'unref' in timeoutId) timeoutId.unref()
+  })
+  return Promise.race([operation, timeout]).finally(() => {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
+  })
+}
+
+function boundedFetch(input: RequestInfo | URL, init: RequestInit, stage: string) {
+  const controller = new AbortController()
+  return bounded(fetch(input, { ...init, signal: controller.signal }), stage, () => controller.abort())
+    .then(response => { responseControllers.set(response, controller); return response })
+}
 
 /** Test isolation for the module-level browser-session coordinator. */
 export function resetMarketplaceSessionCoordinatorForTests() {
@@ -45,13 +92,47 @@ export function resetMarketplaceSessionCoordinatorForTests() {
   establishedSessionWallet = null
   establishedSessionGeneration = 0
   signatureQueue = Promise.resolve()
+  coordinatorWallet = null
+  coordinatorGeneration = 0
+  authStageTimeoutMs = DEFAULT_AUTH_STAGE_TIMEOUT_MS
 }
 
-function serializeSignature<T>(sign: () => Promise<T>) {
+export function setMarketplaceSessionTimeoutForTests(milliseconds: number) {
+  authStageTimeoutMs = milliseconds
+}
+
+function serializeSignature<T>(sign: () => Promise<T>, isCurrent: () => boolean) {
   const previous = signatureQueue
   let release!: () => void
-  signatureQueue = new Promise<void>(resolve => { release = resolve })
-  return previous.then(sign).finally(release)
+  const ownOperation = new Promise<void>(resolve => { release = resolve })
+  // Keep the global tail behind both the previous real wallet operation and
+  // this reserved turn. Timing out a caller must not pretend that an
+  // underlying, non-cancellable wallet prompt has settled.
+  signatureQueue = previous.catch(() => undefined).then(() => ownOperation)
+  let walletOperationStarted = false
+  return (async () => {
+    try {
+      await bounded(previous, 'Wallet signature queue')
+      if (!isCurrent()) throw new Error('Wallet changed')
+      let walletOperation: Promise<T>
+      try { walletOperation = Promise.resolve(sign()) }
+      catch (error) { release(); throw error }
+      walletOperationStarted = true
+      void walletOperation.then(release, release)
+      return await bounded(walletOperation, 'Wallet signature')
+    } finally {
+      // If this turn expired while waiting, release its own empty reservation.
+      // The chained tail still cannot resolve until `previous` really settles.
+      if (!walletOperationStarted) release()
+    }
+  })()
+}
+
+function boundedResponseJson(response: Response, stage: string) {
+  return bounded(response.json(), stage, () => {
+    responseControllers.get(response)?.abort()
+    void response.body?.cancel().catch(() => undefined)
+  }).finally(() => { responseControllers.delete(response) })
 }
 
 function userRejected(error: unknown) {
@@ -84,13 +165,24 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
   const [status, setStatus] = useState<SessionStatus>(wallet ? 'checking' : 'disconnected')
   const [networkStatus, setNetworkStatus] = useState<NetworkStatus>(wallet ? 'checking' : 'disconnected')
   const [error, setError] = useState<string | null>(null)
+  const statusRef = useRef(status)
+  statusRef.current = status
 
-  const ensureArcMainnet = useCallback(async (requestedWallet: string, explicit: boolean) => {
-    if (currentWallet.current !== requestedWallet || getAccount(config).address?.toLowerCase() !== requestedWallet) return false
+  const currentAttempt = useCallback((requestedWallet: string, generation: number) =>
+    coordinatorWallet === requestedWallet && coordinatorGeneration === generation &&
+    currentWallet.current === requestedWallet && getAccount(config).address?.toLowerCase() === requestedWallet, [config])
+
+  const ensureArcMainnet = useCallback(async (requestedWallet: string, explicit: boolean, generation = coordinatorGeneration) => {
+    if (!currentAttempt(requestedWallet, generation)) return false
     const activeConnector = getAccount(config).connector ?? connector
-    const provider = await activeConnector?.getProvider().catch(() => null) as EIP1193Provider | null | undefined
+    let provider: EIP1193Provider | null | undefined
+    try {
+      provider = await bounded(Promise.resolve(activeConnector?.getProvider()), 'Wallet provider') as EIP1193Provider | null | undefined
+    } catch {
+      provider = null
+    }
     if (!provider) {
-      if (currentWallet.current === requestedWallet) {
+      if (currentAttempt(requestedWallet, generation)) {
         setNetworkStatus('required')
         setStatus('error')
         setError('Wallet network could not be checked. Reconnect your wallet and try again.')
@@ -98,7 +190,8 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
       return false
     }
 
-    const activeChain = await providerChainId(provider).catch(() => null)
+    const activeChain = await bounded(providerChainId(provider), 'Wallet network check').catch(() => null)
+    if (!currentAttempt(requestedWallet, generation)) return false
     if (activeChain === ARC_MAINNET_CHAIN_ID) {
       automaticChainAttempts.delete(requestedWallet)
       if (currentWallet.current === requestedWallet) setNetworkStatus('ready')
@@ -106,9 +199,9 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     }
 
     const existing = chainInFlight.get(requestedWallet)
-    if (existing) {
-      const result = await existing
-      if (currentWallet.current === requestedWallet) {
+    if (existing?.generation === generation) {
+      const result = await existing.promise
+      if (currentAttempt(requestedWallet, generation)) {
         setNetworkStatus(result.ready ? 'ready' : 'required')
         if (!result.ready) {
           setStatus(result.rejected ? 'unauthenticated' : 'error')
@@ -118,7 +211,7 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
       return result.ready
     }
     if (!explicit && automaticChainAttempts.has(requestedWallet)) {
-      if (currentWallet.current === requestedWallet) {
+      if (currentAttempt(requestedWallet, generation)) {
         setNetworkStatus('required')
         setStatus('unauthenticated')
         setError('Switch to Arc Mainnet to continue.')
@@ -134,8 +227,8 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     }
     const transition = (async () => {
       try {
-        await switchChainAsync({ chainId: ARC_MAINNET_CHAIN_ID, connector: activeConnector })
-        const settled = await waitForProviderChain(provider, ARC_MAINNET_CHAIN_ID)
+        await bounded(switchChainAsync({ chainId: ARC_MAINNET_CHAIN_ID, connector: activeConnector }), 'Wallet network switch')
+        const settled = await bounded(waitForProviderChain(provider, ARC_MAINNET_CHAIN_ID), 'Wallet network confirmation')
         if (!settled.confirmed) throw new Error('Wallet provider did not confirm Arc Mainnet in time')
         automaticChainAttempts.delete(requestedWallet)
         return { ready: true, rejected: false, error: null }
@@ -146,39 +239,39 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
           : walletChainErrorMessage(chainError, 'Arc Mainnet') }
       }
     })().finally(() => {
-      if (chainInFlight.get(requestedWallet) === transition) chainInFlight.delete(requestedWallet)
+      if (chainInFlight.get(requestedWallet)?.promise === transition) chainInFlight.delete(requestedWallet)
     })
-    chainInFlight.set(requestedWallet, transition)
+    chainInFlight.set(requestedWallet, { generation, promise: transition })
     const result = await transition
-    if (currentWallet.current !== requestedWallet || getAccount(config).address?.toLowerCase() !== requestedWallet) return false
+    if (!currentAttempt(requestedWallet, generation)) return false
     setNetworkStatus(result.ready ? 'ready' : 'required')
     if (!result.ready) {
       setStatus(result.rejected ? 'unauthenticated' : 'error')
       setError(result.error)
     }
     return result.ready
-  }, [config, connector, switchChainAsync])
+  }, [config, connector, currentAttempt, switchChainAsync])
 
-  const checkSession = useCallback((requestedWallet: string) => {
+  const checkSession = useCallback((requestedWallet: string, generation: number) => {
     const existing = checkInFlight.get(requestedWallet)
-    if (existing) return existing
-    const request = fetch(`/api/auth/session?wallet=${encodeURIComponent(requestedWallet)}`, {
+    if (existing?.generation === generation) return existing.promise
+    const request = boundedFetch(`/api/auth/session?wallet=${encodeURIComponent(requestedWallet)}`, {
       credentials: 'same-origin', cache: 'no-store',
-    }).then(async response => {
+    }, 'Wallet session check').then(async response => {
       if (response.status === 401) return 'unauthenticated' as const
       if (!response.ok) return 'unavailable' as const
-      const body = await response.json().catch(() => null) as { authenticated?: boolean; wallet?: string } | null
+      const body = await boundedResponseJson(response, 'Wallet session response').catch(() => null) as { authenticated?: boolean; wallet?: string } | null
       if (!body) return 'unavailable' as const
       return body.authenticated === true && body.wallet?.toLowerCase() === requestedWallet
         ? 'authenticated' as const : 'unauthenticated' as const
     }).catch(() => 'unavailable' as const).finally(() => {
-      if (checkInFlight.get(requestedWallet) === request) checkInFlight.delete(requestedWallet)
+      if (checkInFlight.get(requestedWallet)?.promise === request) checkInFlight.delete(requestedWallet)
     })
-    checkInFlight.set(requestedWallet, request)
+    checkInFlight.set(requestedWallet, { generation, promise: request })
     return request
   }, [])
 
-  const initializeSession = useCallback(async (requestedWallet: string): Promise<SessionCheckResult> => {
+  const initializeSession = useCallback(async (requestedWallet: string, generation: number): Promise<SessionCheckResult> => {
     if (establishedSessionWallet === requestedWallet) {
       authenticatedWallet.current = requestedWallet
       initializedSession.current = { wallet: requestedWallet, result: 'authenticated' }
@@ -196,8 +289,8 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
       setStatus('checking')
       setError(null)
     }
-    const result = await checkSession(requestedWallet)
-    if (currentWallet.current !== requestedWallet || getAccount(config).address?.toLowerCase() !== requestedWallet) {
+    const result = await checkSession(requestedWallet, generation)
+    if (!currentAttempt(requestedWallet, generation)) {
       return 'unavailable'
     }
     initializedSession.current = { wallet: requestedWallet, result }
@@ -212,20 +305,22 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
       setError('Wallet session could not be checked. Try again when the service is available.')
     }
     return result
-  }, [checkSession, config])
+  }, [checkSession, currentAttempt])
 
-  const performLogin = useCallback((requestedWallet: string): Promise<LoginResult> => {
+  const performLogin = useCallback((requestedWallet: string, generation: number): Promise<LoginResult> => {
     const existing = loginInFlight.get(requestedWallet)
-    if (existing) return existing
+    if (existing?.generation === generation) return existing.promise
+    const attempt: LoginAttempt = { generation, active: true }
+    const ownsAttempt = () => attempt.active && currentAttempt(requestedWallet, attempt.generation)
     const request = (async (): Promise<LoginResult> => {
       try {
-        if (getAccount(config).address?.toLowerCase() !== requestedWallet) throw new Error('Wallet changed')
-        if (!await ensureArcMainnet(requestedWallet, false)) throw new Error('Switch to Arc Mainnet to sign in.')
-        const challengeResponse = await fetch('/api/auth/challenge', {
+        if (!ownsAttempt()) throw new Error('Wallet changed')
+        if (!await ensureArcMainnet(requestedWallet, false, generation)) throw new Error('Switch to Arc Mainnet to sign in.')
+        const challengeResponse = await boundedFetch('/api/auth/challenge', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ wallet: requestedWallet }),
-        })
-        const candidate = await challengeResponse.json().catch(() => null) as {
+        }, 'Wallet login challenge')
+        const candidate = await boundedResponseJson(challengeResponse, 'Wallet challenge response').catch(() => null) as {
           challenge_id?: string; wallet?: string; nonce?: Hex; issued_at?: number; deadline?: number;
           origin?: string; error?: string
         } | null
@@ -237,8 +332,8 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
         const challenge = candidate as { challenge_id: string; wallet: string; nonce: Hex; issued_at: number;
           deadline: number; origin: string }
         const signature = await serializeSignature(async () => {
-          if (getAccount(config).address?.toLowerCase() !== requestedWallet) throw new Error('Wallet changed')
-          if (currentWallet.current === requestedWallet) setStatus('signing')
+          if (!ownsAttempt()) throw new Error('Wallet changed')
+          setStatus('signing')
           try {
             return await signTypedDataAsync({ account: requestedWallet as Address, domain: LOGIN_AUTH_DOMAIN,
               types: LOGIN_AUTH_TYPES, primaryType: 'MahsharLogin', message: loginMessage({
@@ -248,44 +343,48 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
           } finally {
             // The wallet prompt is over. Session creation/recovery is a passive
             // check and must never leave the header claiming a signature is active.
-            if (currentWallet.current === requestedWallet && establishedSessionWallet !== requestedWallet) {
+            if (ownsAttempt() && establishedSessionWallet !== requestedWallet) {
               setStatus('checking')
             }
           }
-        })
-        if (getAccount(config).address?.toLowerCase() !== requestedWallet) throw new Error('Wallet changed')
-        const response = await fetch('/api/auth/session', {
+        }, ownsAttempt)
+        if (!ownsAttempt()) throw new Error('Wallet changed')
+        const response = await boundedFetch('/api/auth/session', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
             challenge_id: challenge.challenge_id, wallet: requestedWallet, nonce: challenge.nonce,
             issued_at: challenge.issued_at, deadline: challenge.deadline, signature,
           }),
-        })
-        const result = await response.json().catch(() => null) as { authenticated?: boolean; wallet?: string; error?: string } | null
+        }, 'Wallet session creation')
+        const result = await boundedResponseJson(response, 'Wallet session creation response').catch(() => null) as { authenticated?: boolean; wallet?: string; error?: string } | null
         if (!response.ok || result?.authenticated !== true || result.wallet?.toLowerCase() !== requestedWallet) {
           throw new Error(result?.error ?? 'Wallet session could not be created')
         }
         // Publish success before resolving loginInFlight. This closes the gap
         // where another consumer/remount could observe no in-flight login and
         // no provider-local authenticated ref, then open a second prompt.
+        if (!ownsAttempt()) throw new Error('Wallet changed')
         establishedSessionWallet = requestedWallet
         establishedSessionGeneration += 1
         return { authenticated: true, rejected: false, error: null }
       } catch (loginError) {
+        attempt.active = false
         if (userRejected(loginError)) return { authenticated: false, rejected: true,
           error: 'Wallet sign-in was cancelled. Sign in when you are ready to use private features.' }
+        if (loginError instanceof AuthTimeoutError) return { authenticated: false, rejected: false,
+          error: 'Wallet sign-in timed out. Sign in again when your wallet is ready.' }
         return { authenticated: false, rejected: false,
           error: loginError instanceof Error ? loginError.message : 'Wallet sign-in failed; try again' }
       }
     })().finally(() => {
-      if (loginInFlight.get(requestedWallet) === request) loginInFlight.delete(requestedWallet)
+      if (loginInFlight.get(requestedWallet)?.promise === request) loginInFlight.delete(requestedWallet)
     })
-    loginInFlight.set(requestedWallet, request)
+    loginInFlight.set(requestedWallet, { generation, promise: request })
     return request
-  }, [config, ensureArcMainnet, signTypedDataAsync])
+  }, [currentAttempt, ensureArcMainnet, signTypedDataAsync])
 
-  const establishSession = useCallback(async (requestedWallet: string, explicit: boolean) => {
-    if (!await ensureArcMainnet(requestedWallet, explicit)) return false
+  const establishSession = useCallback(async (requestedWallet: string, explicit: boolean, generation = coordinatorGeneration) => {
+    if (!await ensureArcMainnet(requestedWallet, explicit, generation)) return false
     if (establishedSessionWallet === requestedWallet) {
       initializedSession.current = { wallet: requestedWallet, result: 'authenticated' }
       authenticatedWallet.current = requestedWallet
@@ -299,8 +398,8 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
       setError(null)
       return true
     }
-    const checked = await initializeSession(requestedWallet)
-    if (currentWallet.current !== requestedWallet || getAccount(config).address?.toLowerCase() !== requestedWallet) return false
+    const checked = await initializeSession(requestedWallet, generation)
+    if (!currentAttempt(requestedWallet, generation)) return false
     // A parallel consumer may have completed login while this caller awaited
     // its earlier session check. Re-adopt that result before considering a new
     // challenge; loginInFlight may already have completed and been removed.
@@ -322,8 +421,8 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     // Only performLogin's actual signTypedData call publishes `signing`.
     if (!loginInFlight.has(requestedWallet)) setStatus('checking')
     setError(null)
-    const result = await performLogin(requestedWallet)
-    if (currentWallet.current !== requestedWallet || getAccount(config).address?.toLowerCase() !== requestedWallet) return false
+    const result = await performLogin(requestedWallet, generation)
+    if (!currentAttempt(requestedWallet, generation)) return false
     if (result.authenticated) {
       initializedSession.current = { wallet: requestedWallet, result: 'authenticated' }
       authenticatedWallet.current = requestedWallet
@@ -338,7 +437,7 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     setStatus(result.rejected ? 'unauthenticated' : 'error')
     setError(result.error)
     return false
-  }, [config, ensureArcMainnet, initializeSession, performLogin])
+  }, [currentAttempt, ensureArcMainnet, initializeSession, performLogin])
   const establishSessionRef = useRef(establishSession)
   establishSessionRef.current = establishSession
 
@@ -346,10 +445,11 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     const active = currentWallet.current
     if (!active) return false
     rejectedWallet.current = null
+    const generation = invalidateCoordinator(active)
     if (initializedSession.current?.wallet === active && initializedSession.current.result === 'unavailable') {
       initializedSession.current = null
     }
-    return establishSession(active, true)
+    return establishSession(active, true, generation)
   }, [establishSession])
 
   const request = useCallback(async (input: string, init: RequestInit = {}) => {
@@ -387,7 +487,8 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     if (!connected) throw new Error('Connect your wallet first')
     const requestedWallet = normalizedWallet(connected)
     if (!await establishSession(requestedWallet, false)) throw new Error('Sign in with your wallet to continue')
-    if (!await ensureArcMainnet(requestedWallet, true)) throw new Error('Switch to Arc Mainnet to continue')
+    const generation = coordinatorGeneration
+    if (!await ensureArcMainnet(requestedWallet, true, generation)) throw new Error('Switch to Arc Mainnet to continue')
     const method = (init.method ?? 'GET').toUpperCase()
     const bodyText = typeof init.body === 'string' ? init.body : null
     if (init.body != null && bodyText === null) throw new Error('Sensitive requests must use a JSON string body')
@@ -400,7 +501,7 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     try {
       signature = await serializeSignature(() => signTypedDataAsync({ account: requestedWallet,
         domain: OPERATION_AUTH_DOMAIN, types: OPERATION_AUTH_TYPES,
-        primaryType: 'MahsharAuthorization', message }))
+        primaryType: 'MahsharAuthorization', message }), () => currentAttempt(requestedWallet, generation))
     } catch (signError) {
       if (userRejected(signError)) throw new Error('Action cancelled')
       throw new Error('Wallet authorization failed; try again')
@@ -413,11 +514,12 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     // Never automatically replay a one-use proof. A session failure or ambiguous
     // response is surfaced so the user can review and explicitly authorize again.
     return fetch(input, { ...init, headers, credentials: 'same-origin' })
-  }, [config, ensureArcMainnet, establishSession, signTypedDataAsync])
+  }, [config, currentAttempt, ensureArcMainnet, establishSession, signTypedDataAsync])
 
   useEffect(() => {
     const priorWallet = previousWallet.current
     previousWallet.current = wallet
+    const generation = coordinateWallet(wallet)
     if (!wallet || (establishedSessionWallet !== null && establishedSessionWallet !== wallet)) {
       establishedSessionWallet = null
     }
@@ -434,7 +536,7 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     }
     setNetworkStatus('checking')
     setStatus('checking')
-    void establishSessionRef.current(wallet, false)
+    void establishSessionRef.current(wallet, false, generation)
   }, [wallet])
 
   useEffect(() => {
@@ -443,7 +545,13 @@ export function MarketplaceSessionProvider({ children }: { children: React.React
     let provider: EIP1193Provider | null = null
     const onChainChanged = (value: unknown) => {
       if (disposed || currentWallet.current !== wallet) return
-      setNetworkStatus(numericChainId(value) === ARC_MAINNET_CHAIN_ID ? 'ready' : 'required')
+      const ready = numericChainId(value) === ARC_MAINNET_CHAIN_ID
+      setNetworkStatus(ready ? 'ready' : 'required')
+      if (statusRef.current === 'checking' || statusRef.current === 'signing') {
+        invalidateCoordinator(wallet)
+        setStatus('error')
+        setError(ready ? 'Wallet network changed during sign-in. Try again.' : 'Switch to Arc Mainnet and sign in again.')
+      }
     }
     void connector.getProvider().then(candidate => {
       if (disposed || !candidate) return

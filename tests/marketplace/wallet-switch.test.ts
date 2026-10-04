@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test } from 'node:test'
-import { MarketplaceSessionProvider, resetMarketplaceSessionCoordinatorForTests } from '../../src/components/MarketplaceSessionProvider'
+import { MarketplaceSessionProvider, resetMarketplaceSessionCoordinatorForTests,
+  setMarketplaceSessionTimeoutForTests } from '../../src/components/MarketplaceSessionProvider'
 import { alice, bob, emitChainChanged, flush, releaseSessionBodies, remount, render, replayEffects, reset, runEffects,
   signature, state } from './wallet-switch-register.mjs'
 
@@ -199,6 +200,98 @@ test('an expired session completes validation before requesting exactly one logi
   const sessionCheck = state.fetches.findIndex((item: { input: string }) => item.input.startsWith('/api/auth/session?'))
   const challenge = state.fetches.findIndex((item: { input: string }) => item.input === '/api/auth/challenge')
   assert.ok(sessionCheck >= 0 && challenge > sessionCheck)
+})
+
+for (const [label, configure] of [
+  ['session GET', () => { state.hangSessionGet = true }],
+  ['challenge POST', () => { state.hangChallenge = true }],
+  ['session POST', () => { state.hangSessionPost = true }],
+  ['provider acquisition', () => { state.hangProvider = true }],
+] as const) {
+  test(`a never-resolving ${label} times out to a recoverable Sign in state`, async () => {
+    setMarketplaceSessionTimeoutForTests(20)
+    configure()
+    render(MarketplaceSessionProvider)
+    runEffects()
+    await wait(35)
+    const context = render(MarketplaceSessionProvider)
+    assert.ok(['error', 'unauthenticated'].includes(context.status))
+    assert.notEqual(context.status, 'checking')
+    assert.notEqual(context.status, 'signing')
+  })
+}
+
+test('a stale session check cannot overwrite the newer wallet session', async () => {
+  state.serverWallet = alice
+  state.deferSessionBodies = true
+  render(MarketplaceSessionProvider)
+  runEffects()
+  await flush()
+  assert.equal(state.pendingSessionBodies.length, 1)
+
+  state.address = bob
+  state.serverWallet = bob
+  state.deferSessionBodies = false
+  render(MarketplaceSessionProvider)
+  runEffects()
+  await flush()
+  assert.equal(render(MarketplaceSessionProvider).status, 'authenticated')
+  releaseSessionBodies()
+  await flush()
+  const context = render(MarketplaceSessionProvider)
+  assert.equal(context.wallet, bob)
+  assert.equal(context.status, 'authenticated')
+  assert.equal(state.signatures, 0)
+})
+
+test('a timed-out signature resolving later cannot restore checking or signing', async () => {
+  setMarketplaceSessionTimeoutForTests(20)
+  state.deferSignatures = true
+  render(MarketplaceSessionProvider)
+  runEffects()
+  await flush()
+  assert.equal(state.signatures, 1)
+  assert.equal(render(MarketplaceSessionProvider).status, 'signing')
+  await wait(35)
+  let context = render(MarketplaceSessionProvider)
+  assert.equal(context.status, 'error')
+
+  state.pendingSignatures.shift().resolve(signature)
+  await flush()
+  context = render(MarketplaceSessionProvider)
+  assert.equal(context.status, 'error')
+  assert.equal(context.wallet, alice)
+  assert.equal(state.signatures, 1)
+})
+
+test('retry cannot overlap a timed-out wallet prompt and succeeds after that prompt settles', async () => {
+  setMarketplaceSessionTimeoutForTests(20)
+  state.deferSignatures = true
+  render(MarketplaceSessionProvider)
+  runEffects()
+  await flush()
+  await wait(35)
+  let context = render(MarketplaceSessionProvider)
+  assert.equal(context.status, 'error')
+
+  state.deferSignatures = false
+  const blockedRetry = context.authenticate()
+  await wait(35)
+  assert.equal(await blockedRetry, false)
+  context = render(MarketplaceSessionProvider)
+  assert.equal(context.status, 'error')
+  assert.equal(state.signatures, 1)
+
+  state.pendingSignatures.shift().resolve(signature)
+  await flush()
+  context = render(MarketplaceSessionProvider)
+  assert.equal(context.status, 'error')
+  assert.equal(context.wallet, alice)
+
+  assert.equal(await context.authenticate(), true)
+  context = render(MarketplaceSessionProvider)
+  assert.equal(context.status, 'authenticated')
+  assert.equal(state.signatures, 2)
 })
 
 test('a wrong-wallet server session requests exactly one login for the connected wallet', async () => {

@@ -1,4 +1,5 @@
 import { validateDeclaredParameterMetadata } from './proxy-target'
+import { validateSupportedRequestSchema } from './request-body-schema'
 
 const objectOrNull = (value: unknown) => value === null || (typeof value === 'object' && !Array.isArray(value))
 const arrayOrNull = (value: unknown) => value === null || Array.isArray(value)
@@ -8,6 +9,10 @@ export function listingContractMetadata(body: Record<string, unknown>, method: s
   for (const key of ['request_schema', 'response_schema'] as const) {
     if (body[key] !== undefined) {
       if (!objectOrNull(body[key])) return { ok: false as const, error: `${key} must be a JSON object or null` }
+      if (key === 'request_schema') {
+        const schema = validateSupportedRequestSchema(body[key])
+        if (!schema.ok) return { ok: false as const, error: schema.error }
+      }
       patch[key] = body[key]
     }
   }

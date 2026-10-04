@@ -122,7 +122,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
 
   const requestContract = validateListingRequestContract({
     endpoint_url, method: normalizedMethod, auth_type, auth_param_name,
-    example_request, body_required: body.body_required,
+    example_request, body_required: body.body_required, request_schema: body.request_schema,
     dynamic_path_supported: body.dynamic_path_supported ?? false,
     path_parameters: body.path_parameters ?? null,
     query_parameters: body.query_parameters ?? null,
