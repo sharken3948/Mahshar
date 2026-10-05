@@ -1,7 +1,7 @@
 import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
 import { canonicalExternalUrl, durableExternalName, durableExternalSummary } from './sanitize'
-import type { CandidateOutcome, DurableCandidate, ProvenanceFact, RawCandidate, WorkerQualification } from './types'
+import type { CandidateOutcome, DurableCandidate, ProvenanceFact, RawCandidate, WorkerQualification, WorkerTraction } from './types'
 
 type DbError = { message?: string; code?: string } | null
 type DbResult = { data: unknown; error: DbError }
@@ -37,6 +37,8 @@ function candidateRow(value: unknown): DurableCandidate {
     discoveredPricingUrl: typeof item.discovered_pricing_url === 'string' ? item.discovered_pricing_url : undefined,
     discoveredContactUrl: typeof item.discovered_contact_url === 'string' ? item.discovered_contact_url : undefined,
     sourceSummary: typeof item.source_summary === 'string' ? item.source_summary : undefined,
+    directoryAddedAt: typeof item.source_added_at === 'string' ? item.source_added_at : undefined,
+    directoryUpdatedAt: typeof item.source_updated_at === 'string' ? item.source_updated_at : undefined,
     normalizedDomain: typeof item.normalized_domain === 'string' ? item.normalized_domain : null,
     normalizedProductKey: typeof item.normalized_product_key === 'string' ? item.normalized_product_key : null,
     status: item.status as DurableCandidate['status'],
@@ -50,20 +52,24 @@ function candidateRow(value: unknown): DurableCandidate {
   }
 }
 
-export async function getDiscoveryRunContext(runId: string): Promise<{ batchId: string; rootRunNumber: number; deadlineAt: string }> {
+export async function getDiscoveryRunContext(runId: string): Promise<{
+  batchId: string; rootRunNumber: number; deadlineAt: string; qualifiedCount: number; qualifiedTarget: number
+}> {
   const db = createServiceClient()
-  const current = await db.from('worker_runs').select('discovery_batch_id,deadline_at').eq('id', runId).single() as DbResult
+  const current = await db.from('worker_runs').select('discovery_batch_id,deadline_at,qualified_count,qualified_target').eq('id', runId).single() as DbResult
   if (current.error) fail('worker_discovery_context', current.error)
   const currentRow = row(current.data)
-  if (!currentRow || typeof currentRow.discovery_batch_id !== 'string' || typeof currentRow.deadline_at !== 'string') throw new Error('worker_discovery_context_invalid')
+  if (!currentRow || typeof currentRow.discovery_batch_id !== 'string' || typeof currentRow.deadline_at !== 'string'
+    || !Number.isInteger(currentRow.qualified_count) || !Number.isInteger(currentRow.qualified_target)) throw new Error('worker_discovery_context_invalid')
   const root = await db.from('worker_runs').select('run_number').eq('id', currentRow.discovery_batch_id).single() as DbResult
   if (root.error) fail('worker_discovery_root', root.error)
   const rootRow = row(root.data)
   if (!rootRow || !Number.isInteger(rootRow.run_number)) throw new Error('worker_discovery_context_invalid')
-  return { batchId: currentRow.discovery_batch_id, rootRunNumber: rootRow.run_number as number, deadlineAt: currentRow.deadline_at }
+  return { batchId: currentRow.discovery_batch_id, rootRunNumber: rootRow.run_number as number, deadlineAt: currentRow.deadline_at,
+    qualifiedCount: currentRow.qualified_count as number, qualifiedTarget: currentRow.qualified_target as number }
 }
 
-export async function claimDiscoveryBudget(runId: string, budget: 'source' | 'research' | 'groq', claimKey: string): Promise<boolean> {
+export async function claimDiscoveryBudget(runId: string, budget: 'source' | 'research' | 'groq' | 'traction', claimKey: string): Promise<boolean> {
   const result = await createServiceClient().rpc('mahshar_worker_claim_budget', {
     p_run_id: runId, p_budget: budget, p_claim_key: claimKey,
   }) as DbResult
@@ -81,7 +87,7 @@ export async function getMaterializedSourceWork(batchId: string, claimKey: strin
 export async function materializeSourceWork(
   runId: string,
   claimKey: string,
-  workKind: 'provider_window' | 'candidate',
+  workKind: 'provider_plan' | 'provider_window' | 'candidate',
   compactResult: unknown,
 ): Promise<unknown | null> {
   const result = await createServiceClient().rpc('mahshar_worker_materialize_source_work', {
@@ -105,6 +111,7 @@ export function discoveryCandidateRecord(batchId: string, ordinal: number, candi
     discovered_contract_url: string | null;
     discovered_docs_url: string | null; discovered_pricing_url: string | null;
     discovered_contact_url: string | null; source_summary: string | null;
+    source_added_at: string | null; source_updated_at: string | null;
     status: 'pending' | 'filtered' | 'deferred'; reason_code: string | null;
     terminal_at?: string | null; retention_eligible_at?: string | null;
   } {
@@ -122,6 +129,7 @@ export function discoveryCandidateRecord(batchId: string, ordinal: number, candi
     discovered_pricing_url: canonicalExternalUrl(candidate.discoveredPricingUrl) ?? null,
     discovered_contact_url: canonicalExternalUrl(candidate.discoveredContactUrl) ?? null,
     source_summary: durableExternalSummary(candidate.sourceSummary, 700) ?? null,
+    source_added_at: candidate.directoryAddedAt ?? null, source_updated_at: candidate.directoryUpdatedAt ?? null,
     status: 'pending' as const, reason_code: null,
     }
   }
@@ -132,6 +140,7 @@ export function discoveryCandidateRecord(batchId: string, ordinal: number, candi
     source_url: 'https://api.apis.guru/v2/providers.json', discovered_name: `unavailable-${ordinal + 1}`,
     discovered_domain: null, discovered_product: null, discovered_contract_url: null, discovered_docs_url: null,
     discovered_pricing_url: null, discovered_contact_url: null, source_summary: null,
+    source_added_at: null, source_updated_at: null,
     status: deferred ? 'deferred' as const : 'filtered' as const,
     reason_code: reasonCode ?? 'source_record_invalid',
     terminal_at: deferred ? null : now.toISOString(),
@@ -309,22 +318,26 @@ export function provenanceRecords(leadId: string, facts: ProvenanceFact[]): Arra
 }
 
 export async function saveQualification(input: {
-  candidate: DurableCandidate; providerId: string; productId: string; leadId: string; result?: WorkerQualification; model?: string;
-  qualified: boolean; deferredReason?: string
-}): Promise<{ status: CandidateOutcome['status']; reasonCode: string }> {
+  runId: string; candidate: DurableCandidate; providerId: string; productId: string; leadId: string; result?: WorkerQualification; model?: string;
+  traction?: WorkerTraction; qualified: boolean; deferredReason?: string
+}): Promise<{ status: CandidateOutcome['status']; reasonCode: string; countedQualified: boolean; targetReached: boolean }> {
   if (!input.deferredReason && (!input.result || !input.model)) throw new Error('worker_qualification_missing')
-  const result = await createServiceClient().rpc('mahshar_worker_persist_qualification', {
+  const result = await createServiceClient().rpc('mahshar_worker_persist_qualification_v2', {
+    p_run_id: input.runId,
     p_candidate_id: input.candidate.id, p_lease_id: input.candidate.processingLeaseId,
     p_provider_id: input.providerId, p_product_id: input.productId, p_lead_id: input.leadId,
     p_qualification: input.result ? { ...input.result, summary: durableExternalSummary(input.result.summary, 500) } : null,
+    p_traction: input.traction ?? null, p_contactability: input.traction?.contactability ?? 'unknown',
     p_model: input.model ?? null, p_qualified: input.qualified, p_deferred_reason: input.deferredReason ?? null,
   }) as DbResult
   if (result.error) fail('worker_qualification_save', result.error)
   const value = row(result.data)
-  if (!value || !['duplicate', 'blocked', 'filtered', 'deferred', 'persisted'].includes(String(value.status)) || typeof value.reasonCode !== 'string') {
+  if (!value || !['duplicate', 'blocked', 'filtered', 'deferred', 'persisted'].includes(String(value.status))
+    || typeof value.reasonCode !== 'string' || typeof value.countedQualified !== 'boolean' || typeof value.targetReached !== 'boolean') {
     throw new Error('worker_qualification_result_invalid')
   }
-  return { status: value.status as CandidateOutcome['status'], reasonCode: value.reasonCode }
+  return { status: value.status as CandidateOutcome['status'], reasonCode: value.reasonCode,
+    countedQualified: value.countedQualified, targetReached: value.targetReached }
 }
 
 export function qualificationRetryAfter(reason: string, now = Date.now()): string {

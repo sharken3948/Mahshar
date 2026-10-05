@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAdminRequest } from '@/components/AdminAccess'
 import { workerControlAvailability } from '@/lib/admin-worker/availability'
+import { verificationLabel, workerCompletionLabel } from '@/lib/admin-worker/presentation'
 import type { WorkerQualifiedLeadDto, WorkerQualifiedLeadsDto, WorkerRunDto, WorkerRunsDto, WorkerStatusDto } from '@/lib/admin-worker/types'
 import { QualificationLabel } from './qualification-label'
 import styles from './worker.module.css'
@@ -26,10 +27,10 @@ function RunStatus({ status }: { status: WorkerRunDto['status'] }) {
 }
 
 function Progress({ run }: { run: WorkerRunDto }) {
-  const percentage = Math.round(run.processed_count / run.batch_size * 100)
+  const percentage = Math.round(run.counts.qualified / run.targets.qualified * 100)
   return <div className={styles.progressGroup}>
-    <div><span>{run.processed_count} / {run.batch_size}</span><strong>{percentage}%</strong></div>
-    <progress max={run.batch_size} value={run.processed_count} aria-label={`${run.processed_count} of ${run.batch_size} discovery candidates processed`}/>
+    <div><span>{run.counts.qualified} / {run.targets.qualified} qualified</span><strong>{percentage}%</strong></div>
+    <progress max={run.targets.qualified} value={run.counts.qualified} aria-label={`${run.counts.qualified} of ${run.targets.qualified} qualified leads`}/>
   </div>
 }
 
@@ -43,8 +44,15 @@ function LatestRun({ run }: { run: WorkerRunDto | null }) {
       <div><span>Completed / stopped</span><strong>{timeLabel(run.completed_at ?? run.stopped_at)}</strong></div>
     </div>
     <Progress run={run}/>
+    <div className={styles.runSummary}>
+      <div><span>Raw scanned</span><strong>{run.counts.raw_scanned} / {run.targets.raw_limit}</strong></div>
+      <div><span>Remaining to target</span><strong>{run.targets.remaining}</strong></div>
+      <div><span>Completion</span><strong>{workerCompletionLabel(run)}</strong></div>
+      <div><span>Source exhausted</span><strong>{run.source_exhausted ? 'Yes' : 'No'}</strong></div>
+    </div>
     <div className={styles.countGrid}>
-      {Object.entries(run.counts).map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}
+      {Object.entries(run.counts).map(([label, value]) => <div key={label}><span>{statusLabel(label)}</span><strong>{value}</strong></div>)}
+      {Object.entries(run.resources).map(([label, value]) => <div key={label}><span>{statusLabel(label)}</span><strong>{value}</strong></div>)}
     </div>
   </>
 }
@@ -137,7 +145,8 @@ export function WorkerClient() {
     {commandError && <div className={styles.error} role="alert">{commandError}</div>}
 
     <section className={styles.statusGrid} aria-label="Worker configuration">
-      <article><span>Raw candidate target</span><strong>{status?.batch_size ?? '—'}</strong><small>Qualified lead count can be lower</small></article>
+      <article><span>Qualified target</span><strong>{status?.qualified_target ?? '—'}</strong><small>Only final qualified leads count</small></article>
+      <article><span>Raw scan hard cap</span><strong>{status?.raw_candidate_limit ?? '—'}</strong><small>Stops safely even below target</small></article>
       <article><span>Last checkpoint</span><strong>{checkpoint ? `${checkpoint.nextIndex} / ${checkpoint.batchSize}` : 'None'}</strong><small>Compact checkpoint version {checkpoint?.version ?? '—'}</small></article>
       <article><span>Last completed</span><strong className={styles.timeValue}>{timeLabel(status?.last_completed_at ?? null)}</strong><small>Durable completion timestamp</small></article>
     </section>
@@ -160,13 +169,14 @@ export function WorkerClient() {
       {leadsPhase === 'loading' ? <div className={styles.empty} role="status">Loading qualified leads…</div>
         : leadsPhase === 'failed' ? <div className={styles.empty} role="alert">Qualified leads are temporarily unavailable.</div>
           : leads.length === 0 ? <div className={styles.empty}>No qualified or review candidates are available.</div> : <div className={`${styles.tableViewport} ${styles.leadsTable}`}><table>
-        <thead><tr><th>Provider / API</th><th>Potentially compatible</th><th>AI qualification summary</th><th>Verified evidence</th><th>Status</th><th>Discovered</th></tr></thead>
+        <thead><tr><th>Provider / API</th><th>Fit / band</th><th>Traction estimate</th><th>Contactability</th><th>AI qualification summary</th><th>Verified evidence</th><th>Discovered</th></tr></thead>
         <tbody>{leads.map(lead => <tr key={lead.id}>
           <td data-label="Provider / API"><strong>{lead.provider}</strong><span>{lead.product}</span></td>
-          <td data-label="Potentially compatible"><strong>{lead.fit_score}</strong><QualificationLabel status={lead.status} reasonCodes={lead.reason_codes}/></td>
+          <td data-label="Fit / band"><strong>{lead.fit_score}</strong><QualificationLabel status={lead.status} reasonCodes={lead.reason_codes}/></td>
+          <td data-label="Traction estimate"><strong>{lead.traction_score ?? 'Unknown'}</strong><span>{lead.traction_level ? statusLabel(lead.traction_level) : 'Unknown'} activity · {statusLabel(lead.traction_confidence)} confidence</span><small>{lead.traction_summary ?? 'No bounded activity estimate available.'}{lead.last_activity_at ? ` · Last supported activity ${timeLabel(lead.last_activity_at)}` : ''}</small></td>
+          <td data-label="Contactability"><span>{statusLabel(lead.contactability)}</span></td>
           <td data-label="AI qualification summary"><span>{lead.summary}</span></td>
-          <td data-label="Verified evidence">{lead.official_site && <a href={lead.official_site} target="_blank" rel="noopener noreferrer">Official site</a>}{lead.docs_url && <>{lead.official_site && ' · '}<a href={lead.docs_url} target="_blank" rel="noopener noreferrer">Official docs</a></>}<small>Verified pricing {lead.pricing_available ? 'available' : 'not found'} · verified contact {lead.contact_available ? 'available' : 'not found'}</small>{lead.directory_sources.length > 0 && <small>Directory assertions: {lead.directory_sources.map((url, index) => <span key={url}>{index > 0 && ' · '}<a href={url} target="_blank" rel="noopener noreferrer">Source {index + 1}</a></span>)}</small>}</td>
-          <td data-label="Status"><span className={styles.badge}>{statusLabel(lead.status)}</span></td>
+          <td data-label="Verified evidence">{lead.official_site && <a href={lead.official_site} target="_blank" rel="noopener noreferrer">Official site</a>}{lead.docs_url && <>{lead.official_site && ' · '}<a href={lead.docs_url} target="_blank" rel="noopener noreferrer">Official docs</a></>}<small>Pricing: {verificationLabel(lead.pricing_available)} · Contact: {verificationLabel(lead.contact_available)}</small>{lead.directory_sources.length > 0 && <small>Directory assertions: {lead.directory_sources.map((url, index) => <span key={url}>{index > 0 && ' · '}<a href={url} target="_blank" rel="noopener noreferrer">Source {index + 1}</a></span>)}</small>}</td>
           <td data-label="Discovered"><span>{timeLabel(lead.discovered_at)}</span></td>
         </tr>)}</tbody>
       </table></div>}

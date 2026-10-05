@@ -21,6 +21,11 @@ function bounded(value: unknown, max: number): string | undefined {
   return text ? text.slice(0, max) : undefined
 }
 
+function boundedDate(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > 64 || !Number.isFinite(Date.parse(value))) return undefined
+  return new Date(value).toISOString()
+}
+
 export function parseApisGuruProviders(value: unknown): string[] {
   const data = record(value)?.data
   if (!Array.isArray(data) || data.length === 0 || data.length > 2_000) throw new Error('apis_guru_providers_invalid')
@@ -118,6 +123,7 @@ function candidateFor(provider: string, sourceUrl: string, item: ApiVersion): Ra
     sourceType: 'api_directory', sourceUrl: canonicalExternalUrl(sourceUrl) ?? `${BASE}/providers.json`,
     discoveredName: providerName, discoveredDomain: provider, discoveredProduct: title,
     discoveredContractUrl: contractUrl, discoveredDocsUrl: docsUrl, discoveredContactUrl: contactUrl,
+    directoryAddedAt: boundedDate(api.added), directoryUpdatedAt: boundedDate(api.updated),
     sourceSummary: durableExternalSummary([
       specification ? `OpenAPI ${specification}.` : 'OpenAPI directory record.', description,
     ].filter(Boolean).join(' '), 700),

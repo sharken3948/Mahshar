@@ -3,21 +3,24 @@ import { boundedDiscoveryFetch, type DiscoveryFetcher } from './fetch'
 import { fetchApisGuruCandidates, fetchApisGuruProviderNames } from './sources/apis-guru'
 import type { RawCandidate } from './types'
 
-export type SourceWorkKind = 'provider_window' | 'candidate'
+export type SourceWorkKind = 'provider_plan' | 'provider_window' | 'candidate'
 export type SourceWorkLoader = (claimKey: string) => Promise<unknown | null>
 export type SourceWorkMaterializer = (claimKey: string, kind: SourceWorkKind, result: unknown) => Promise<unknown | null>
 
 type CandidateResult = { kind: 'candidate'; ordinal: number; candidate: RawCandidate | null; reasonCode?: string }
+type ProviderPlan = { providers: string[]; sourceExhausted: boolean }
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
 }
 
-function providerWindow(value: unknown, expected: number): string[] | null {
+function providerPlan(value: unknown): ProviderPlan | null {
   const item = record(value)
-  const providers = item?.kind === 'provider_window' ? item.providers : null
-  return Array.isArray(providers) && providers.length === expected
-    && providers.every(provider => typeof provider === 'string') ? providers : null
+  const providers = item?.kind === 'provider_plan' ? item.providers : null
+  return Array.isArray(providers) && providers.length <= 300
+    && providers.every(provider => typeof provider === 'string')
+    && typeof item?.sourceExhausted === 'boolean'
+    ? { providers, sourceExhausted: item.sourceExhausted } : null
 }
 
 function candidateResult(value: unknown, ordinal: number): CandidateResult | null {
@@ -36,29 +39,32 @@ export async function discoverApiDirectoryRange(input: {
   materializeSourceWork: SourceWorkMaterializer
   fetcher?: DiscoveryFetcher
   deadlineMs?: number
-}): Promise<Array<{ ordinal: number; candidate: RawCandidate | null; reasonCode?: string }>> {
+}): Promise<{ items: Array<{ ordinal: number; candidate: RawCandidate | null; reasonCode?: string }>; sourceExhausted: boolean; deadlineReached: boolean }> {
   const fetcher = input.fetcher ?? boundedDiscoveryFetch
-  const windowKey = `providers:${input.start}`
-  let selectedProviders = providerWindow(await input.loadSourceWork(windowKey), input.end - input.start)
-  if (!selectedProviders) {
+  const planKey = 'providers:plan'
+  let plan = providerPlan(await input.loadSourceWork(planKey))
+  if (!plan) {
     const providers = await fetchApisGuruProviderNames(fetcher)
     const startOffset = ((input.rootRunNumber - 1) * 50) % providers.length
-    const proposed = Array.from({ length: input.end - input.start }, (_, index) => providers[(startOffset + input.start + index) % providers.length])
-    selectedProviders = providerWindow(await input.materializeSourceWork(windowKey, 'provider_window', {
-      kind: 'provider_window', providers: proposed,
-    }), input.end - input.start)
-    if (!selectedProviders) throw new Error('source_budget_exhausted')
+    const rotated = [...providers.slice(startOffset), ...providers.slice(0, startOffset)]
+    plan = providerPlan(await input.materializeSourceWork(planKey, 'provider_plan', {
+      kind: 'provider_plan', providers: rotated.slice(0, 300), sourceExhausted: rotated.length <= 300,
+    }))
+    if (!plan) throw new Error('source_budget_exhausted')
   }
+  const selectedProviders = plan.providers.slice(input.start, input.end)
   const results: Array<{ ordinal: number; candidate: RawCandidate | null; reasonCode?: string }> = []
-  for (let ordinal = input.start; ordinal < input.end; ordinal += 1) {
+  let deadlineReached = false
+  for (let index = 0; index < selectedProviders.length; index += 1) {
+    const ordinal = input.start + index
     if (input.deadlineMs !== undefined && Date.now() >= input.deadlineMs) {
-      results.push({ ordinal, candidate: null, reasonCode: 'run_budget_exhausted' })
-      continue
+      deadlineReached = true
+      break
     }
     const claimKey = `candidate:${ordinal}`
     let stored = candidateResult(await input.loadSourceWork(claimKey), ordinal)
     if (!stored) {
-      const provider = selectedProviders[ordinal - input.start]
+      const provider = selectedProviders[index]
       let proposed: CandidateResult
       try {
         const candidates = await fetchApisGuruCandidates(fetcher, provider)
@@ -76,5 +82,6 @@ export async function discoverApiDirectoryRange(input: {
     }
     results.push({ ordinal, candidate: stored.candidate, reasonCode: stored.reasonCode })
   }
-  return results
+  return { items: results,
+    sourceExhausted: plan.sourceExhausted && input.end >= plan.providers.length && !deadlineReached, deadlineReached }
 }

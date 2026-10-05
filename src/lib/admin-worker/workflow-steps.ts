@@ -13,7 +13,10 @@ export function aggregateDiscoveryCounters(outcomes: CandidateOutcome[]) {
     filtered: sum.filtered + item.filtered,
     qualified: sum.qualified + item.qualified,
     persisted: sum.persisted + item.persisted,
-  }), { discovered: 0, duplicate: 0, filtered: 0, qualified: 0, persisted: 0 })
+    reviewCandidate: sum.reviewCandidate + item.reviewCandidate,
+    deferred: sum.deferred + item.deferred,
+    tractionScored: sum.tractionScored + item.tractionScored,
+  }), { discovered: 0, duplicate: 0, filtered: 0, qualified: 0, persisted: 0, reviewCandidate: 0, deferred: 0, tractionScored: 0 })
 }
 
 export async function claimWorkerRunStep(runId: string): Promise<WorkerRunDto> {
@@ -25,10 +28,10 @@ export async function processDiscoveryChunkStep(runId: string, checkpointValue: 
   'use step'
   const checkpoint = parseWorkerCheckpoint(checkpointValue)
   if (!checkpoint) throw new Error('worker_checkpoint_invalid')
-  const next = advanceWorkerCheckpoint(checkpoint, WORKER_CHUNK_SIZE)
-  const outcomes = await processDiscoveryRange(runId, checkpoint.nextIndex, next.nextIndex)
-  const counters = aggregateDiscoveryCounters(outcomes)
-  return advanceWorkerDiscoveryRun(runId, checkpoint.nextIndex, next.nextIndex, counters)
+  const requested = advanceWorkerCheckpoint(checkpoint, WORKER_CHUNK_SIZE)
+  const result = await processDiscoveryRange(runId, checkpoint.nextIndex, requested.nextIndex)
+  const counters = aggregateDiscoveryCounters(result.outcomes)
+  return advanceWorkerDiscoveryRun(runId, checkpoint.nextIndex, result.nextIndex, counters, result)
 }
 
 export async function completeWorkerRunStep(runId: string): Promise<WorkerRunDto> {

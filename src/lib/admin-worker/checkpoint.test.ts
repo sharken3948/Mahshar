@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { advanceWorkerCheckpoint, initialWorkerCheckpoint, isResumableCheckpoint, parseWorkerCheckpoint } from './checkpoint'
+import { advanceWorkerCheckpoint, initialWorkerCheckpoint, isResumableCheckpoint, isResumableWorkerRun, parseWorkerCheckpoint } from './checkpoint'
 
 test('checkpoint accepts only compact version 1 values within batch bounds', () => {
   assert.deepEqual(parseWorkerCheckpoint({ version: 1, nextIndex: 20, batchSize: 50 }), {
@@ -9,9 +9,20 @@ test('checkpoint accepts only compact version 1 values within batch bounds', () 
   for (const malformed of [
     null, [], {}, { version: 2, nextIndex: 0, batchSize: 50 },
     { version: 1, nextIndex: -1, batchSize: 50 }, { version: 1, nextIndex: 51, batchSize: 50 },
-    { version: 1, nextIndex: 0, batchSize: 101 }, { version: 1, nextIndex: 0.5, batchSize: 50 },
+    { version: 1, nextIndex: 0, batchSize: 301 }, { version: 1, nextIndex: 0.5, batchSize: 50 },
     { version: 1, nextIndex: 10, batchSize: 50, items: [] },
   ]) assert.equal(parseWorkerCheckpoint(malformed), null)
+  assert.deepEqual(parseWorkerCheckpoint({ version: 1, nextIndex: 300, batchSize: 300 }), {
+    version: 1, nextIndex: 300, batchSize: 300,
+  })
+})
+
+test('only stopped or failed nonterminal logical batches are resumable', () => {
+  const checkpoint = { version: 1 as const, nextIndex: 299, batchSize: 300 }
+  assert.equal(isResumableWorkerRun('stopped', null, checkpoint, 300), true)
+  assert.equal(isResumableWorkerRun('failed', null, checkpoint, 300), true)
+  assert.equal(isResumableWorkerRun('completed', null, checkpoint, 300), false)
+  assert.equal(isResumableWorkerRun('stopped', 'deadline_reached', checkpoint, 300), false)
 })
 
 test('checkpoint advances monotonically without crossing the batch bound', () => {

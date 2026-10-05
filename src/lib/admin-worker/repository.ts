@@ -1,13 +1,14 @@
 import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
 import { canonicalExternalUrl } from './discovery/sanitize'
-import { isResumableCheckpoint, parseWorkerCheckpoint } from './checkpoint'
+import { isResumableWorkerRun, parseWorkerCheckpoint } from './checkpoint'
 import {
   activeWorkerRunStatuses, WORKER_QUALIFIED_LEADS_DEFAULT, WORKER_QUALIFIED_LEADS_MAX,
   WORKER_RECENT_RUNS_DEFAULT, WORKER_RECENT_RUNS_MAX, workerRunStatuses,
 } from './constants'
 import type {
   WorkerControlRecord,
+  WorkerCompletionReason,
   WorkerDesiredState,
   WorkerRunDto,
   WorkerRunsDto,
@@ -20,6 +21,7 @@ import type { WorkerStartMode } from './control'
 
 type DbError = { message?: string; code?: string } | null
 type DbResult = { data: unknown; error: DbError }
+const RUN_SELECT = 'id, run_number, status, batch_size, processed_count, discovered_count, duplicate_count, filtered_count, deferred_count, qualified_count, review_candidate_count, persisted_count, traction_scored_count, checkpoint, workflow_run_id, error_code, qualified_target, raw_candidate_limit, source_cursor, source_exhausted, completion_reason, source_query_count, research_fetch_count, groq_call_count, traction_fetch_count, started_at, stopped_at, completed_at, created_at, updated_at'
 
 function dbFailure(scope: string, error: DbError): never {
   console.error(`[admin-worker] ${scope} unavailable`, error?.code ?? error?.message ?? 'unknown database error')
@@ -36,7 +38,16 @@ const provenanceRoleOrder = new Map([
 ])
 
 export function sortQualifiedLeadRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
-  return [...rows].sort((left, right) => String(right.created_at).localeCompare(String(left.created_at))
+  const band = (row: Record<string, unknown>) => row.qualification_status === 'review_candidate' ? 1 : 0
+  const confidence = new Map([['high', 0], ['medium', 1], ['low', 2], ['unknown', 3]])
+  const contact = new Map([['verified_official_contact', 0], ['official_contact_page', 1], ['official_sales_channel', 2], ['none_found', 3], ['unknown', 4]])
+  const score = (value: unknown) => typeof value === 'number' ? value : -1
+  return [...rows].sort((left, right) => band(left) - band(right)
+    || score(right.fit_score) - score(left.fit_score)
+    || score(right.traction_score) - score(left.traction_score)
+    || (confidence.get(String(left.traction_confidence)) ?? 9) - (confidence.get(String(right.traction_confidence)) ?? 9)
+    || (contact.get(String(left.contactability_status)) ?? 9) - (contact.get(String(right.contactability_status)) ?? 9)
+    || String(right.created_at).localeCompare(String(left.created_at))
     || String(right.id).localeCompare(String(left.id)))
 }
 
@@ -82,10 +93,20 @@ function safeOptionalWorkflowId(value: unknown): string | null {
   return value
 }
 
+function safeCompletionReason(value: unknown): WorkerCompletionReason | null {
+  if (value === null) return null
+  if (!['qualified_target_reached', 'source_exhausted', 'hard_limit_reached', 'deadline_reached'].includes(String(value))) {
+    throw new Error('worker_record_invalid')
+  }
+  return value as WorkerCompletionReason
+}
+
 export function workerRunDto(value: unknown): WorkerRunDto {
   const row = objectRow(value)
   if (!row || typeof row.id !== 'string' || !/^[0-9a-f-]{36}$/i.test(row.id)) throw new Error('worker_record_invalid')
-  const batchSize = safeInteger(row.batch_size, 1, 100)
+  const batchSize = safeInteger(row.batch_size, 1, 300)
+  const rawLimit = row.raw_candidate_limit === null
+    ? batchSize : safeInteger(row.raw_candidate_limit, 1, 300)
   const processedCount = safeInteger(row.processed_count, 0, batchSize)
   const checkpoint = parseWorkerCheckpoint(row.checkpoint)
   if (!checkpoint || checkpoint.batchSize !== batchSize || checkpoint.nextIndex !== processedCount) throw new Error('worker_record_invalid')
@@ -96,12 +117,22 @@ export function workerRunDto(value: unknown): WorkerRunDto {
     batch_size: batchSize,
     processed_count: processedCount,
     counts: {
-      discovered: safeInteger(row.discovered_count),
+      raw_scanned: safeInteger(row.discovered_count),
       duplicate: safeInteger(row.duplicate_count),
       filtered: safeInteger(row.filtered_count),
+      deferred: safeInteger(row.deferred_count),
       qualified: safeInteger(row.qualified_count),
+      review_candidates: safeInteger(row.review_candidate_count),
       persisted: safeInteger(row.persisted_count),
+      traction_scored: safeInteger(row.traction_scored_count),
     },
+    targets: { qualified: safeInteger(row.qualified_target, 1, 50),
+      remaining: Math.max(0, safeInteger(row.qualified_target, 1, 50) - safeInteger(row.qualified_count)), raw_limit: rawLimit },
+    resources: { source: safeInteger(row.source_query_count, 0, 301), research: safeInteger(row.research_fetch_count, 0, 240),
+      groq_evaluated: safeInteger(row.groq_call_count, 0, 100) },
+    source_cursor: row.source_cursor === null ? processedCount : safeInteger(row.source_cursor, 0, rawLimit),
+    source_exhausted: row.source_exhausted === true,
+    completion_reason: safeCompletionReason(row.completion_reason),
     checkpoint,
     workflow_run_id: safeOptionalWorkflowId(row.workflow_run_id),
     error_code: safeOptionalCode(row.error_code),
@@ -118,7 +149,8 @@ function workerControlRecord(value: unknown): WorkerControlRecord {
   if (!row) throw new Error('worker_control_invalid')
   return {
     desired_state: safeDesiredState(row.desired_state),
-    batch_size: safeInteger(row.batch_size, 1, 100),
+    batch_size: safeInteger(row.batch_size, 1, 100), qualified_target: safeInteger(row.qualified_target, 50, 50),
+    raw_candidate_limit: safeInteger(row.raw_candidate_limit, 300, 300),
     current_checkpoint: row.current_checkpoint,
     updated_at: safeTimestamp(row.updated_at, false) as string,
   }
@@ -131,7 +163,7 @@ async function rpc(name: string, parameters: Record<string, unknown> = {}): Prom
 }
 
 export async function createWorkerRun(mode: WorkerStartMode): Promise<WorkerRunDto> {
-  return workerRunDto(await rpc('mahshar_worker_create_run', { p_resume: mode === 'resume' }))
+  return workerRunDto(await rpc('mahshar_worker_create_target_run', { p_resume: mode === 'resume' }))
 }
 
 export async function requestWorkerStop(): Promise<WorkerRunDto | null> {
@@ -165,6 +197,9 @@ export type WorkerDiscoveryCounters = {
   filtered: number
   qualified: number
   persisted: number
+  reviewCandidate: number
+  deferred: number
+  tractionScored: number
 }
 
 export async function advanceWorkerDiscoveryRun(
@@ -172,21 +207,25 @@ export async function advanceWorkerDiscoveryRun(
   expectedNextIndex: number,
   nextIndex: number,
   counters: WorkerDiscoveryCounters,
+  completion: { sourceExhausted: boolean; deadlineReached: boolean; hardLimitReached: boolean },
 ): Promise<WorkerRunDto> {
-  return workerRunDto(await rpc('mahshar_worker_advance_discovery_run', {
+  return workerRunDto(await rpc('mahshar_worker_advance_target_run', {
     p_run_id: runId,
     p_expected_next_index: expectedNextIndex,
     p_next_index: nextIndex,
     p_discovered: counters.discovered,
     p_duplicate: counters.duplicate,
     p_filtered: counters.filtered,
-    p_qualified: counters.qualified,
+    p_qualified: 0,
     p_persisted: counters.persisted,
+    p_review: counters.reviewCandidate, p_deferred: counters.deferred, p_traction_scored: counters.tractionScored,
+    p_source_exhausted: completion.sourceExhausted, p_deadline_reached: completion.deadlineReached,
+    p_hard_limit_reached: completion.hardLimitReached,
   }))
 }
 
 export async function completeWorkerRun(runId: string): Promise<WorkerRunDto> {
-  return workerRunDto(await rpc('mahshar_worker_complete_run', { p_run_id: runId }))
+  return workerRunDto(await rpc('mahshar_worker_complete_target_run', { p_run_id: runId }))
 }
 
 export async function failWorkerRun(runId: string, errorCode: string): Promise<WorkerRunDto> {
@@ -200,9 +239,8 @@ export function parseWorkerRunsLimit(url: URL): number | null {
 
 export async function getWorkerRuns(limit = WORKER_RECENT_RUNS_DEFAULT): Promise<WorkerRunsDto> {
   if (!Number.isInteger(limit) || limit < 1 || limit > WORKER_RECENT_RUNS_MAX) throw new Error('worker_limit_invalid')
-  const result = await createServiceClient().from('worker_runs').select(
-    'id, run_number, status, batch_size, processed_count, discovered_count, duplicate_count, filtered_count, qualified_count, persisted_count, checkpoint, workflow_run_id, error_code, started_at, stopped_at, completed_at, created_at, updated_at',
-  ).order('created_at', { ascending: false }).limit(limit) as DbResult
+  const result = await createServiceClient().from('worker_runs').select(RUN_SELECT)
+    .order('created_at', { ascending: false }).limit(limit) as DbResult
   if (result.error) dbFailure('worker_runs', result.error)
   if (!Array.isArray(result.data)) throw new Error('worker_runs_invalid')
   return { runs: result.data.map(workerRunDto), limit, as_of: new Date().toISOString() }
@@ -211,10 +249,8 @@ export async function getWorkerRuns(limit = WORKER_RECENT_RUNS_DEFAULT): Promise
 export async function getWorkerStatus(): Promise<WorkerStatusDto> {
   const db = createServiceClient()
   const [controlResult, latestResult, completedResult] = await Promise.all([
-    db.from('worker_control').select('desired_state, batch_size, current_checkpoint, updated_at').eq('id', 1).single(),
-    db.from('worker_runs').select(
-      'id, run_number, status, batch_size, processed_count, discovered_count, duplicate_count, filtered_count, qualified_count, persisted_count, checkpoint, workflow_run_id, error_code, started_at, stopped_at, completed_at, created_at, updated_at',
-    ).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    db.from('worker_control').select('desired_state, batch_size, qualified_target, raw_candidate_limit, current_checkpoint, updated_at').eq('id', 1).single(),
+    db.from('worker_runs').select(RUN_SELECT).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     db.from('worker_runs').select('completed_at').eq('status', 'completed')
       .order('completed_at', { ascending: false }).limit(1).maybeSingle(),
   ]) as [DbResult, DbResult, DbResult]
@@ -233,8 +269,11 @@ export async function getWorkerStatus(): Promise<WorkerStatusDto> {
     status: displayStatus,
     desired_state: control.desired_state,
     batch_size: control.batch_size,
+    qualified_target: control.qualified_target, raw_candidate_limit: control.raw_candidate_limit,
     checkpoint: parseWorkerCheckpoint(control.current_checkpoint),
-    can_resume: !active && isResumableCheckpoint(control.current_checkpoint, control.batch_size),
+    can_resume: Boolean(latest && !active && isResumableWorkerRun(
+      latest.status, latest.completion_reason, control.current_checkpoint, latest.targets.raw_limit,
+    )),
     last_completed_at: completed ? safeTimestamp(completed.completed_at) : null,
     latest_run: latest,
     as_of: new Date().toISOString(),
@@ -250,9 +289,12 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
   if (!Number.isInteger(limit) || limit < 1 || limit > WORKER_QUALIFIED_LEADS_MAX) throw new Error('worker_limit_invalid')
   const db = createServiceClient()
   const leadsResult = await db.from('worker_leads').select(
-    'id,provider_id,product_id,status,qualification_status,fit_score,fit_reason,qualification_reason_codes,created_at',
+    'id,provider_id,product_id,status,qualification_status,qualification_rank,fit_score,fit_reason,qualification_reason_codes,traction_score,traction_level,traction_confidence,traction_confidence_rank,last_activity_at,traction_signals,traction_concerns,traction_summary,contactability_status,contactability_rank,created_at',
   ).or('status.in.(qualified,reviewed,contact_ready,contacted,replied,interested,listed),and(status.eq.discovered,qualification_status.eq.review_candidate)')
-    .order('created_at', { ascending: false }).order('id', { ascending: false }).limit(limit) as DbResult
+    .order('qualification_rank', { ascending: true }).order('fit_score', { ascending: false, nullsFirst: false })
+    .order('traction_score', { ascending: false, nullsFirst: false }).order('traction_confidence_rank', { ascending: true })
+    .order('contactability_rank', { ascending: true }).order('created_at', { ascending: false })
+    .order('id', { ascending: false }).limit(limit) as DbResult
   if (leadsResult.error) dbFailure('worker_qualified_leads', leadsResult.error)
   if (!Array.isArray(leadsResult.data)) throw new Error('worker_leads_invalid')
   const leads = sortQualifiedLeadRows(leadsResult.data.map(objectRow).filter(Boolean) as Record<string, unknown>[])
@@ -288,6 +330,18 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
     return {
       id: item.id, provider: provider.canonical_name, provider_domain: provider.canonical_domain,
       product: product.display_name, fit_score: item.fit_score, summary: item.fit_reason,
+      qualification_band: item.qualification_status === 'review_candidate' ? 'review_candidate' : 'qualified',
+      traction_score: typeof item.traction_score === 'number' ? item.traction_score : null,
+      traction_level: ['low', 'medium', 'high'].includes(String(item.traction_level))
+        ? item.traction_level as WorkerQualifiedLeadDto['traction_level'] : null,
+      traction_confidence: ['low', 'medium', 'high', 'unknown'].includes(String(item.traction_confidence))
+        ? item.traction_confidence as WorkerQualifiedLeadDto['traction_confidence'] : 'unknown',
+      traction_signals: Array.isArray(item.traction_signals) ? item.traction_signals.filter(value => typeof value === 'string').slice(0, 8) as string[] : [],
+      traction_concerns: Array.isArray(item.traction_concerns) ? item.traction_concerns.filter(value => typeof value === 'string').slice(0, 8) as string[] : [],
+      traction_summary: typeof item.traction_summary === 'string' ? item.traction_summary : null,
+      last_activity_at: item.last_activity_at === null ? null : safeTimestamp(item.last_activity_at),
+      contactability: ['verified_official_contact', 'official_contact_page', 'official_sales_channel', 'none_found', 'unknown'].includes(String(item.contactability_status))
+        ? item.contactability_status as WorkerQualifiedLeadDto['contactability'] : 'unknown',
       reason_codes: Array.isArray(item.qualification_reason_codes)
         ? item.qualification_reason_codes.filter(code => typeof code === 'string').slice(0, 8) as string[] : [],
       official_site: sourceUrl('official_site'), docs_url: sourceUrl('official_docs'),

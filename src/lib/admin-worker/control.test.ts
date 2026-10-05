@@ -11,7 +11,13 @@ function run(status: WorkerRunStatus, checkpoint: WorkerCheckpoint, number: numb
     status,
     batch_size: checkpoint.batchSize,
     processed_count: checkpoint.nextIndex,
-    counts: { discovered: 0, duplicate: 0, filtered: 0, qualified: 0, persisted: 0 },
+    counts: { raw_scanned: checkpoint.nextIndex, duplicate: 0, filtered: 0, deferred: 0, qualified: 0,
+      review_candidates: 0, persisted: 0, traction_scored: 0 },
+    targets: { qualified: 50, remaining: 50, raw_limit: checkpoint.batchSize },
+    resources: { source: 0, research: 0, groq_evaluated: 0 },
+    source_cursor: checkpoint.nextIndex,
+    source_exhausted: false,
+    completion_reason: null,
     checkpoint,
     workflow_run_id: null,
     error_code: status === 'failed' ? 'synthetic_failure' : null,
@@ -125,6 +131,8 @@ test('UI availability follows the lifecycle and resumable checkpoint', () => {
     status: latest?.status === 'failed' ? 'failed' : latest?.status === 'stop_requested' ? 'stop_requested' : latest && ['queued', 'running'].includes(latest.status) ? 'running' : 'stopped',
     desired_state: latest && ['queued', 'running'].includes(latest.status) ? 'running' : 'stopped',
     batch_size: 50,
+    qualified_target: 50,
+    raw_candidate_limit: 300,
     checkpoint: latest?.checkpoint ?? null,
     can_resume: canResume,
     last_completed_at: null,
@@ -134,4 +142,8 @@ test('UI availability follows the lifecycle and resumable checkpoint', () => {
   assert.deepEqual(workerControlAvailability(status(null, false)), { canStart: true, canStop: false, canResume: false })
   assert.deepEqual(workerControlAvailability(status(run('running', { version: 1, nextIndex: 10, batchSize: 50 }, 1), false)), { canStart: false, canStop: true, canResume: false })
   assert.deepEqual(workerControlAvailability(status(run('stopped', { version: 1, nextIndex: 20, batchSize: 50 }, 1), true)), { canStart: true, canStop: false, canResume: true })
+  assert.deepEqual(workerControlAvailability(status(run('completed', { version: 1, nextIndex: 20, batchSize: 50 }, 1), true)), { canStart: true, canStop: false, canResume: false })
+  const terminalStopped = run('stopped', { version: 1, nextIndex: 20, batchSize: 50 }, 1)
+  terminalStopped.completion_reason = 'deadline_reached'
+  assert.deepEqual(workerControlAvailability(status(terminalStopped, true)), { canStart: true, canStop: false, canResume: false })
 })

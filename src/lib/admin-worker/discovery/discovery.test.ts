@@ -14,8 +14,9 @@ import { inspectOpenApiDocument, researchCandidate } from './research'
 import { discoverApiDirectoryRange } from './registry'
 import { canonicalExternalUrl, durableExternalSummary } from './sanitize'
 import { parseApisGuruCandidate, parseApisGuruCandidates, parseApisGuruProviders } from './sources/apis-guru'
+import { assessTraction } from './traction'
 import { aggregateDiscoveryCounters } from '../workflow-steps'
-import type { DurableCandidate, ProvenanceFact, RawCandidate, WorkerQualification } from './types'
+import type { CandidateOutcome, DurableCandidate, ProvenanceFact, RawCandidate, WorkerQualification } from './types'
 
 const candidate: RawCandidate = {
   sourceType: 'api_directory', sourceUrl: 'https://api.apis.guru/v2/acme.com.json',
@@ -83,6 +84,28 @@ test('APIs.guru groups versions, rejects deprecated records, caps products, and 
   assert.equal(parseApisGuruCandidate('acme.com', source, { apis: {} }), null)
 })
 
+test('APIs.guru activity dates are defensive and missing metadata is non-blocking', () => {
+  const source = 'https://api.apis.guru/v2/dates.example.json'
+  const parseDate = (added: unknown, updated: unknown) => parseApisGuruCandidate('dates.example', source, { apis: {
+    dates: { info: { title: 'Dates API' }, swaggerUrl: 'https://api.dates.example/openapi.json',
+      openapi: '3.0.0', added, updated },
+  } })
+  const recent = parseDate('2025-01-01T00:00:00Z', '2026-10-01T00:00:00Z')!
+  const old = parseDate('2018-01-01T00:00:00Z', undefined)!
+  const malformed = parseDate('not-a-date', 'also-bad')!
+  const future = parseDate(undefined, '2099-01-01T00:00:00Z')!
+  const missing = parseDate(undefined, undefined)!
+  assert.equal(recent.directoryUpdatedAt, '2026-10-01T00:00:00.000Z')
+  assert.equal(old.directoryAddedAt, '2018-01-01T00:00:00.000Z')
+  assert.equal(malformed.directoryAddedAt, undefined)
+  assert.equal(malformed.directoryUpdatedAt, undefined)
+  assert.equal(missing.directoryUpdatedAt, undefined)
+  const now = Date.parse('2026-10-04T00:00:00Z')
+  assert.ok(assessTraction(recent, [], now).tractionScore > assessTraction(missing, [], now).tractionScore)
+  assert.equal(assessTraction(future, [], now).tractionScore, 0)
+  assert.ok(assessTraction(future, [], now).concerns.includes('activity_date_future'))
+})
+
 test('APIs.guru orders stable versions above prereleases and compares numeric and dated versions', () => {
   const source = 'https://api.apis.guru/v2/acme.com.json'
   const spec = (title: string, version: string) => ({ info: { title, version }, swaggerUrl: `https://api.apis.guru/v2/specs/acme/${version}.json`,
@@ -104,7 +127,7 @@ test('source registry is deterministic and isolates a failed provider', async ()
   const stored = new Map<string, unknown>()
   let materializations = 0
   const fetcher = async (url: string) => {
-    if (url.endsWith('providers.json')) return { url, status: 200, contentType: 'application/json', body: JSON.stringify({ data: ['a.example', 'b.example'] }) }
+    if (url.endsWith('providers.json')) return { url, status: 200, contentType: 'application/json', body: JSON.stringify({ data: ['a.example', 'b.example', 'c.example'] }) }
     if (url.includes('b.example')) throw new Error('timeout')
     return { url, status: 200, contentType: 'application/json', body: JSON.stringify({ apis: { a: { info: { title: 'A API' }, swaggerUrl: 'https://api.a.example/openapi.json', openapi: '3.0' } } }) }
   }
@@ -112,9 +135,17 @@ test('source registry is deterministic and isolates a failed provider', async ()
     loadSourceWork: async key => stored.get(key) ?? null,
     materializeSourceWork: async (key, _kind, result) => { materializations += 1; if (!stored.has(key)) stored.set(key, structuredClone(result)); return stored.get(key)! }, fetcher })
   assert.equal(materializations, 3)
-  assert.equal(values[0].candidate?.discoveredName, 'a.example')
-  assert.equal(values[1].candidate, null)
-  assert.equal(values[1].reasonCode, 'source_fetch_failed')
+  assert.equal(values.items[0].candidate?.discoveredName, 'a.example')
+  assert.equal(values.items[1].candidate, null)
+  assert.equal(values.items[1].reasonCode, 'source_fetch_failed')
+  assert.equal(values.sourceExhausted, false)
+  const nextWindow = await discoverApiDirectoryRange({ rootRunNumber: 1, start: 2, end: 4,
+    loadSourceWork: async key => stored.get(key) ?? null,
+    materializeSourceWork: async (key, _kind, result) => { materializations += 1; if (!stored.has(key)) stored.set(key, structuredClone(result)); return stored.get(key)! }, fetcher })
+  assert.equal(nextWindow.items.length, 1)
+  assert.equal(nextWindow.items[0].ordinal, 2)
+  assert.equal(nextWindow.items[0].candidate?.discoveredName, 'c.example')
+  assert.equal(nextWindow.sourceExhausted, true)
 })
 
 test('source work reconstructs after a claim-before-persistence replay', async () => {
@@ -131,7 +162,7 @@ test('source work reconstructs after a claim-before-persistence replay', async (
   }
   const input = { rootRunNumber: 1, start: 0, end: 1,
     loadSourceWork: async (key: string) => stored.get(key) ?? null,
-    materializeSourceWork: async (key: string, _kind: 'provider_window' | 'candidate', result: unknown) => {
+    materializeSourceWork: async (key: string, _kind: 'provider_plan' | 'provider_window' | 'candidate', result: unknown) => {
       if (!stored.has(key)) stored.set(key, structuredClone(result))
       return stored.get(key)!
     }, fetcher }
@@ -148,17 +179,18 @@ test('source work reconstructs after a claim-before-persistence replay', async (
     loadSourceWork: async key => freshBatch.get(key) ?? null,
     materializeSourceWork: async (key, _kind, result) => { freshBatch.set(key, result); return result },
   })
-  assert.equal(fresh[0].candidate?.discoveredProduct, 'Changed API')
+  assert.equal(fresh.items[0].candidate?.discoveredProduct, 'Changed API')
   assert.ok(fetches > firstFetches)
 })
 
 test('deferred retry outcomes enter run counters without changing fresh processed semantics', () => {
   const counters = aggregateDiscoveryCounters([
-    { status: 'persisted', reasonCode: 'qualified', discovered: 0, duplicate: 0, filtered: 0, qualified: 1, persisted: 1 },
-    { status: 'blocked', reasonCode: 'do_not_contact', discovered: 0, duplicate: 1, filtered: 0, qualified: 0, persisted: 0 },
-    { status: 'filtered', reasonCode: 'fit_below_threshold', discovered: 10, duplicate: 0, filtered: 3, qualified: 0, persisted: 0 },
+    { status: 'persisted', reasonCode: 'qualified', discovered: 0, duplicate: 0, filtered: 0, qualified: 1, reviewCandidate: 0, persisted: 1, deferred: 0, tractionScored: 1 },
+    { status: 'blocked', reasonCode: 'do_not_contact', discovered: 0, duplicate: 1, filtered: 0, qualified: 0, reviewCandidate: 0, persisted: 0, deferred: 0, tractionScored: 0 },
+    { status: 'filtered', reasonCode: 'fit_below_threshold', discovered: 10, duplicate: 0, filtered: 3, qualified: 0, reviewCandidate: 0, persisted: 0, deferred: 0, tractionScored: 1 },
   ])
-  assert.deepEqual(counters, { discovered: 10, duplicate: 1, filtered: 3, qualified: 1, persisted: 1 })
+  assert.deepEqual(counters, { discovered: 10, duplicate: 1, filtered: 3, qualified: 1, reviewCandidate: 0,
+    persisted: 1, deferred: 0, tractionScored: 2 })
 })
 
 test('Workflow range replay reconstructs source work and never repeats completed qualification', async () => {
@@ -167,17 +199,17 @@ test('Workflow range replay reconstructs source work and never repeats completed
   let saveAttempts = 0
   let qualifications = 0
   const dependencies: Partial<DiscoveryRangeDependencies> = {
-    getDiscoveryRunContext: async () => ({ batchId: 'run', rootRunNumber: 1, deadlineAt: new Date(Date.now() + 60_000).toISOString() }),
+    getDiscoveryRunContext: async () => ({ batchId: 'run', rootRunNumber: 1, deadlineAt: new Date(Date.now() + 60_000).toISOString(), qualifiedCount: 0, qualifiedTarget: 50 }),
     getDiscoveryCandidates: async () => stored,
     claimDeferredCandidates: async () => [],
     getMaterializedSourceWork: async (_batchId, key) => sourceWork.get(key) ?? null,
     materializeSourceWork: async (_runId, key, _kind, result) => { if (!sourceWork.has(key)) sourceWork.set(key, result); return sourceWork.get(key)! },
     discoverApiDirectoryRange: async input => {
       const existing = await input.loadSourceWork('candidate:0')
-      if (existing) return [(existing as { result: { ordinal: number; candidate: RawCandidate } }).result]
+      if (existing) return { items: [(existing as { result: { ordinal: number; candidate: RawCandidate } }).result], sourceExhausted: false, deadlineReached: false }
       const result = { ordinal: 0, candidate }
       await input.materializeSourceWork('candidate:0', 'candidate', { result })
-      return [result]
+      return { items: [result], sourceExhausted: false, deadlineReached: false }
     },
     saveDiscoveryCandidate: async (_batchId, ordinal, raw) => {
       saveAttempts += 1
@@ -190,12 +222,13 @@ test('Workflow range replay reconstructs source work and never repeats completed
         work.status = 'persisted'
         work.reasonCode = 'qualified'
       }
-      return { status: 'persisted', reasonCode: 'qualified', discovered: 1, duplicate: 0, filtered: 0, qualified: 1, persisted: 1 }
+      return { status: 'persisted', reasonCode: 'qualified', discovered: 1, duplicate: 0, filtered: 0, qualified: 1,
+        reviewCandidate: 0, persisted: 1, deferred: 0, tractionScored: 1 }
     },
   }
   await assert.rejects(processDiscoveryRange('run', 0, 1, dependencies), /injected_crash_before_candidate_persistence/)
-  assert.equal((await processDiscoveryRange('run', 0, 1, dependencies))[0].status, 'persisted')
-  assert.equal((await processDiscoveryRange('run', 0, 1, dependencies))[0].status, 'persisted')
+  assert.equal((await processDiscoveryRange('run', 0, 1, dependencies)).outcomes[0].status, 'persisted')
+  assert.equal((await processDiscoveryRange('run', 0, 1, dependencies)).outcomes[0].status, 'persisted')
   assert.equal(qualifications, 1)
   assert.equal(sourceWork.size, 1)
 })
@@ -205,24 +238,164 @@ test('Workflow deferred claim replay and Resume do not requalify completed work'
   let claimCalls = 0
   let qualifications = 0
   const dependencies: Partial<DiscoveryRangeDependencies> = {
-    getDiscoveryRunContext: async runId => ({ batchId: runId === 'root' ? 'root' : 'root', rootRunNumber: 1, deadlineAt: new Date(Date.now() + 60_000).toISOString() }),
+    getDiscoveryRunContext: async runId => ({ batchId: runId === 'root' ? 'root' : 'root', rootRunNumber: 1,
+      deadlineAt: new Date(Date.now() + 60_000).toISOString(), qualifiedCount: 0, qualifiedTarget: 50 }),
     getDiscoveryCandidates: async () => [],
     claimDeferredCandidates: async () => ++claimCalls === 1 ? [deferred] : [],
-    discoverApiDirectoryRange: async () => [],
+    discoverApiDirectoryRange: async () => ({ items: [], sourceExhausted: true, deadlineReached: false }),
     saveDiscoveryCandidate: async () => {},
     processDiscoveryCandidate: async (_runId, work) => {
       if (work.status === 'deferred') { qualifications += 1; work.status = 'persisted' }
-      return { status: 'persisted', reasonCode: 'qualified', discovered: 0, duplicate: 0, filtered: 0, qualified: 1, persisted: 1 }
+      return { status: 'persisted', reasonCode: 'qualified', discovered: 0, duplicate: 0, filtered: 0, qualified: 1,
+        reviewCandidate: 0, persisted: 1, deferred: 0, tractionScored: 1 }
     },
   }
   const first = await processDiscoveryRange('root', 0, 0, dependencies)
   const replay = await processDiscoveryRange('root', 0, 0, dependencies)
   const resume = await processDiscoveryRange('resume', 0, 0, dependencies)
-  assert.equal(first.length, 1)
-  assert.equal(replay.length, 0)
-  assert.equal(resume.length, 0)
+  assert.equal(first.outcomes.length, 1)
+  assert.equal(replay.outcomes.length, 0)
+  assert.equal(resume.outcomes.length, 0)
   assert.equal(claimCalls, 2)
   assert.equal(qualifications, 1)
+})
+
+function rangeDependencies(input: {
+  qualifiedCount?: number
+  qualifiedTarget?: number
+  outcomes: Array<Partial<CandidateOutcome> & Pick<CandidateOutcome, 'status' | 'reasonCode'>>
+  deadlineAt?: string
+  sourceExhausted?: boolean
+  ordinalStart?: number
+}): Partial<DiscoveryRangeDependencies> {
+  const candidates = input.outcomes.map((_, index) => durable({
+    id: `10000000-0000-4000-8000-${String(index + 10).padStart(12, '0')}`, ordinal: (input.ordinalStart ?? 0) + index,
+  }))
+  let call = 0
+  return {
+    getDiscoveryRunContext: async () => ({ batchId: 'target-run', rootRunNumber: 1,
+      deadlineAt: input.deadlineAt ?? new Date(Date.now() + 60_000).toISOString(),
+      qualifiedCount: input.qualifiedCount ?? 0, qualifiedTarget: input.qualifiedTarget ?? 50 }),
+    getDiscoveryCandidates: async (_batchId, start, end) => candidates
+      .filter(item => item.ordinal >= start && item.ordinal < end),
+    claimDeferredCandidates: async () => [],
+    discoverApiDirectoryRange: async () => ({ items: [], sourceExhausted: input.sourceExhausted ?? false, deadlineReached: false }),
+    saveDiscoveryCandidate: async () => {},
+    processDiscoveryCandidate: async () => {
+      const value = input.outcomes[call++]
+      return { discovered: 1, duplicate: 0, filtered: 0, qualified: 0, reviewCandidate: 0,
+        persisted: 0, deferred: 0, tractionScored: 0, ...value }
+    },
+  }
+}
+
+test('qualified target continues beyond 50 raw candidates and stops exactly at 50 qualified', async () => {
+  const beyondFifty = await processDiscoveryRange('target-run', 50, 53, rangeDependencies({ ordinalStart: 50, outcomes: [
+    { status: 'filtered', reasonCode: 'unsupported_auth', filtered: 1 },
+    { status: 'persisted', reasonCode: 'review_candidate', reviewCandidate: 1, persisted: 1 },
+    { status: 'persisted', reasonCode: 'qualified', qualified: 1, persisted: 1 },
+  ] }))
+  assert.equal(beyondFifty.nextIndex, 53)
+  assert.equal(beyondFifty.outcomes.length, 3)
+
+  const exactTarget = await processDiscoveryRange('target-run', 0, 4, rangeDependencies({
+    qualifiedCount: 49, outcomes: [
+      { status: 'persisted', reasonCode: 'review_candidate', reviewCandidate: 1, persisted: 1 },
+      { status: 'filtered', reasonCode: 'fit_below_threshold', filtered: 1 },
+      { status: 'persisted', reasonCode: 'qualified', qualified: 1, persisted: 1 },
+      { status: 'persisted', reasonCode: 'qualified', qualified: 1, persisted: 1 },
+    ],
+  }))
+  assert.equal(exactTarget.nextIndex, 3)
+  assert.equal(exactTarget.outcomes.length, 3)
+  assert.equal(exactTarget.outcomes.reduce((sum, item) => sum + item.qualified, 0), 1)
+})
+
+test('deferred draining claims only remaining target slots at 47, 49, and 50', async () => {
+  const deferred = Array.from({ length: 5 }, (_, index) => durable({
+    id: `10000000-0000-4000-8000-${String(index + 100).padStart(12, '0')}`, status: 'deferred', ordinal: index,
+  }))
+  const run = async (qualifiedCount: number) => {
+    let claimedLimit = -1
+    let processed = 0
+    const result = await processDiscoveryRange('target-run', 0, 0, {
+      getDiscoveryRunContext: async () => ({ batchId: 'target-run', rootRunNumber: 1,
+        deadlineAt: new Date(Date.now() + 60_000).toISOString(), qualifiedCount, qualifiedTarget: 50 }),
+      claimDeferredCandidates: async (_runId, _batchId, limit = 5) => { claimedLimit = limit; return deferred.slice(0, limit) },
+      getDiscoveryCandidates: async () => [],
+      processDiscoveryCandidate: async () => {
+        processed += 1
+        return { status: 'persisted', reasonCode: 'qualified', discovered: 0, duplicate: 0, filtered: 0,
+          qualified: 1, reviewCandidate: 0, persisted: 1, deferred: 0, tractionScored: 1,
+          targetReached: qualifiedCount + processed >= 50 }
+      },
+    })
+    return { result, claimedLimit, processed }
+  }
+  const at47 = await run(47)
+  assert.deepEqual([at47.claimedLimit, at47.processed, at47.result.outcomes.length], [3, 3, 3])
+  const at49 = await run(49)
+  assert.deepEqual([at49.claimedLimit, at49.processed, at49.result.outcomes.length], [1, 1, 1])
+  const at50 = await run(50)
+  assert.deepEqual([at50.claimedLimit, at50.processed, at50.result.outcomes.length], [-1, 0, 0])
+})
+
+test('hard budgets, deadline, and source exhaustion end a range without fabricating work', async () => {
+  const hardLimit = await processDiscoveryRange('target-run', 0, 3, rangeDependencies({ outcomes: [
+    { status: 'deferred', reasonCode: 'groq_budget_exhausted', deferred: 1 },
+    { status: 'persisted', reasonCode: 'qualified', qualified: 1 },
+    { status: 'persisted', reasonCode: 'qualified', qualified: 1 },
+  ] }))
+  assert.equal(hardLimit.hardLimitReached, true)
+  assert.equal(hardLimit.nextIndex, 1)
+  assert.equal(hardLimit.outcomes.length, 1)
+
+  const deadline = await processDiscoveryRange('target-run', 0, 1, rangeDependencies({
+    deadlineAt: new Date(Date.now() - 1_000).toISOString(), outcomes: [
+      { status: 'persisted', reasonCode: 'qualified', qualified: 1 },
+    ],
+  }))
+  assert.equal(deadline.deadlineReached, true)
+  assert.equal(deadline.nextIndex, 0)
+  assert.equal(deadline.outcomes.length, 0)
+
+  const exhausted = await processDiscoveryRange('target-run', 0, 3, {
+    ...rangeDependencies({ outcomes: [], sourceExhausted: true }),
+    getDiscoveryCandidates: async () => [],
+  })
+  assert.equal(exhausted.sourceExhausted, true)
+  assert.equal(exhausted.nextIndex, 0)
+  assert.equal(exhausted.outcomes.length, 0)
+})
+
+test('traction is bounded evidence, never a qualification gate, and contactability is non-blocking', () => {
+  const now = Date.parse('2026-10-04T00:00:00.000Z')
+  const highEvidence = assessTraction({ ...candidate, directoryUpdatedAt: '2026-10-01T00:00:00.000Z' }, [
+    officialDocs,
+    { ...officialDocs, sourceRole: 'official_site', url: 'https://acme.com' },
+    { ...officialDocs, sourceRole: 'official_pricing', url: 'https://acme.com/pricing' },
+    { ...officialDocs, sourceRole: 'official_contact', url: 'https://acme.com/contact' },
+  ], now)
+  const unknown = assessTraction(candidate, [], now)
+  assert.equal(highEvidence.tractionLevel, 'high')
+  assert.equal(highEvidence.tractionConfidence, 'medium')
+  assert.equal(highEvidence.contactability, 'verified_official_contact')
+  assert.equal(unknown.tractionScore, 0)
+  assert.equal(unknown.tractionConfidence, 'unknown')
+  assert.equal(qualificationDisposition({ ...validQualification, fitScore: 88 }), 'qualified')
+  assert.equal(qualificationDisposition({ ...validQualification, fitScore: 65 }), 'review_candidate')
+  assert.equal(qualificationDisposition({ ...validQualification, fitScore: 45 }), 'rejected')
+  assert.match(highEvidence.summary, /not usage volume/i)
+  const old = assessTraction({ ...candidate, directoryUpdatedAt: '2016-01-01T00:00:00.000Z' }, [], now)
+  const malformed = assessTraction({ ...candidate, directoryUpdatedAt: 'invalid-date' }, [], now)
+  const future = assessTraction({ ...candidate, directoryUpdatedAt: '2099-01-01T00:00:00.000Z' }, [], now)
+  const slightSkew = assessTraction({ ...candidate, directoryUpdatedAt: '2026-10-04T00:00:01.000Z' }, [], now)
+  assert.equal(old.tractionScore, 5)
+  assert.equal(malformed.tractionScore, 0)
+  assert.ok(malformed.concerns.includes('activity_date_invalid'))
+  assert.equal(future.tractionScore, 0)
+  assert.ok(future.concerns.includes('activity_date_future'))
+  assert.equal(slightSkew.tractionScore, 0)
 })
 
 test('durable URL and summary records remove credentials, queries, fragments, and secret-shaped text', () => {
@@ -439,7 +612,7 @@ test('human state winning during atomic qualification persistence is preserved a
     resolveDiscoveryLead: async () => ({ action: 'continue', providerId: 'provider', productId: 'product', leadId: 'lead' }),
     saveProvenance: async () => {}, claimDiscoveryBudget: async () => true,
     qualifyCandidate: async () => validQualification,
-    saveQualification: async () => ({ status: 'duplicate', reasonCode: 'existing_human_state' }),
+    saveQualification: async () => ({ status: 'duplicate', reasonCode: 'existing_human_state', countedQualified: false, targetReached: false }),
   })
   assert.equal(result.status, 'duplicate')
   assert.equal(result.persisted, 0)
@@ -456,7 +629,7 @@ test('60-69 fit is persisted for review without counting as qualified', async ()
     qualifyCandidate: async () => ({ ...validQualification, fitScore: 65, commercialApi: false }),
     saveQualification: async input => {
       qualifiedFlag = input.qualified
-      return { status: 'persisted', reasonCode: 'review_candidate' }
+      return { status: 'persisted', reasonCode: 'review_candidate', countedQualified: false, targetReached: false }
     },
   })
   assert.equal(qualifiedFlag, false)
@@ -481,7 +654,14 @@ test('persisted qualification replays without Groq and deferred qualification is
     preflightCandidate: async () => ({ action: 'continue' }), qualifyCandidate: async () => { groqCalls += 1; return validQualification },
   })
   assert.equal(persisted.status, 'persisted')
+  assert.equal(persisted.qualified, 0)
+  assert.equal(persisted.tractionScored, 1)
   assert.equal(groqCalls, 0)
+
+  const reviewReplay = await processDiscoveryCandidate('run', durable({ status: 'persisted', reasonCode: 'review_candidate' }), Date.now() + 60_000)
+  assert.equal(reviewReplay.reviewCandidate, 1)
+  assert.equal(reviewReplay.qualified, 0)
+  assert.equal(reviewReplay.tractionScored, 1)
 
   const deferred = durable({ status: 'deferred', normalizedDomain: 'acme.com', normalizedProductKey: 'weather', providerId: 'provider', productId: 'product', leadId: 'lead' })
   const dependencies = {
@@ -491,7 +671,8 @@ test('persisted qualification replays without Groq and deferred qualification is
     claimDiscoveryBudget: async () => true, saveProvenance: async () => {}, saveQualification: async (input: Parameters<DiscoveryProcessorDependencies['saveQualification']>[0]) => {
       const status = input.deferredReason ? 'deferred' as const : input.qualified ? 'persisted' as const : 'filtered' as const
       deferred.status = status
-      return { status, reasonCode: status === 'persisted' ? 'qualified' : status === 'filtered' ? 'fit_below_threshold' : input.deferredReason! }
+      return { status, reasonCode: status === 'persisted' ? 'qualified' : status === 'filtered' ? 'fit_below_threshold' : input.deferredReason!,
+        countedQualified: status === 'persisted', targetReached: false }
     },
     qualifyCandidate: async () => { groqCalls += 1; return validQualification },
     markDiscoveryCandidate: async (_candidate: DurableCandidate, result: { status: DurableCandidate['status'] }) => { deferred.status = result.status },
@@ -537,6 +718,7 @@ test('research-budget candidate defers before entities and succeeds in the next 
     saveProvenance: async () => {}, saveQualification: async input => ({
       status: input.qualified ? 'persisted' as const : 'filtered' as const,
       reasonCode: input.qualified ? 'qualified' : 'fit_below_threshold',
+      countedQualified: input.qualified, targetReached: false,
     }), claimDiscoveryBudget: async () => true,
     qualifyCandidate: async () => { groqCalls += 1; return validQualification }, markDiscoveryCandidate: async () => {},
   }, true)

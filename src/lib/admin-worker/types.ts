@@ -3,6 +3,7 @@ import type { workerRunStatuses } from './constants'
 export type WorkerDesiredState = 'stopped' | 'running'
 export type WorkerRunStatus = (typeof workerRunStatuses)[number]
 export type WorkerDisplayStatus = 'stopped' | 'running' | 'stop_requested' | 'failed'
+export type WorkerCompletionReason = 'qualified_target_reached' | 'source_exhausted' | 'hard_limit_reached' | 'deadline_reached'
 
 export type WorkerCheckpoint = {
   version: 1
@@ -34,6 +35,8 @@ export type WorkerRunRecord = {
 export type WorkerControlRecord = {
   desired_state: WorkerDesiredState
   batch_size: number
+  qualified_target: number
+  raw_candidate_limit: number
   current_checkpoint: unknown
   updated_at: string
 }
@@ -45,12 +48,20 @@ export type WorkerRunDto = {
   batch_size: number
   processed_count: number
   counts: {
-    discovered: number
+    raw_scanned: number
     duplicate: number
     filtered: number
+    deferred: number
     qualified: number
+    review_candidates: number
     persisted: number
+    traction_scored: number
   }
+  targets: { qualified: number; remaining: number; raw_limit: number }
+  resources: { source: number; research: number; groq_evaluated: number }
+  source_cursor: number
+  source_exhausted: boolean
+  completion_reason: WorkerCompletionReason | null
   checkpoint: WorkerCheckpoint
   workflow_run_id: string | null
   error_code: string | null
@@ -65,6 +76,8 @@ export type WorkerStatusDto = {
   status: WorkerDisplayStatus
   desired_state: WorkerDesiredState
   batch_size: number
+  qualified_target: number
+  raw_candidate_limit: number
   checkpoint: WorkerCheckpoint | null
   can_resume: boolean
   last_completed_at: string | null
@@ -91,6 +104,15 @@ export type WorkerQualifiedLeadDto = {
   fit_score: number
   summary: string
   reason_codes: string[]
+  qualification_band: 'qualified' | 'review_candidate'
+  traction_score: number | null
+  traction_level: 'low' | 'medium' | 'high' | null
+  traction_confidence: 'low' | 'medium' | 'high' | 'unknown'
+  traction_signals: string[]
+  traction_concerns: string[]
+  traction_summary: string | null
+  last_activity_at: string | null
+  contactability: 'verified_official_contact' | 'official_contact_page' | 'official_sales_channel' | 'none_found' | 'unknown'
   official_site: string | null
   docs_url: string | null
   pricing_available: boolean

@@ -1,5 +1,5 @@
 import { WORKER_MAX_BATCH_SIZE } from './constants'
-import type { WorkerCheckpoint } from './types'
+import type { WorkerCheckpoint, WorkerCompletionReason, WorkerRunStatus } from './types'
 
 function isInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value)
@@ -27,6 +27,16 @@ export function isResumableCheckpoint(value: unknown, configuredBatchSize?: numb
     && (configuredBatchSize === undefined || checkpoint.batchSize === configuredBatchSize)
     && checkpoint.nextIndex > 0
     && checkpoint.nextIndex < checkpoint.batchSize
+}
+
+export function isResumableWorkerRun(
+  status: WorkerRunStatus,
+  completionReason: WorkerCompletionReason | null,
+  checkpoint: unknown,
+  configuredBatchSize: number,
+): boolean {
+  return (status === 'stopped' || status === 'failed') && completionReason === null
+    && isResumableCheckpoint(checkpoint, configuredBatchSize)
 }
 
 export function advanceWorkerCheckpoint(checkpoint: WorkerCheckpoint, chunkSize: number): WorkerCheckpoint {

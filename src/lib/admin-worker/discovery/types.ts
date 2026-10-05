@@ -13,6 +13,8 @@ export type RawCandidate = {
   discoveredPricingUrl?: string
   discoveredContactUrl?: string
   sourceSummary?: string
+  directoryAddedAt?: string
+  directoryUpdatedAt?: string
 }
 
 export type NormalizedIdentity = {
@@ -32,6 +34,10 @@ export type CandidateOutcome = {
   filtered: number
   qualified: number
   persisted: number
+  reviewCandidate: number
+  deferred: number
+  tractionScored: number
+  targetReached?: boolean
 }
 
 export type ProvenanceFact = {
@@ -54,6 +60,20 @@ export type WorkerQualification = {
   providerCredibility: QualificationLevel
   reasonCodes: string[]
   summary: string
+}
+
+export type TractionConfidence = 'low' | 'medium' | 'high' | 'unknown'
+export type Contactability = 'verified_official_contact' | 'official_contact_page' | 'official_sales_channel' | 'none_found' | 'unknown'
+
+export type WorkerTraction = {
+  tractionScore: number
+  tractionLevel: QualificationLevel
+  tractionConfidence: TractionConfidence
+  lastActivityAt: string | null
+  signals: string[]
+  concerns: string[]
+  summary: string
+  contactability: Contactability
 }
 
 export type DurableCandidate = RawCandidate & {

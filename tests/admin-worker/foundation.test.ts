@@ -3,11 +3,13 @@ import { test } from 'node:test'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { sortQualifiedLeadRows, sortQualifiedLeadSources, workerRunDto } from '../../src/lib/admin-worker/repository'
+import { verificationLabel, workerCompletionLabel } from '../../src/lib/admin-worker/presentation'
 
 const read = (path: string) => readFileSync(path, 'utf8')
 const migrationPath = 'supabase/migrations/20261001000100_admin_worker_foundation.sql'
 const discoveryMigrationPath = 'supabase/migrations/20261002000100_admin_worker_discovery_v1.sql'
 const reviewMigrationPath = 'supabase/migrations/20261004000100_admin_worker_discovery_review_candidates.sql'
+const targetMigrationPath = 'supabase/migrations/20261005000100_admin_worker_qualified_target_traction.sql'
 
 test('Worker migration creates the bounded server-only schema and lifecycle RPCs', () => {
   const sql = read(migrationPath)
@@ -57,15 +59,21 @@ test('Worker DTO is an explicit allowlist and drops unrestricted database fields
   const dto = workerRunDto({
     id: '00000000-0000-4000-8000-000000000001', run_number: 1, status: 'running', batch_size: 50,
     processed_count: 10, discovered_count: 0, duplicate_count: 0, filtered_count: 0, qualified_count: 0,
-    persisted_count: 0, checkpoint: { version: 1, nextIndex: 10, batchSize: 50 }, workflow_run_id: 'wrun_fixture',
+    deferred_count: 0, review_candidate_count: 0, persisted_count: 0, traction_scored_count: 0,
+    qualified_target: 50, raw_candidate_limit: null, source_cursor: null, source_exhausted: false,
+    completion_reason: null, source_query_count: 0, research_fetch_count: 0, groq_call_count: 0, traction_fetch_count: 0,
+    checkpoint: { version: 1, nextIndex: 10, batchSize: 50 }, workflow_run_id: 'wrun_fixture',
     error_code: null, started_at: '2026-10-01T00:00:00.000Z', stopped_at: null, completed_at: null,
     created_at: '2026-10-01T00:00:00.000Z', updated_at: '2026-10-01T00:00:01.000Z',
     raw_exception: 'never-return', credential: 'never-return', arbitrary_payload: { secret: 'never-return' },
   })
   const serialized = JSON.stringify(dto)
   assert.equal(serialized.includes('never-return'), false)
+  assert.equal(dto.targets.raw_limit, 50)
+  assert.equal(dto.source_cursor, 10)
   assert.deepEqual(Object.keys(dto).sort(), ['batch_size', 'checkpoint', 'completed_at', 'counts', 'created_at', 'error_code',
-    'id', 'processed_count', 'run_number', 'started_at', 'status', 'stopped_at', 'updated_at', 'workflow_run_id'].sort())
+    'completion_reason', 'id', 'processed_count', 'resources', 'run_number', 'source_cursor', 'source_exhausted',
+    'started_at', 'status', 'stopped_at', 'targets', 'updated_at', 'workflow_run_id'].sort())
 })
 
 test('qualified lead and provenance ordering is stable for identical timestamps', () => {
@@ -78,6 +86,28 @@ test('qualified lead and provenance ordering is stable for identical timestamps'
     { id: 'c', source_role: 'official_docs', created_at: timestamp, url: 'https://docs.example/c' },
     { id: 'a', source_role: 'official_docs', created_at: timestamp, url: 'https://docs.example/a' },
   ]).map(row => row.id), ['c', 'a', 'b'])
+  assert.deepEqual(sortQualifiedLeadRows([
+    { id: 'review-high', qualification_status: 'review_candidate', fit_score: 69, traction_score: 100, traction_confidence: 'high', contactability_status: 'verified_official_contact', created_at: timestamp },
+    { id: 'fit-80-low', qualification_status: 'qualified', fit_score: 80, traction_score: 10, traction_confidence: 'low', contactability_status: 'unknown', created_at: timestamp },
+    { id: 'fit-80-high', qualification_status: 'qualified', fit_score: 80, traction_score: 90, traction_confidence: 'high', contactability_status: 'verified_official_contact', created_at: timestamp },
+    { id: 'fit-70', qualification_status: 'qualified', fit_score: 70, traction_score: 100, traction_confidence: 'high', contactability_status: 'verified_official_contact', created_at: timestamp },
+  ]).map(row => row.id), ['fit-80-high', 'fit-80-low', 'fit-70', 'review-high'])
+  assert.deepEqual(sortQualifiedLeadRows([
+    { id: 'unknown', qualification_status: 'qualified', fit_score: 80, traction_score: 50, traction_confidence: 'unknown', contactability_status: 'unknown', created_at: timestamp },
+    { id: 'low', qualification_status: 'qualified', fit_score: 80, traction_score: 50, traction_confidence: 'low', contactability_status: 'unknown', created_at: timestamp },
+    { id: 'contact', qualification_status: 'qualified', fit_score: 80, traction_score: 50, traction_confidence: 'high', contactability_status: 'verified_official_contact', created_at: timestamp },
+    { id: 'newer', qualification_status: 'qualified', fit_score: 80, traction_score: 50, traction_confidence: 'high', contactability_status: 'unknown', created_at: '2026-10-03T13:00:00.000Z' },
+    { id: 'stable-b', qualification_status: 'qualified', fit_score: 80, traction_score: 50, traction_confidence: 'high', contactability_status: 'unknown', created_at: timestamp },
+    { id: 'stable-a', qualification_status: 'qualified', fit_score: 80, traction_score: 50, traction_confidence: 'high', contactability_status: 'unknown', created_at: timestamp },
+  ]).map(row => row.id), ['contact', 'newer', 'stable-b', 'stable-a', 'low', 'unknown'])
+})
+
+test('Worker presentation is conservative for legacy completion and unverified evidence', () => {
+  assert.equal(workerCompletionLabel({ status: 'completed', completion_reason: null }), 'Completed')
+  assert.equal(workerCompletionLabel({ status: 'running', completion_reason: null }), 'In progress')
+  assert.equal(workerCompletionLabel({ status: 'completed', completion_reason: 'source_exhausted' }), 'Source exhausted')
+  assert.equal(verificationLabel(false), 'Not verified')
+  assert.equal(verificationLabel(true), 'Verified')
 })
 
 test('Admin UI includes separate Worker navigation, controls, Discovery metrics, and qualified leads', () => {
@@ -91,7 +121,11 @@ test('Admin UI includes separate Worker navigation, controls, Discovery metrics,
   assert.match(client, /Loading qualified leads…/)
   assert.match(client, /leadsPhase === 'loading'/)
   assert.match(client, /Qualified leads are temporarily unavailable/)
-  assert.match(client, /Potentially compatible/)
+  assert.match(client, /Fit \/ band/)
+  assert.match(client, /Traction estimate/)
+  assert.match(client, /Contactability/)
+  assert.doesNotMatch(client, /not found/i)
+  assert.match(client, /not usage|activity estimate/i)
   assert.match(client, /AI qualification summary/)
   assert.match(client, /Directory assertions/)
   assert.match(client, /no outreach, account creation, or Marketplace listing occurs/i)
@@ -154,6 +188,24 @@ test('Discovery migration adds durable work, bounded budgets, and server-only gr
   assert.match(sql, /REVOKE ALL PRIVILEGES ON TABLE public\.worker_candidates[\s\S]*PUBLIC, anon, authenticated, service_role/)
   assert.match(sql, /control_row\.batch_size <> 50/)
   assert.doesNotMatch(sql, /raw_html|screenshot|llm_prompt|llm_response|groq_response/)
+})
+
+test('qualified-target migration is forward-only, bounded, Worker-only, and preserves historical migrations', () => {
+  const sql = read(targetMigrationPath)
+  assert.match(sql, /qualified_target integer NOT NULL DEFAULT 50 CHECK \(qualified_target = 50\)/)
+  assert.match(sql, /raw_candidate_limit integer NOT NULL DEFAULT 300 CHECK \(raw_candidate_limit = 300\)/)
+  assert.match(sql, /worker_candidates_ordinal_target_check CHECK \(ordinal BETWEEN 0 AND 299\)/)
+  assert.match(sql, /source_query_count BETWEEN 0 AND 301/)
+  assert.match(sql, /research_fetch_count BETWEEN 0 AND 240/)
+  assert.match(sql, /groq_call_count BETWEEN 0 AND 100/)
+  assert.match(sql, /traction_fetch_count BETWEEN 0 AND 60/)
+  assert.match(sql, /'qualified_target_reached', 'source_exhausted', 'hard_limit_reached', 'deadline_reached'/)
+  assert.match(sql, /mahshar_worker_create_target_run/)
+  assert.match(sql, /mahshar_worker_advance_target_run/)
+  assert.match(sql, /mahshar_worker_persist_qualification_v2/)
+  assert.match(sql, /SECURITY DEFINER SET search_path = ''/)
+  assert.match(sql, /REVOKE CREATE ON SCHEMA public/)
+  assert.doesNotMatch(sql, /api_listings|purchases|api_calls|settlement|withdraw|gateway|wallet|seller_credentials/i)
 })
 
 test('protected core source does not import the Admin Worker module', () => {
