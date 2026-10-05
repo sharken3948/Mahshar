@@ -244,7 +244,9 @@
 .finalCta { position: relative; overflow: hidden; border-radius: 26px; padding: 58px; background: linear-gradient(120deg, #0753bc, #0d7cee 62%, #1a90f3); box-shadow: 0 24px 52px rgba(8, 91, 193, .2); color: #fff; }
 .finalCta::after { position: absolute; right: -100px; bottom: -260px; width: 510px; height: 510px; border: 1px solid rgba(255, 255, 255, .27); border-radius: 50%; box-shadow: 0 0 0 62px rgba(255, 255, 255, .055), 0 0 0 124px rgba(255, 255, 255, .025); content: ''; }
 .finalCta h2 { position: relative; z-index: 1; max-width: 920px; margin: 0; font-size: clamp(34px, 3.5vw, 55px); letter-spacing: -.055em; line-height: 1.04; }
-.finalCta .actions, .finalCta .eyebrowLight { position: relative; z-index: 1; }
+.finalCta .actions, .finalCta .eyebrowLight, .finalCtaCopy, .finalCtaSupport { position: relative; z-index: 1; }
+.finalCtaCopy { max-width: 850px; margin: 20px 0 0; color: rgba(255, 255, 255, .86); font-size: 16px; line-height: 1.68; }
+.finalCtaSupport { margin: 16px 0 0; color: rgba(255, 255, 255, .72); font-size: 13px; line-height: 1.55; }
 .lightButton { border: 1px solid #fff; background: #fff; color: #075fcf; }
 .ghostButton { border: 1px solid rgba(255, 255, 255, .58); background: rgba(255, 255, 255, .08); color: #fff; }
 

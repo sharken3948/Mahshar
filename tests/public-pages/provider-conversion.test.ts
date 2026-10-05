@@ -18,6 +18,20 @@ test('Providers presents exact current economics without promising provider outc
   assert.doesNotMatch(providers, /you keep most|profit|revenue after all costs|guaranteed (?:revenue|customers|distribution)/i)
 })
 
+test('Provider decision CTA makes the single-endpoint starting path explicit', () => {
+  const providers = read('src/app/providers/page.tsx')
+  for (const statement of [
+    'Start with one endpoint.',
+    'You don’t need to move your API business to Mahshar.',
+    'List a single API endpoint, set a pay-per-call USDC price',
+    'additional distribution channel for builders and autonomous agents',
+    'Your existing backend, customers, subscriptions, and direct integrations remain yours.',
+    'List one endpoint and see how Mahshar works alongside your existing business.',
+  ]) assert.ok(providers.includes(statement), statement)
+  assert.match(providers, /upstream availability, quotas, capacity/)
+  assert.doesNotMatch(providers, /guaranteed (?:traffic|customers|revenue)|exclusive|zero operational impact/i)
+})
+
 test('Provider onboarding and FAQ copy matches the implemented responsibility split', () => {
   const providers = read('src/app/providers/page.tsx')
   const docs = read('src/app/docs/page.tsx')

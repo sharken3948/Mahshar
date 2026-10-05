@@ -214,9 +214,11 @@ export default function ProvidersPage() {
         <section className={styles.finalSection}>
           <div className={styles.container}>
             <div className={styles.finalCta}>
-              <p className={styles.eyebrowLight}>A NEW DISTRIBUTION SURFACE</p>
-              <h2>Keep operating your API. Add a path for builders and autonomous agents.</h2>
+              <p className={styles.eyebrowLight}>START SMALL</p>
+              <h2>Start with one endpoint.</h2>
+              <p className={styles.finalCtaCopy}>You don’t need to move your API business to Mahshar. List a single API endpoint, set a pay-per-call USDC price, and use Mahshar as an additional distribution channel for builders and autonomous agents. Your existing backend, customers, subscriptions, and direct integrations remain yours.</p>
               <div className={styles.actions}><Link href="/seller" className={styles.lightButton}>List Your API <ArrowIcon /></Link><Link href="/docs#providers" className={styles.ghostButton}>Read Provider Documentation <ArrowIcon /></Link></div>
+              <p className={styles.finalCtaSupport}>List one endpoint and see how Mahshar works alongside your existing business.</p>
             </div>
           </div>
         </section>
