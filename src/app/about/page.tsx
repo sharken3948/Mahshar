@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { PublicPageShell } from '@/components/PublicPageShell'
+import { PublicTrustPanel } from '@/components/PublicTrustPanel'
 import { aboutMetadata } from '@/lib/seo/education-metadata'
 import styles from '../education-pages.module.css'
 
@@ -29,7 +30,7 @@ export default function AboutPage() {
               <div className={styles.heroCopy}>
                 <p className={styles.eyebrow}>WHAT IS MAHSHAR?</p>
                 <h1>APIs become economic building blocks for agents.</h1>
-                <p className={styles.heroLead}>Mahshar is a marketplace and payment-aware access layer for APIs. Providers can offer an existing endpoint at a per-call USDC price, while builders and autonomous agents can discover it, pay for a request, and receive the result through one coherent interface.</p>
+                <p className={styles.heroLead}>Mahshar is a live API marketplace and payment-aware access layer operating on Arc Mainnet. Providers can offer an existing endpoint at a per-call USDC price, while builders and autonomous agents can discover it, pay for a request, and receive the result through one coherent interface.</p>
                 <p className={styles.heroNote}>Mahshar connects the transaction. It does not own or replace the provider’s backend.</p>
                 <div className={styles.actions}>
                   <Link href="/marketplace" className={styles.primaryButton}>Explore Marketplace <ArrowIcon /></Link>
@@ -40,6 +41,8 @@ export default function AboutPage() {
             </div>
           </div>
         </section>
+
+        <PublicTrustPanel />
 
         <section className={styles.section}>
           <div className={styles.container}>
@@ -136,7 +139,7 @@ export default function AboutPage() {
               <BoundaryPanel title="Mahshar does not" tone="neutral" items={['Include stored seller credentials in public discovery or buyer-facing listing data', 'Require public visitors to connect a wallet', 'Own the provider’s upstream API', 'Silently rewrite the provider’s backend', 'Promise an upstream endpoint’s availability or quality']} />
             </div>
             <div className={styles.resourcesPanel}>
-              <div><p className={styles.eyebrow}>OFFICIAL RESOURCES</p><h2>Continue with the underlying standards.</h2><p>These sources describe the broader technologies Mahshar uses. Mahshar is an independent product and is not presented as operated or endorsed by Circle.</p></div>
+              <div><p className={styles.eyebrow}>TECHNOLOGY CONTEXT</p><h2>Continue with the underlying standards.</h2><p>These sources describe the broader technologies used by Mahshar’s current marketplace architecture.</p></div>
               <div className={styles.resourceLinks}>
                 <a href="https://developers.circle.com/gateway/nanopayments/concepts/x402" target="_blank" rel="noreferrer noopener">Circle: What is x402? <ExternalIcon /></a>
                 <a href="https://developers.circle.com/agent-stack" target="_blank" rel="noreferrer noopener">Circle Agent Stack <ExternalIcon /></a>

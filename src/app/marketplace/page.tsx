@@ -56,7 +56,7 @@ export default async function MarketplacePage() {
                     <div className={styles.cardMeta}>
                       <span className={styles.method}>{listing.method}</span>
                       <span>{listing.category}</span>
-                      {listing.verified && <span className={styles.verified}>Verified</span>}
+                      {listing.verified && <span className={styles.verified}>Endpoint checked</span>}
                     </div>
                     <h2><Link href={apiListingPath(listing)}>{listing.name}</Link></h2>
                     <p className={styles.description}>{listing.description}</p>

@@ -1,0 +1,43 @@
+.section {
+  border-top: 1px solid #e3edf8;
+  border-bottom: 1px solid #e3edf8;
+  padding: 26px 62px;
+  background: linear-gradient(135deg, #f8fbff, #f1f7ff);
+}
+
+.inner { width: 100%; max-width: 1560px; margin: 0 auto; }
+.intro { display: grid; grid-template-columns: minmax(220px, .7fr) minmax(300px, 1.05fr) minmax(300px, 1fr); gap: 28px; align-items: center; }
+.intro p { margin: 0; color: #2775ca; font-size: 12px; font-weight: 780; letter-spacing: .17em; }
+.intro h2 { margin: 0; color: #07183f; font-size: clamp(22px, 1.7vw, 29px); font-weight: 750; letter-spacing: -.04em; line-height: 1.12; }
+.intro > span { color: #5874a2; font-size: 14px; line-height: 1.55; }
+
+.signals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin-top: 21px; overflow: hidden; border: 1px solid #dce8f6; border-radius: 15px; background: #dce8f6; }
+.signal { min-width: 0; padding: 17px 20px; background: rgba(255, 255, 255, .94); }
+.signal small { display: block; margin-bottom: 8px; color: #6e87aa; font-size: 10px; font-weight: 790; letter-spacing: .14em; }
+.signal strong, .signal > a { display: inline-flex; align-items: center; gap: 8px; color: #0a2857; font-size: 15px; font-weight: 720; text-decoration: none; }
+.signal > a { color: #0867ed; }
+.signal > a:hover, .inlineLink:hover { text-decoration: underline; }
+.signal > a:focus-visible, .inlineLink:focus-visible { outline: 3px solid rgba(8, 103, 237, .28); outline-offset: 3px; }
+.signal svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.signal > span { display: block; margin-top: 5px; overflow-wrap: anywhere; color: #647d9f; font-size: 12px; line-height: 1.45; }
+.inlineLink { color: inherit; text-decoration: none; }
+.disclaimer { margin: 13px 0 0; color: #7185a2; font-size: 11px; line-height: 1.5; text-align: right; }
+
+@media (max-width: 1180px) {
+  .section { padding-right: 40px; padding-left: 40px; }
+  .intro { grid-template-columns: .7fr 1.3fr; }
+  .intro > span { grid-column: 1 / -1; }
+  .signals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .section { padding: 24px 22px; }
+  .intro { grid-template-columns: 1fr; gap: 8px; }
+  .intro > span { grid-column: auto; }
+  .signals { grid-template-columns: 1fr; }
+  .disclaimer { text-align: left; }
+}
+
+@media (max-width: 520px) {
+  .section { padding-right: 17px; padding-left: 17px; }
+}

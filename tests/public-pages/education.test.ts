@@ -88,3 +88,26 @@ test('provider copy scopes credential, discovery, and listing-control guarantees
   assert.match(providers, /machine-readable discovery for eligible active listings, plus an OpenAPI description/)
   assert.match(providers, /Activation remains subject to Mahshar’s verification and marketplace health safeguards\./)
 })
+
+test('public trust surface exposes verifiable product-first evidence without identity claims', () => {
+  const trust = read('src/components/PublicTrustPanel.tsx')
+  const footer = read('src/components/PublicSiteFooter.tsx')
+  for (const value of [
+    'Arc Mainnet', 'Chain ID 5042', 'https://github.com/sharken3948/Mahshar',
+    'support@mahshar.xyz', '0x052650D1764406d702252B20B2294346A594A1ef',
+    '0xa3efb83ad9ac4f2164d36b2579104cb7fb19c986cd623206b27387330e33fa33',
+  ]) assert.ok(trust.includes(value), value)
+  assert.match(trust, /not operated by, endorsed by, or part of Circle/)
+  assert.match(trust, /PUBLIC REFERENCES/)
+  assert.match(trust, /Public product references, in one place\./)
+  assert.match(trust, /PRODUCTION NETWORK/)
+  assert.doesNotMatch(trust, /PRODUCT TRUST|LIVE NETWORK|independently verifiable|one public network reference/)
+  assert.equal((trust.match(/aria-label=/g) ?? []).length, 3)
+  for (const path of ['src/app/page.tsx', 'src/app/about/page.tsx', 'src/app/providers/page.tsx']) {
+    assert.match(read(path), /<PublicTrustPanel \/>/, path)
+  }
+  assert.match(footer, />GitHub<\/a>/)
+  assert.match(footer, />Arc verification<\/a>/)
+  assert.equal((footer.match(/aria-label=/g) ?? []).length, 3)
+  assert.doesNotMatch(trust, /founder|team size|headquarters|incorporat|official partner|security audit/i)
+})

@@ -6,19 +6,19 @@ import styles from '../public-pages.module.css'
 
 export const metadata: Metadata = {
   title: 'Support | Mahshar',
-  description: 'Self-service help for Mahshar marketplace, wallet, bridge, provider, and agent flows.',
+  description: 'Documentation and direct email support for Mahshar API providers, marketplace users, builders, and autonomous agents.',
   alternates: { canonical: '/support' },
   openGraph: {
     type: 'website',
     siteName: 'Mahshar',
     title: 'Support | Mahshar',
-    description: 'Self-service help for Mahshar marketplace, wallet, bridge, provider, and agent flows.',
+    description: 'Documentation and direct email support for Mahshar API providers, marketplace users, builders, and autonomous agents.',
     url: '/support',
   },
   twitter: {
     card: 'summary',
     title: 'Support | Mahshar',
-    description: 'Self-service help for Mahshar marketplace, wallet, bridge, provider, and agent flows.',
+    description: 'Documentation and direct email support for Mahshar API providers, marketplace users, builders, and autonomous agents.',
   },
 }
 
@@ -77,7 +77,7 @@ export default function SupportPage() {
         <section className={styles.section}>
           <div className={styles.container}>
             <div className={styles.contactGrid}>
-              <article className={styles.contactCard}><div className={styles.contactMeta}><span className={styles.iconBox}><PublicIcon name="mail" /></span><div><h2>Still need help?</h2><p>Send an email to the support address used by Mahshar’s existing navigation and Settings page.</p></div></div><a href="mailto:support@mahshar.xyz" className={styles.primaryButton}>support@mahshar.xyz <PublicIcon name="arrow" /></a></article>
+              <article className={styles.contactCard}><div className={styles.contactMeta}><span className={styles.iconBox}><PublicIcon name="mail" /></span><div><h2>Provider or product question?</h2><p>Email the single public support address for listing, marketplace, documentation, or product-flow questions.</p></div></div><a href="mailto:support@mahshar.xyz" className={styles.primaryButton}>support@mahshar.xyz <PublicIcon name="arrow" /></a></article>
               <article className={styles.contactCard}><div className={styles.contactMeta}><span className={styles.iconBox}><PublicIcon name="docs" /></span><div><h2>Prefer self-service?</h2><p>The documentation index links the current buyer, provider, agent, payment, recovery, bridge, and Wallet surfaces.</p></div></div><Link href="/docs" className={styles.secondaryButton}>Open documentation</Link></article>
             </div>
           </div>

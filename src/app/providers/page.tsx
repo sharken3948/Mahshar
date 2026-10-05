@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { PublicPageShell } from '@/components/PublicPageShell'
+import { PublicTrustPanel } from '@/components/PublicTrustPanel'
 import { providersMetadata } from '@/lib/seo/education-metadata'
 import styles from '../education-pages.module.css'
 
@@ -57,7 +58,7 @@ export default function ProvidersPage() {
             <div className={styles.heroGrid}>
               <div className={styles.heroCopy}>
                 <p className={styles.eyebrow}>FOR API PROVIDERS</p>
-                <h1>Turn an existing API into an agent-ready revenue surface.</h1>
+                <h1>Add an agent-ready, pay-per-call channel to your existing API.</h1>
                 <p className={styles.heroLead}>Mahshar gives providers an additional way to offer an existing API for discoverable, pay-per-call USDC access. Builders and autonomous agents get a clear interface for finding and purchasing calls; you keep operating the upstream service.</p>
                 <div className={styles.actions}>
                   <Link href="/seller" className={styles.primaryButton}>List Your API <ArrowIcon /></Link>
@@ -68,6 +69,8 @@ export default function ProvidersPage() {
             </div>
           </div>
         </section>
+
+        <PublicTrustPanel />
 
         <section className={styles.section}>
           <div className={styles.container}>
@@ -170,7 +173,7 @@ export default function ProvidersPage() {
               {faqs.map(([question, answer]) => <details key={question} className={styles.faqItem}><summary>{question}</summary><div><p>{answer}</p></div></details>)}
             </div>
             <div className={styles.resourcesPanel}>
-              <div><p className={styles.eyebrow}>OFFICIAL CONTEXT</p><h2>Learn about the wider agent-payment ecosystem.</h2><p>Mahshar uses Circle technologies but is not presented as operated by, endorsed by, or part of Circle.</p></div>
+              <div><p className={styles.eyebrow}>TECHNOLOGY CONTEXT</p><h2>Learn about the wider agent-payment ecosystem.</h2><p>These resources explain technologies used by Mahshar’s current marketplace payment layer.</p></div>
               <div className={styles.resourceLinks}>
                 <a href="https://developers.circle.com/agent-stack/agent-marketplace" target="_blank" rel="noreferrer noopener">Circle Agent Marketplace <ExternalIcon /></a>
                 <a href="https://developers.circle.com/gateway/nanopayments/concepts/x402" target="_blank" rel="noreferrer noopener">Circle: What is x402? <ExternalIcon /></a>
@@ -183,7 +186,7 @@ export default function ProvidersPage() {
           <div className={styles.container}>
             <div className={styles.finalCta}>
               <p className={styles.eyebrowLight}>A NEW DISTRIBUTION SURFACE</p>
-              <h2>Your API already has value. Make it discoverable to the next class of customers.</h2>
+              <h2>Keep operating your API. Add a path for builders and autonomous agents.</h2>
               <div className={styles.actions}><Link href="/seller" className={styles.lightButton}>List Your API <ArrowIcon /></Link><Link href="/docs#providers" className={styles.ghostButton}>Read Provider Documentation <ArrowIcon /></Link></div>
             </div>
           </div>
@@ -199,7 +202,7 @@ function ProviderDiagram() {
       <div className={styles.diagramHeader}><span>AN ADDITIONAL ACCESS PATH</span><i>Pay per call</i></div>
       <div className={styles.providerFlow}>
         <div className={styles.endpointNode}><small>YOUR EXISTING API</small><strong>api.example.com</strong><span>Provider-operated endpoint</span></div>
-        <div className={styles.verticalConnector} aria-hidden="true"><i /><span>Configure once</span></div>
+        <div className={styles.verticalConnector} aria-hidden="true"><i /><span>Configure listing</span></div>
         <div className={styles.providerMahshar}><strong>Mahshar</strong><div><span>Discovery</span><span>x402</span><span>USDC</span><span>Access</span></div></div>
         <div className={styles.consumerRow}><div><small>BUILDER</small><strong>Application</strong></div><div><small>AGENT</small><strong>Autonomous client</strong></div></div>
       </div>

@@ -3,6 +3,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { NavBar } from '@/components/NavBar'
 import { PublicSiteFooter } from '@/components/PublicSiteFooter'
+import { PublicTrustPanel } from '@/components/PublicTrustPanel'
 import { HOME_DESCRIPTION, HOME_TITLE, homepageStructuredData } from '@/lib/seo/brand'
 import styles from './landing.module.css'
 
@@ -53,20 +54,22 @@ export default function LandingPage() {
               <span className={styles.heroAccent}>powered by</span>
               <span className={styles.heroAccent}>USDC.</span>
             </h1>
-            <p className={styles.heroDescription}>Mahshar gives AI agents and builders a direct way to discover, sell, and pay for API access with USDC.</p>
+            <p className={styles.heroDescription}>Mahshar is a live API marketplace where providers offer existing APIs and builders or autonomous agents discover and pay for calls with USDC on Arc Mainnet.</p>
             <div className={styles.heroActions}>
               <Link href="/seller" className={`${styles.heroButton} ${styles.sellerButton}`}>List Your API <ArrowIcon /></Link>
               <Link href="/buyer" className={`${styles.heroButton} ${styles.marketButton}`}>Buy in Marketplace <ArrowIcon /></Link>
             </div>
             <div className={styles.trustRow} aria-label="Mahshar platform highlights">
-              <TrustItem icon={<ShieldIcon />} label="USDC Payments" />
+              <TrustItem icon={<ShieldIcon />} label="Pay per request" />
               <TrustItem icon={<BoltIcon />} label="Built for AI Agents" />
-              <TrustItem icon={<GlobeIcon />} label="On Arc Mainnet" />
+              <TrustItem icon={<GlobeIcon />} label="Live on Arc Mainnet" />
             </div>
           </div>
           <EcosystemCard />
         </div>
       </section>
+
+      <PublicTrustPanel />
 
       <section className={styles.stepsSection}>
         <div className={styles.stepsInner}>
@@ -113,9 +116,9 @@ function EcosystemCard() {
           <path d="M205 207 C262 207 256 151 330 132 C404 151 398 207 455 207" />
         </svg>
         <EcosystemItem title="AI Agents" copy={<>Find the tools<br />you need</>} icon={<AgentIcon />} />
-        <EcosystemItem title="USDC Payments" copy={<>Fast, secure<br />and global</>} icon={<WalletIcon />} />
-        <EcosystemItem title="API Providers" copy={<>Monetize<br />your capabilities</>} icon={<CodeIcon />} />
-        <EcosystemItem title={<>A Growing<br />Ecosystem</>} copy={<>More builders<br />More possibilities</>} icon={<GrowthIcon />} />
+        <EcosystemItem title="USDC Payments" copy={<>Per-request access<br />on Arc Mainnet</>} icon={<WalletIcon />} />
+        <EcosystemItem title="API Providers" copy={<>Offer existing<br />API access</>} icon={<CodeIcon />} />
+        <EcosystemItem title={<>Builders &amp;<br />Agents</>} copy={<>Discover APIs<br />when needed</>} icon={<GrowthIcon />} />
         <div className={styles.centralHub}>
           <div className={styles.hubGlow} aria-hidden="true" />
           <div className={styles.hubCore}><Image src="/mahshar-icon.png" alt="" width={512} height={512} priority /></div>

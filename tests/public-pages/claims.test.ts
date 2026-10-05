@@ -95,3 +95,13 @@ test('Arc wallet balance UI uses resilient reads and never renders transport dia
     assert.doesNotMatch(page, /HTTP request failed|rpc\.mainnet\.arc\.io|ContractFunctionExecutionError|calldata|viem@/i)
   }
 })
+
+test('public-facing claims distinguish live infrastructure from unsupported outcomes or certification', () => {
+  const home = read('src/app/page.tsx')
+  const providers = read('src/app/providers/page.tsx')
+  const marketplace = read('src/app/marketplace/page.tsx')
+  assert.match(home, /live API marketplace/)
+  assert.match(providers, /additional way to offer an existing API/)
+  assert.match(marketplace, />Endpoint checked</)
+  assert.doesNotMatch(`${home}\n${providers}`, /revenue surface|Fast, secure|guaranteed distribution|guaranteed revenue/i)
+})
