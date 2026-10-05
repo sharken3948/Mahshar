@@ -53,6 +53,41 @@ function replayOutcome(candidate: DurableCandidate, discovered = 1): CandidateOu
   throw new Error('worker_candidate_replay_invalid')
 }
 
+function persistedOutcome(
+  persisted: Awaited<ReturnType<typeof saveQualification>>,
+  entity: { providerId: string; productId: string; leadId: string },
+  discovered: number,
+): CandidateOutcome {
+  return outcome(persisted.status, persisted.reasonCode, { ...entity, discovered,
+    duplicate: persisted.status === 'duplicate' || persisted.status === 'blocked' ? 1 : 0,
+    filtered: persisted.status === 'filtered' ? 1 : 0,
+    qualified: persisted.countedQualified ? 1 : 0,
+    persisted: persisted.status === 'persisted' ? 1 : 0,
+    deferred: persisted.status === 'deferred' ? 1 : 0,
+    targetReached: persisted.targetReached })
+}
+
+async function deferCandidate(
+  runId: string,
+  candidate: DurableCandidate,
+  reason: string,
+  domain: string,
+  productKey: string,
+  discovered: number,
+  deps: DiscoveryProcessorDependencies,
+  entity?: { providerId: string; productId: string; leadId: string },
+): Promise<CandidateOutcome> {
+  const linked = entity ?? (candidate.providerId && candidate.productId && candidate.leadId
+    ? { providerId: candidate.providerId, productId: candidate.productId, leadId: candidate.leadId } : null)
+  if (linked) {
+    const persisted = await deps.saveQualification({ runId, candidate, ...linked, qualified: false, deferredReason: reason })
+    return persistedOutcome(persisted, linked, discovered)
+  }
+  const result = outcome('deferred', reason, { discovered, deferred: 1 })
+  await deps.markDiscoveryCandidate(candidate, result, domain, productKey)
+  return result
+}
+
 async function recordPreflightOutcome(
   candidate: DurableCandidate,
   current: Awaited<ReturnType<typeof preflightCandidate>>,
@@ -98,9 +133,7 @@ export async function processDiscoveryCandidate(
   const preflight = await deps.preflightCandidate(domain, productKey)
   if (preflight.action !== 'continue') return recordPreflightOutcome(candidate, preflight, domain, productKey, deps, discovered)
   if (Date.now() >= deadlineMs) {
-    const result = outcome('deferred', 'run_budget_exhausted', { discovered, deferred: 1 })
-    await deps.markDiscoveryCandidate(candidate, result, domain, productKey)
-    return result
+    return deferCandidate(runId, candidate, 'run_budget_exhausted', domain, productKey, discovered, deps)
   }
   const filter = deterministicCandidateFilter(candidate)
   if (filter) {
@@ -110,7 +143,7 @@ export async function processDiscoveryCandidate(
   }
 
   let facts: ProvenanceFact[] = []
-  if (retryDeferred && candidate.leadId) facts = await deps.getReusableProvenance(candidate.leadId)
+  if (candidate.leadId) facts = await deps.getReusableProvenance(candidate.leadId)
   if (!facts.some(fact => fact.sourceRole === 'official_docs')) {
     const research = await deps.researchCandidate({
       candidate, normalizedDomain: domain,
@@ -119,8 +152,9 @@ export async function processDiscoveryCandidate(
     facts = research.facts
     if (!research.docsVerified || research.compatibilityFailure) {
       const reason = research.compatibilityFailure ?? research.failureCode ?? 'official_docs_unverified'
-      const deferred = reason === 'research_budget_exhausted' || reason === 'run_budget_exhausted'
-      const result = outcome(deferred ? 'deferred' : 'filtered', reason, { discovered, filtered: deferred ? 0 : 1, deferred: deferred ? 1 : 0 })
+      const deferred = ['research_budget_exhausted', 'research_claim_replayed', 'run_budget_exhausted'].includes(reason)
+      if (deferred) return deferCandidate(runId, candidate, reason, domain, productKey, discovered, deps)
+      const result = outcome('filtered', reason, { discovered, filtered: 1 })
       await deps.markDiscoveryCandidate(candidate, result, domain, productKey)
       return result
     }
@@ -137,15 +171,15 @@ export async function processDiscoveryCandidate(
     return recordPreflightOutcome(candidate, finalPreflight, domain, productKey, deps, discovered)
   }
 
-  if (Date.now() >= deadlineMs || !await deps.claimDiscoveryBudget(runId, 'groq', `candidate:${candidate.id}`)) {
-    const reason = Date.now() >= deadlineMs ? 'run_budget_exhausted' : 'groq_budget_exhausted'
-    const persisted = await deps.saveQualification({ runId, candidate, ...entity, qualified: false, deferredReason: reason })
-    return outcome(persisted.status, persisted.reasonCode, { ...entity, discovered,
-      duplicate: persisted.status === 'duplicate' || persisted.status === 'blocked' ? 1 : 0,
-      filtered: persisted.status === 'filtered' ? 1 : 0,
-      qualified: persisted.countedQualified ? 1 : 0,
-      persisted: persisted.status === 'persisted' ? 1 : 0, deferred: persisted.status === 'deferred' ? 1 : 0,
-      targetReached: persisted.targetReached })
+  if (Date.now() >= deadlineMs) {
+    return deferCandidate(runId, candidate, 'run_budget_exhausted', domain, productKey, discovered, deps, entity)
+  }
+  const groqClaim = await deps.claimDiscoveryBudget(runId, 'groq', `candidate:${candidate.id}`)
+  if (groqClaim !== 'claimed') {
+    return deferCandidate(runId, candidate,
+      groqClaim === 'replayed' ? 'groq_claim_replayed'
+        : groqClaim === 'deadline_reached' ? 'run_budget_exhausted' : 'groq_budget_exhausted',
+      domain, productKey, discovered, deps, entity)
   }
   let qualification: Awaited<ReturnType<typeof qualifyCandidate>>
   try {

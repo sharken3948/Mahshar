@@ -1,7 +1,7 @@
 import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
 import { canonicalExternalUrl, durableExternalName, durableExternalSummary } from './sanitize'
-import type { CandidateOutcome, DurableCandidate, ProvenanceFact, RawCandidate, WorkerQualification, WorkerTraction } from './types'
+import type { BudgetClaimResult, CandidateOutcome, DurableCandidate, ProvenanceFact, RawCandidate, WorkerQualification, WorkerTraction } from './types'
 
 type DbError = { message?: string; code?: string } | null
 type DbResult = { data: unknown; error: DbError }
@@ -69,12 +69,13 @@ export async function getDiscoveryRunContext(runId: string): Promise<{
     qualifiedCount: currentRow.qualified_count as number, qualifiedTarget: currentRow.qualified_target as number }
 }
 
-export async function claimDiscoveryBudget(runId: string, budget: 'source' | 'research' | 'groq' | 'traction', claimKey: string): Promise<boolean> {
-  const result = await createServiceClient().rpc('mahshar_worker_claim_budget', {
+export async function claimDiscoveryBudget(runId: string, budget: 'source' | 'research' | 'groq' | 'traction', claimKey: string): Promise<BudgetClaimResult> {
+  const result = await createServiceClient().rpc('mahshar_worker_claim_budget_v2', {
     p_run_id: runId, p_budget: budget, p_claim_key: claimKey,
   }) as DbResult
   if (result.error) fail('worker_discovery_budget', result.error)
-  return result.data === true
+  if (!['claimed', 'replayed', 'exhausted', 'deadline_reached'].includes(String(result.data))) throw new Error('worker_discovery_budget_result_invalid')
+  return result.data as BudgetClaimResult
 }
 
 export async function getMaterializedSourceWork(batchId: string, claimKey: string): Promise<unknown | null> {

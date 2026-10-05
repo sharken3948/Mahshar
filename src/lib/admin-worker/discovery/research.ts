@@ -2,7 +2,7 @@ import 'server-only'
 import { normalizeWorkerIdentity } from '../normalization'
 import { boundedDiscoveryFetch, type DiscoveryFetcher } from './fetch'
 import { canonicalExternalUrl, durableExternalSummary } from './sanitize'
-import type { ProvenanceFact, RawCandidate } from './types'
+import type { BudgetClaimResult, ProvenanceFact, RawCandidate } from './types'
 
 export type ResearchResult = {
   facts: ProvenanceFact[]
@@ -120,7 +120,7 @@ export function sourceTrustRank(fact: ProvenanceFact): number {
 export async function researchCandidate(input: {
   candidate: RawCandidate
   normalizedDomain: string
-  claimResearchBudget: (purpose: 'contract' | 'ownership_docs' | 'ownership_root') => Promise<boolean>
+  claimResearchBudget: (purpose: 'contract' | 'ownership_docs' | 'ownership_root') => Promise<BudgetClaimResult>
   fetcher?: DiscoveryFetcher
   now?: () => string
 }): Promise<ResearchResult> {
@@ -149,7 +149,10 @@ export async function researchCandidate(input: {
       factualSummary: 'Directory asserted documentation URL; provider ownership was not verified.', checkedAt })
     return { facts, docsVerified: false, failureCode: 'official_linkage_unverified', compatibilityFailure: null }
   }
-  if (!await input.claimResearchBudget('contract')) return { facts, docsVerified: false, failureCode: 'research_budget_exhausted', compatibilityFailure: null }
+  const contractClaim = await input.claimResearchBudget('contract')
+  if (contractClaim !== 'claimed') return { facts, docsVerified: false,
+    failureCode: contractClaim === 'replayed' ? 'research_claim_replayed'
+      : contractClaim === 'deadline_reached' ? 'run_budget_exhausted' : 'research_budget_exhausted', compatibilityFailure: null }
   try {
     const fetcher = input.fetcher ?? boundedDiscoveryFetch
     const structuredUrl = contractUrl ?? docsUrl
@@ -177,8 +180,11 @@ export async function researchCandidate(input: {
     })
     let ownershipVerified = contractIsProviderOwned
     if (docsUrl && docsUrl !== structuredUrl && providerOwnsUrl(docsUrl, input.normalizedDomain)) {
-      if (!await input.claimResearchBudget('ownership_docs')) {
-        return { facts, docsVerified: false, failureCode: 'research_budget_exhausted', compatibilityFailure: null }
+      const ownershipDocsClaim = await input.claimResearchBudget('ownership_docs')
+      if (ownershipDocsClaim !== 'claimed') {
+        return { facts, docsVerified: false,
+          failureCode: ownershipDocsClaim === 'replayed' ? 'research_claim_replayed'
+            : ownershipDocsClaim === 'deadline_reached' ? 'run_budget_exhausted' : 'research_budget_exhausted', compatibilityFailure: null }
       }
       const docsResponse = await fetcher(docsUrl, { maxBytes: 256 * 1024, accept: 'text/html,application/json' })
       const officialUrl = canonicalExternalUrl(docsResponse.url)
@@ -190,8 +196,11 @@ export async function researchCandidate(input: {
       }
     }
     if (!ownershipVerified && endpointIsProviderOwned) {
-      if (!await input.claimResearchBudget('ownership_root')) {
-        return { facts, docsVerified: false, failureCode: 'research_budget_exhausted', compatibilityFailure: null }
+      const ownershipRootClaim = await input.claimResearchBudget('ownership_root')
+      if (ownershipRootClaim !== 'claimed') {
+        return { facts, docsVerified: false,
+          failureCode: ownershipRootClaim === 'replayed' ? 'research_claim_replayed'
+            : ownershipRootClaim === 'deadline_reached' ? 'run_budget_exhausted' : 'research_budget_exhausted', compatibilityFailure: null }
       }
       const rootUrl = `https://${input.normalizedDomain}/`
       const rootResponse = await fetcher(rootUrl, { maxBytes: 128 * 1024, accept: 'text/html,text/plain,application/json' })

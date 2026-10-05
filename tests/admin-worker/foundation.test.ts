@@ -10,6 +10,7 @@ const migrationPath = 'supabase/migrations/20261001000100_admin_worker_foundatio
 const discoveryMigrationPath = 'supabase/migrations/20261002000100_admin_worker_discovery_v1.sql'
 const reviewMigrationPath = 'supabase/migrations/20261004000100_admin_worker_discovery_review_candidates.sql'
 const targetMigrationPath = 'supabase/migrations/20261005000100_admin_worker_qualified_target_traction.sql'
+const retryMigrationPath = 'supabase/migrations/20261005000200_admin_worker_retry_idempotency.sql'
 
 test('Worker migration creates the bounded server-only schema and lifecycle RPCs', () => {
   const sql = read(migrationPath)
@@ -204,6 +205,23 @@ test('qualified-target migration is forward-only, bounded, Worker-only, and pres
   assert.match(sql, /mahshar_worker_advance_target_run/)
   assert.match(sql, /mahshar_worker_persist_qualification_v2/)
   assert.match(sql, /SECURITY DEFINER SET search_path = ''/)
+  assert.match(sql, /REVOKE CREATE ON SCHEMA public/)
+  assert.doesNotMatch(sql, /api_listings|purchases|api_calls|settlement|withdraw|gateway|wallet|seller_credentials/i)
+})
+
+test('retry-idempotency migration separates replay from exhaustion and recovers partial deferred leads', () => {
+  const sql = read(retryMigrationPath)
+  assert.match(sql, /mahshar_worker_claim_budget_v2/)
+  assert.match(sql, /RETURNS text/)
+  assert.match(sql, /RETURN 'claimed'/)
+  assert.match(sql, /RETURN 'replayed'/)
+  assert.match(sql, /RETURN 'exhausted'/)
+  assert.match(sql, /RETURN 'deadline_reached'/)
+  assert.match(sql, /lead\.status='discovered' AND lead\.qualification_status='pending'/)
+  assert.match(sql, /'research_budget_exhausted','research_claim_replayed'/)
+  assert.match(sql, /SECURITY DEFINER SET search_path = ''/)
+  assert.match(sql, /REVOKE ALL ON FUNCTION public\.mahshar_worker_claim_budget_v2[\s\S]*PUBLIC,anon,authenticated,service_role/)
+  assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.mahshar_worker_claim_budget_v2[\s\S]*service_role/)
   assert.match(sql, /REVOKE CREATE ON SCHEMA public/)
   assert.doesNotMatch(sql, /api_listings|purchases|api_calls|settlement|withdraw|gateway|wallet|seller_credentials/i)
 })

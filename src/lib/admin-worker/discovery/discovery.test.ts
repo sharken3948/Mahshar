@@ -368,6 +368,51 @@ test('hard budgets, deadline, and source exhaustion end a range without fabricat
   assert.equal(exhausted.outcomes.length, 0)
 })
 
+test('Workflow research-claim replay continues the chunk and advances without a hard limit', async () => {
+  const result = await processDiscoveryRange('target-run', 0, 2, rangeDependencies({ outcomes: [
+    { status: 'deferred', reasonCode: 'research_claim_replayed', deferred: 1 },
+    { status: 'filtered', reasonCode: 'official_docs_unverified', filtered: 1 },
+  ] }))
+  assert.equal(result.hardLimitReached, false)
+  assert.equal(result.nextIndex, 2)
+  assert.equal(result.outcomes.length, 2)
+})
+
+test('at-least-once Workflow retry reuses one research claim and advances the retried chunk', async () => {
+  const work = [durable({ ordinal: 0 }), durable({ id: '10000000-0000-4000-8000-000000000002', ordinal: 1 })]
+  const claims = new Set<string>()
+  let researchCount = 0
+  let externalCalls = 0
+  let interrupted = false
+  const dependencies: Partial<DiscoveryRangeDependencies> = {
+    getDiscoveryRunContext: async () => ({ batchId: 'target-run', rootRunNumber: 1,
+      deadlineAt: new Date(Date.now() + 60_000).toISOString(), qualifiedCount: 0, qualifiedTarget: 50 }),
+    getDiscoveryCandidates: async (_batchId, start, end) => work.filter(item => item.ordinal >= start && item.ordinal < end),
+    claimDeferredCandidates: async () => [],
+    processDiscoveryCandidate: async (_runId, item) => {
+      if (item.ordinal === 1) return { status: 'filtered', reasonCode: 'official_docs_unverified', discovered: 1,
+        duplicate: 0, filtered: 1, qualified: 0, reviewCandidate: 0, persisted: 0, deferred: 0, tractionScored: 0 }
+      const key = `candidate:${item.id}:contract`
+      const claim = claims.has(key) ? 'replayed' : 'claimed'
+      if (claim === 'claimed') {
+        claims.add(key)
+        researchCount += 1
+        externalCalls += 1
+        if (!interrupted) { interrupted = true; throw new Error('simulated_workflow_step_retry') }
+      }
+      return { status: 'deferred', reasonCode: 'research_claim_replayed', discovered: 1,
+        duplicate: 0, filtered: 0, qualified: 0, reviewCandidate: 0, persisted: 0, deferred: 1, tractionScored: 0 }
+    },
+  }
+  await assert.rejects(processDiscoveryRange('target-run', 0, 2, dependencies), /simulated_workflow_step_retry/)
+  const retried = await processDiscoveryRange('target-run', 0, 2, dependencies)
+  assert.equal(researchCount, 1)
+  assert.equal(externalCalls, 1)
+  assert.equal(retried.hardLimitReached, false)
+  assert.equal(retried.nextIndex, 2)
+  assert.deepEqual(retried.outcomes.map(item => item.reasonCode), ['research_claim_replayed', 'official_docs_unverified'])
+})
+
 test('traction is bounded evidence, never a qualification gate, and contactability is non-blocking', () => {
   const now = Date.parse('2026-10-04T00:00:00.000Z')
   const highEvidence = assessTraction({ ...candidate, directoryUpdatedAt: '2026-10-01T00:00:00.000Z' }, [
@@ -438,30 +483,40 @@ test('structured OpenAPI verification rejects malformed, empty, unsupported, and
   assert.equal(inspectOpenApiDocument(JSON.stringify({ swagger: '2.0', host: 'api.acme.com', schemes: ['https'], basePath: '/v1', paths: { '/x': { get: {} } } })).valid, true)
   assert.equal(inspectOpenApiDocument(JSON.stringify({ swagger: '2.0', host: 'api.acme.com', schemes: ['http'], paths: { '/x': { get: {} } } })).failureCode, 'unsafe_api_endpoint')
   assert.equal(inspectOpenApiDocument(JSON.stringify({ openapi: '3.0.0', servers: [{ url: 'https://api.acme.com' }], components: { securitySchemes: { broken: { type: 'http' } } }, paths: { '/x': { get: {} } } })).failureCode, 'malformed_auth_pattern')
-  const verified = await researchCandidate({ candidate, normalizedDomain: 'acme.com', claimResearchBudget: async () => true,
+  const verified = await researchCandidate({ candidate, normalizedDomain: 'acme.com', claimResearchBudget: async () => 'claimed',
     fetcher: async url => ({ url, status: 200, contentType: 'application/json', body: validSpec }), now: () => '2026-10-02T00:00:00.000Z' })
   assert.equal(verified.docsVerified, true)
   assert.equal(verified.facts[0].sourceRole, 'official_docs')
-  const html = await researchCandidate({ candidate, normalizedDomain: 'acme.com', claimResearchBudget: async () => true,
+  const html = await researchCandidate({ candidate, normalizedDomain: 'acme.com', claimResearchBudget: async () => 'claimed',
     fetcher: async url => ({ url, status: 200, contentType: 'text/html', body: '<title>API docs</title>' }) })
   assert.equal(html.docsVerified, false)
   assert.equal(html.failureCode, 'structured_api_contract_missing')
   let calls = 0
   const unlinked = await researchCandidate({ candidate: { ...candidate, discoveredDocsUrl: 'https://docs.unrelated.com/spec.json' }, normalizedDomain: 'acme.com',
-    claimResearchBudget: async () => true, fetcher: async () => { calls += 1; throw new Error('must not fetch') } })
+    claimResearchBudget: async () => 'claimed', fetcher: async () => { calls += 1; throw new Error('must not fetch') } })
   assert.equal(unlinked.failureCode, 'official_linkage_unverified')
   assert.equal(calls, 0)
+})
+
+test('research claim replay never repeats its external call', async () => {
+  let fetches = 0
+  const result = await researchCandidate({ candidate, normalizedDomain: 'acme.com',
+    claimResearchBudget: async () => 'replayed',
+    fetcher: async () => { fetches += 1; throw new Error('replayed claim must not fetch') } })
+  assert.equal(result.failureCode, 'research_claim_replayed')
+  assert.equal(result.docsVerified, false)
+  assert.equal(fetches, 0)
 })
 
 test('directory-hosted contract requires independent provider-owned evidence', async () => {
   const directory = { ...candidate, discoveredContractUrl: 'https://api.apis.guru/v2/specs/acme/openapi.json', discoveredDocsUrl: undefined }
   const contractBody = JSON.stringify({ openapi: '3.0.0', servers: [{ url: 'https://api.acme.com/v1' }], paths: { '/x': { get: {} } } })
-  const directoryOnly = await researchCandidate({ candidate: directory, normalizedDomain: 'acme.com', claimResearchBudget: async () => true,
+  const directoryOnly = await researchCandidate({ candidate: directory, normalizedDomain: 'acme.com', claimResearchBudget: async () => 'claimed',
     fetcher: async url => ({ url, status: 200, contentType: 'application/json', body: url.includes('apis.guru') ? contractBody : '<html>unrelated landing page</html>' }) })
   assert.equal(directoryOnly.docsVerified, false)
   assert.equal(directoryOnly.failureCode, 'provider_ownership_unverified')
 
-  const withRoot = await researchCandidate({ candidate: directory, normalizedDomain: 'acme.com', claimResearchBudget: async () => true,
+  const withRoot = await researchCandidate({ candidate: directory, normalizedDomain: 'acme.com', claimResearchBudget: async () => 'claimed',
     fetcher: async url => ({ url, status: 200, contentType: url.includes('apis.guru') ? 'application/json' : 'text/html',
       body: url.includes('apis.guru') ? contractBody : '<html><title>Acme</title>acme.com</html>' }) })
   assert.equal(withRoot.docsVerified, true)
@@ -470,13 +525,13 @@ test('directory-hosted contract requires independent provider-owned evidence', a
   assert.equal(withRoot.facts.some(fact => fact.url.includes('apis.guru') && fact.sourceRole === 'official_docs'), false)
 
   const withDocs = await researchCandidate({ candidate: { ...directory, discoveredDocsUrl: 'https://docs.acme.com/reference' },
-    normalizedDomain: 'acme.com', claimResearchBudget: async () => true,
+    normalizedDomain: 'acme.com', claimResearchBudget: async () => 'claimed',
     fetcher: async url => ({ url, status: 200, contentType: url.includes('apis.guru') ? 'application/json' : 'text/html',
       body: url.includes('apis.guru') ? contractBody : '<html>Acme API documentation</html>' }) })
   assert.equal(withDocs.docsVerified, true)
   assert.ok(withDocs.facts.some(fact => fact.sourceRole === 'official_docs' && fact.url.includes('docs.acme.com')))
 
-  const malicious = await researchCandidate({ candidate: directory, normalizedDomain: 'acme.com', claimResearchBudget: async () => true,
+  const malicious = await researchCandidate({ candidate: directory, normalizedDomain: 'acme.com', claimResearchBudget: async () => 'claimed',
     fetcher: async url => ({ url, status: 200, contentType: 'application/json', body: JSON.stringify({ openapi: '3.0.0',
       servers: [{ url: 'https://api.unrelated.example/v1' }], paths: { '/x': { get: {} } } }) }) })
   assert.equal(malicious.docsVerified, false)
@@ -568,7 +623,7 @@ test('DNC added after entity resolution is rechecked before Groq budget', async 
     researchCandidate: async () => ({ facts: [officialDocs], docsVerified: true, failureCode: null, compatibilityFailure: null }),
     resolveDiscoveryLead: async () => ({ action: 'continue', providerId: 'provider', productId: 'product', leadId: 'lead' }),
     saveProvenance: async () => {},
-    claimDiscoveryBudget: async () => { calls.push('budget'); return true },
+    claimDiscoveryBudget: async () => { calls.push('budget'); return 'claimed' },
     qualifyCandidate: async () => { calls.push('groq'); return validQualification },
     markDiscoveryCandidate: async () => { calls.push('mark') },
   })
@@ -598,7 +653,7 @@ test('persistence failure after model success is retried as a step failure, neve
     preflightCandidate: async () => ({ action: 'continue' }),
     researchCandidate: async () => ({ facts: [officialDocs], docsVerified: true, failureCode: null, compatibilityFailure: null }),
     resolveDiscoveryLead: async () => ({ action: 'continue', providerId: 'provider', productId: 'product', leadId: 'lead' }),
-    saveProvenance: async () => {}, claimDiscoveryBudget: async () => true,
+    saveProvenance: async () => {}, claimDiscoveryBudget: async () => 'claimed',
     qualifyCandidate: async () => validQualification,
     saveQualification: async () => { saves += 1; throw new Error('injected_candidate_completion_failure') },
   }), /injected_candidate_completion_failure/)
@@ -610,7 +665,7 @@ test('human state winning during atomic qualification persistence is preserved a
     preflightCandidate: async () => ({ action: 'continue' }),
     researchCandidate: async () => ({ facts: [officialDocs], docsVerified: true, failureCode: null, compatibilityFailure: null }),
     resolveDiscoveryLead: async () => ({ action: 'continue', providerId: 'provider', productId: 'product', leadId: 'lead' }),
-    saveProvenance: async () => {}, claimDiscoveryBudget: async () => true,
+    saveProvenance: async () => {}, claimDiscoveryBudget: async () => 'claimed',
     qualifyCandidate: async () => validQualification,
     saveQualification: async () => ({ status: 'duplicate', reasonCode: 'existing_human_state', countedQualified: false, targetReached: false }),
   })
@@ -625,7 +680,7 @@ test('60-69 fit is persisted for review without counting as qualified', async ()
     preflightCandidate: async () => ({ action: 'continue' }),
     researchCandidate: async () => ({ facts: [officialDocs], docsVerified: true, failureCode: null, compatibilityFailure: null }),
     resolveDiscoveryLead: async () => ({ action: 'continue', providerId: 'provider', productId: 'product', leadId: 'lead' }),
-    saveProvenance: async () => {}, claimDiscoveryBudget: async () => true,
+    saveProvenance: async () => {}, claimDiscoveryBudget: async () => 'claimed',
     qualifyCandidate: async () => ({ ...validQualification, fitScore: 65, commercialApi: false }),
     saveQualification: async input => {
       qualifiedFlag = input.qualified
@@ -668,7 +723,7 @@ test('persisted qualification replays without Groq and deferred qualification is
     preflightCandidate: async () => ({ action: 'continue' as const, providerId: 'provider', productId: 'product', leadId: 'lead' }),
     getReusableProvenance: async () => [officialDocs],
     resolveDiscoveryLead: async () => ({ action: 'continue' as const, providerId: 'provider', productId: 'product', leadId: 'lead' }),
-    claimDiscoveryBudget: async () => true, saveProvenance: async () => {}, saveQualification: async (input: Parameters<DiscoveryProcessorDependencies['saveQualification']>[0]) => {
+    claimDiscoveryBudget: async () => 'claimed' as const, saveProvenance: async () => {}, saveQualification: async (input: Parameters<DiscoveryProcessorDependencies['saveQualification']>[0]) => {
       const status = input.deferredReason ? 'deferred' as const : input.qualified ? 'persisted' as const : 'filtered' as const
       deferred.status = status
       return { status, reasonCode: status === 'persisted' ? 'qualified' : status === 'filtered' ? 'fit_below_threshold' : input.deferredReason!,
@@ -686,12 +741,34 @@ test('DNC added while deferred blocks qualification before budget or Groq', asyn
   const calls: string[] = []
   const result = await processDiscoveryCandidate('run', durable({ status: 'deferred', normalizedDomain: 'acme.com', normalizedProductKey: 'weather', leadId: 'lead' }), Date.now() + 60_000, {
     preflightCandidate: async () => { calls.push('preflight'); return { action: 'blocked', reasonCode: 'provider_do_not_contact', leadId: 'lead' } },
-    claimDiscoveryBudget: async () => { calls.push('budget'); return true },
+    claimDiscoveryBudget: async () => { calls.push('budget'); return 'claimed' },
     qualifyCandidate: async () => { calls.push('groq'); return validQualification },
     markDiscoveryCandidate: async () => { calls.push('mark') },
   }, true)
   assert.equal(result.status, 'blocked')
   assert.deepEqual(calls, ['preflight', 'mark'])
+})
+
+test('Groq claim replay defers atomically without a duplicate model call', async () => {
+  let groqCalls = 0
+  let deferredReason: string | undefined
+  const work = durable({ providerId: 'provider', productId: 'product', leadId: 'lead' })
+  const result = await processDiscoveryCandidate('run', work, Date.now() + 60_000, {
+    preflightCandidate: async () => ({ action: 'continue' }),
+    getReusableProvenance: async () => [officialDocs],
+    resolveDiscoveryLead: async () => ({ action: 'continue', providerId: 'provider', productId: 'product', leadId: 'lead' }),
+    saveProvenance: async () => {},
+    claimDiscoveryBudget: async () => 'replayed',
+    qualifyCandidate: async () => { groqCalls += 1; return validQualification },
+    saveQualification: async input => {
+      deferredReason = input.deferredReason
+      return { status: 'deferred', reasonCode: input.deferredReason!, countedQualified: false, targetReached: false }
+    },
+  })
+  assert.equal(result.status, 'deferred')
+  assert.equal(result.reasonCode, 'groq_claim_replayed')
+  assert.equal(deferredReason, 'groq_claim_replayed')
+  assert.equal(groqCalls, 0)
 })
 
 test('research-budget candidate defers before entities and succeeds in the next logical batch', async () => {
@@ -719,12 +796,32 @@ test('research-budget candidate defers before entities and succeeds in the next 
       status: input.qualified ? 'persisted' as const : 'filtered' as const,
       reasonCode: input.qualified ? 'qualified' : 'fit_below_threshold',
       countedQualified: input.qualified, targetReached: false,
-    }), claimDiscoveryBudget: async () => true,
+    }), claimDiscoveryBudget: async () => 'claimed',
     qualifyCandidate: async () => { groqCalls += 1; return validQualification }, markDiscoveryCandidate: async () => {},
   }, true)
   assert.equal(retried.status, 'persisted')
   assert.equal(resolved, 1)
   assert.equal(groqCalls, 1)
+})
+
+test('research exhaustion atomically defers an already-created pending lead', async () => {
+  const work = durable({ providerId: 'provider', productId: 'product', leadId: 'lead' })
+  let atomicReason: string | undefined
+  let marked = 0
+  const result = await processDiscoveryCandidate('run', work, Date.now() + 60_000, {
+    preflightCandidate: async () => ({ action: 'continue' }),
+    getReusableProvenance: async () => [],
+    researchCandidate: async () => ({ facts: [], docsVerified: false,
+      failureCode: 'research_budget_exhausted', compatibilityFailure: null }),
+    saveQualification: async input => {
+      atomicReason = input.deferredReason
+      return { status: 'deferred', reasonCode: input.deferredReason!, countedQualified: false, targetReached: false }
+    },
+    markDiscoveryCandidate: async () => { marked += 1 },
+  })
+  assert.equal(result.status, 'deferred')
+  assert.equal(atomicReason, 'research_budget_exhausted')
+  assert.equal(marked, 0)
 })
 
 test('qualification schema, threshold, and untrusted-evidence fence are strict', async () => {

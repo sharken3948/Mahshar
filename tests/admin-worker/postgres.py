@@ -14,6 +14,7 @@ PRIVILEGE_REPAIR = ROOT / 'supabase/migrations/20261001000110_admin_worker_least
 DISCOVERY = ROOT / 'supabase/migrations/20261002000100_admin_worker_discovery_v1.sql'
 REVIEW_BAND = ROOT / 'supabase/migrations/20261004000100_admin_worker_discovery_review_candidates.sql'
 QUALIFIED_TARGET = ROOT / 'supabase/migrations/20261005000100_admin_worker_qualified_target_traction.sql'
+RETRY_IDEMPOTENCY = ROOT / 'supabase/migrations/20261005000200_admin_worker_retry_idempotency.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -80,10 +81,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20260926000500', '20260928000100', '20260928000200',
             '20260928000300', '20261001000000', '20261001000030',
             '20261001000100', '20261001000110',
-            '20261002000100', '20261004000100', '20261005000100',
+            '20261002000100', '20261004000100', '20261005000100', '20261005000200',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -741,11 +742,20 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         assert sql("SELECT string_agg(id::text||':'||processed_count||':'||qualified_count,',' ORDER BY run_number) FROM worker_runs;") == historical_snapshot
         assert sql("SELECT count(*) FROM worker_runs WHERE raw_candidate_limit IS NOT NULL OR source_cursor IS NOT NULL;") == '0'
 
+        rollback_sql = "BEGIN;\n" + RETRY_IDEMPOTENCY.read_text() + """
+          DO $rollback$ BEGIN RAISE EXCEPTION 'forced_worker_retry_idempotency_rollback'; END $rollback$;
+          COMMIT;
+        """
+        expect_failure(rollback_sql, 'forced_worker_retry_idempotency_rollback')
+        assert sql("SELECT to_regprocedure('public.mahshar_worker_claim_budget_v2(uuid,text,text)');") == ''
+        sql('BEGIN;\n' + RETRY_IDEMPOTENCY.read_text() + '\nCOMMIT;')
+
         target_functions = [
             'mahshar_worker_create_target_run(boolean)',
             'mahshar_worker_advance_target_run(uuid,integer,integer,integer,integer,integer,integer,integer,integer,integer,integer,boolean,boolean,boolean)',
             'mahshar_worker_complete_target_run(uuid)',
             'mahshar_worker_persist_qualification_v2(uuid,uuid,uuid,uuid,uuid,uuid,jsonb,jsonb,text,text,boolean,text)',
+            'mahshar_worker_claim_budget_v2(uuid,text,text)',
         ]
         for function in target_functions:
             for role in ['anon', 'authenticated']:
@@ -771,6 +781,107 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         assert sql("SELECT has_table_privilege('service_role','public.worker_qualified_contributions','SELECT');") == 't'
         for privilege in ['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']:
             assert sql(f"SELECT has_table_privilege('service_role','public.worker_qualified_contributions','{privilege}');") == 'f'
+
+        # All four budgets distinguish a new claim, a replay, and genuine
+        # exhaustion. Replays remain successful at the cap and never increment.
+        budget_run = rpc_json('mahshar_worker_create_target_run(false)')
+        budget_id = budget_run['id']
+        rpc_json(f"mahshar_worker_claim_run('{budget_id}')")
+        for budget in ['source', 'research', 'groq', 'traction']:
+            assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget_v2('{budget_id}','{budget}','{budget}:1');") == 'claimed'
+            assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget_v2('{budget_id}','{budget}','{budget}:1');") == 'replayed'
+        assert sql(f"SELECT source_query_count||','||research_fetch_count||','||groq_call_count||','||traction_fetch_count FROM worker_runs WHERE id='{budget_id}';") == '1,1,1,1'
+
+        # Concurrent delivery of one stable key consumes exactly one slot.
+        replay_statement = f"SET ROLE service_role; SELECT mahshar_worker_claim_budget_v2('{budget_id}','research','research:retry');"
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            replay_results = [future.result() for future in [pool.submit(sql, replay_statement) for _ in range(8)]]
+        assert replay_results.count('claimed') == 1 and replay_results.count('replayed') == 7, replay_results
+        assert sql(f"SELECT research_fetch_count FROM worker_runs WHERE id='{budget_id}';") == '2'
+
+        caps = {'source': 301, 'research': 240, 'groq': 100, 'traction': 60}
+        starts = {'source': 2, 'research': 3, 'groq': 2, 'traction': 2}
+        for budget, cap in caps.items():
+            claimed = sql(f"""
+              SET ROLE service_role;
+              SELECT count(*) FROM (
+                SELECT mahshar_worker_claim_budget_v2('{budget_id}','{budget}','{budget}:'||g) AS result
+                FROM generate_series({starts[budget]},{cap}) g
+              ) claims WHERE result='claimed';
+            """)
+            assert int(claimed) == cap - starts[budget] + 1
+            assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget_v2('{budget_id}','{budget}','{budget}:1');") == 'replayed'
+            assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget_v2('{budget_id}','{budget}','{budget}:new');") == 'exhausted'
+            assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget('{budget_id}','{budget}','{budget}:1');") == 't'
+            assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget('{budget_id}','{budget}','{budget}:legacy-new');") == 'f'
+        assert sql(f"SELECT source_query_count||','||research_fetch_count||','||groq_call_count||','||traction_fetch_count FROM worker_runs WHERE id='{budget_id}';") == '301,240,100,60'
+        sql(f"UPDATE worker_runs SET deadline_at=clock_timestamp()-interval '1 second' WHERE id='{budget_id}';")
+        assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget_v2('{budget_id}','research','research:1');") == 'replayed'
+        assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget_v2('{budget_id}','research','research:after-deadline');") == 'deadline_reached'
+        assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget('{budget_id}','research','research:after-deadline');") == 'f'
+        sql(f"SET ROLE service_role; SELECT (mahshar_worker_fail_run('{budget_id}','test_cleanup')).status;")
+
+        # Reproduce production ordinal 16: candidate deferred after a claimed
+        # budget, but its already-created lead was still pending. The general
+        # deferred state machine must reclaim it without duplicating entities.
+        partial_run = rpc_json('mahshar_worker_create_target_run(false)')
+        partial_id = partial_run['id']
+        rpc_json(f"mahshar_worker_claim_run('{partial_id}')")
+        sql(f"""
+          SET ROLE service_role;
+          INSERT INTO worker_candidates(discovery_batch_id,ordinal,source_type,source_url,discovered_name,
+            discovered_domain,discovered_product,discovered_docs_url)
+          VALUES('{partial_id}',16,'api_directory','https://api.apis.guru/v2/partial-retry.invalid.json',
+            'Partial retry','partial-retry.invalid','Partial Retry API','https://api.partial-retry.invalid/openapi.json');
+        """)
+        partial_candidate = sql(f"SELECT id FROM worker_candidates WHERE discovery_batch_id='{partial_id}' AND ordinal=16;")
+        partial_entity = json.loads(sql(f"""
+          SET ROLE service_role;
+          SELECT mahshar_worker_resolve_discovery_lead('{partial_candidate}',NULL,'partial-retry.invalid','partial-v1',
+            'Partial retry','partial-retry.invalid','Partial Retry API');
+        """))
+        sql(f"""
+          SET ROLE service_role;
+          UPDATE worker_candidates SET status='deferred',reason_code='research_budget_exhausted',updated_at='1900-01-01T00:00:00Z'
+          WHERE id='{partial_candidate}';
+          SELECT (mahshar_worker_fail_run('{partial_id}','retry_interrupted')).status;
+        """)
+        assert sql(f"SELECT status||','||qualification_status FROM worker_leads WHERE id='{partial_entity['leadId']}';") == 'discovered,pending'
+        partial_counts = sql("""
+          SELECT (SELECT count(*) FROM worker_providers WHERE canonical_domain='partial-retry.invalid')||','||
+            (SELECT count(*) FROM worker_products WHERE normalized_product_key='partial-v1')||','||
+            (SELECT count(*) FROM worker_leads WHERE product_id=(SELECT id FROM worker_products WHERE normalized_product_key='partial-v1'));
+        """)
+        recovery_run = rpc_json('mahshar_worker_create_target_run(false)')
+        recovery_id = recovery_run['id']
+        rpc_json(f"mahshar_worker_claim_run('{recovery_id}')")
+        recovered = json.loads(sql(f"""
+          SET ROLE service_role;
+          SELECT coalesce(json_agg(json_build_object('id',candidate_id,'lease',lease_id)),'[]')
+          FROM mahshar_worker_claim_deferred_candidates('{recovery_id}','partial:recovery',1);
+        """))
+        recovered_item = next(item for item in recovered if item['id'] == partial_candidate)
+        resolved_again = json.loads(sql(f"""
+          SET ROLE service_role;
+          SELECT mahshar_worker_resolve_discovery_lead('{partial_candidate}','{recovered_item['lease']}',
+            'partial-retry.invalid','partial-v1','Partial retry','partial-retry.invalid','Partial Retry API');
+        """))
+        assert resolved_again['providerId'] == partial_entity['providerId']
+        assert resolved_again['productId'] == partial_entity['productId']
+        assert resolved_again['leadId'] == partial_entity['leadId']
+        assert sql("""
+          SELECT (SELECT count(*) FROM worker_providers WHERE canonical_domain='partial-retry.invalid')||','||
+            (SELECT count(*) FROM worker_products WHERE normalized_product_key='partial-v1')||','||
+            (SELECT count(*) FROM worker_leads WHERE product_id=(SELECT id FROM worker_products WHERE normalized_product_key='partial-v1'));
+        """) == partial_counts
+        sql(f"SET ROLE service_role; SELECT mahshar_worker_complete_candidate('{partial_candidate}','{recovered_item['lease']}','filtered','test_cleanup');")
+        sql(f"SET ROLE service_role; SELECT (mahshar_worker_fail_run('{recovery_id}','test_cleanup')).status;")
+        sql(f"""
+          SET ROLE service_role;
+          UPDATE worker_control SET desired_state='stopped',
+            current_checkpoint=(SELECT checkpoint FROM worker_runs WHERE id='{legacy_deferred_run_id}'),
+            checkpoint_run_id='{legacy_deferred_run_id}',updated_at=clock_timestamp() WHERE id=1;
+        """)
 
         legacy_resume = rpc_json('mahshar_worker_create_target_run(true)')
         assert legacy_resume['processed_count'] == 10 and legacy_resume['source_cursor'] == 10

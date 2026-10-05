@@ -1,6 +1,7 @@
 import type { WorkerIdentityType } from '../normalization'
 
 export type DiscoverySourceType = 'api_directory'
+export type BudgetClaimResult = 'claimed' | 'replayed' | 'exhausted' | 'deadline_reached'
 
 export type RawCandidate = {
   sourceType: DiscoverySourceType
