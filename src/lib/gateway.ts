@@ -7,6 +7,7 @@ import { encodePaymentResponseHeader } from '@x402/core/http'
 import type { Network } from '@x402/core/types'
 import { marketplaceOrigin } from '@/lib/marketplace/server'
 import { verifyPlatformWalletConfiguration } from '@/lib/platform-wallet-config'
+import { BUYER_PLATFORM_FEE_RATE, marketplacePriceAmounts } from '@/lib/payments/marketplace-price'
 
 // USDC decimals are 6 on every supported chain — kept as a constant here
 // because reading decimals() at request time would add an RPC round-trip to
@@ -38,9 +39,6 @@ const platformWallet = verifyPlatformWalletConfiguration()
 const PLATFORM_ADDRESS = platformWallet.address
 export const PLATFORM_PRIVATE_KEY = platformWallet.privateKey
 
-const BUYER_FEE_RATE = 0.10
-const SELLER_FEE_RATE = 0.10
-
 const facilitators = new Map<string, BatchFacilitatorClient>()
 function facilitatorFor(networkId: NetworkId): BatchFacilitatorClient {
   const url = CHAINS[networkId].facilitatorUrl
@@ -57,7 +55,7 @@ function facilitatorFor(networkId: NetworkId): BatchFacilitatorClient {
 
 function buildPaymentRequirements(networkId: NetworkId, sellerPriceUsd: number) {
   const chain = CHAINS[networkId]
-  const buyerAmount = Math.round(sellerPriceUsd * (1 + BUYER_FEE_RATE) * 10 ** USDC_DECIMALS)
+  const buyerAmount = marketplacePriceAmounts(sellerPriceUsd).buyerAtomic
   return {
     scheme: 'exact' as const,
     network: networkId,
@@ -75,7 +73,7 @@ function buildPaymentRequirements(networkId: NetworkId, sellerPriceUsd: number) 
 
 export function build402Response(sellerPriceUsd: number, resourceUrl = '/api/proxy'): NextResponse {
   const accepts = NETWORK_ORDER.map(n => buildPaymentRequirements(n, sellerPriceUsd))
-  const buyerPrice = (sellerPriceUsd * (1 + BUYER_FEE_RATE)).toFixed(6)
+  const buyerPrice = (sellerPriceUsd * (1 + BUYER_PLATFORM_FEE_RATE)).toFixed(6)
   const paymentRequired = {
     x402Version: 2,
     resource: {
@@ -119,7 +117,7 @@ export async function verifyAndSettlePayment(
   let payment: ReturnType<typeof parsePayment>
   try { payment = parsePayment(signature) }
   catch { return { success: false, error: 'invalid_payment', status: 400 } }
-  const sellerAtomic = Math.round(sellerPriceUsd * (1 - SELLER_FEE_RATE) * 10 ** USDC_DECIMALS)
+  const sellerAtomic = marketplacePriceAmounts(sellerPriceUsd).sellerAtomic
   if (!Number.isSafeInteger(sellerAtomic) || sellerAtomic <= 0) return { success: false, error: 'invalid_amount', status: 400 }
   return settleDurably({
     payment, apiId, seller: sellerAddress, sellerAtomic: String(sellerAtomic),

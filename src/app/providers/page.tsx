@@ -9,7 +9,7 @@ export const metadata: Metadata = providersMetadata
 
 const handledFeatures = [
   ['Discovery', 'A public Marketplace and machine-readable discovery for eligible active listings, plus an OpenAPI description of Mahshar’s public machine interface.'],
-  ['Pricing', 'A provider-configured USDC price for each paid call.'],
+  ['Pricing', 'A provider-configured listed base price for each paid call.'],
   ['Payment flow', 'The implemented x402 requirement, authorization, verification, and accounting path.'],
   ['Access', 'Payment-aware proxy execution against the configured request contract.'],
   ['Credential protection', 'Stored seller credentials are omitted from public discovery and buyer-facing listing data, then injected server-side when the configured listing requires them.'],
@@ -19,32 +19,37 @@ const handledFeatures = [
 const providerControls = [
   ['Your upstream API', 'The endpoint and infrastructure remain yours.'],
   ['Listing status', 'You can activate or deactivate an eligible listing; verification and marketplace health safeguards still apply.'],
-  ['Price', 'You set the USDC price per call.'],
+  ['Listed base price', 'You set the listed base price per call; current buyer and seller amounts are shown before publication.'],
   ['Presentation', 'You manage the name, description, and category.'],
   ['Request contract', 'You configure the supported method and declared buyer inputs.'],
   ['Authentication', 'You choose the supported public, API-key, bearer, or query-credential mode.'],
 ] as const
 
 const onboarding = [
-  ['Connect', 'Connect the provider wallet used to own and manage the listing.'],
-  ['Analyze', 'Paste the public HTTPS endpoint and run the current endpoint analysis.'],
+  ['Connect', 'Connect the EVM wallet used to own the listing. The wallet flow may select Arc Mainnet and uses a signature to sign in.'],
+  ['Analyze', 'Paste the public HTTPS endpoint. Analyze sends one real representative request using the configured method, inputs, and credential.'],
   ['Configure', 'Review the name, category, HTTP method, authentication mode, and description.'],
   ['Describe the request', 'Confirm body behavior and any declared path or query inputs buyers may send.'],
-  ['Price and preview', 'Set the USDC price per call and review the Marketplace presentation.'],
-  ['Publish', 'Mahshar saves the listing, rechecks the stored endpoint contract, and activates it when the checks pass.'],
+  ['Price and preview', 'Set the listed base price per call, review the buyer total and seller share, and preview the Marketplace presentation.'],
+  ['Publish', 'Mahshar saves the listing, verifies the persisted endpoint configuration with another representative request, and activates it when the checks pass.'],
 ] as const
 
 const faqs = [
   ['Do I need to rebuild my API?', 'Mahshar is designed to list an existing HTTPS API endpoint. You configure how Mahshar may call it; your direct integration and infrastructure remain separate.'],
-  ['Do I need to understand x402 first?', 'No prior x402 expertise is required to begin the provider flow. The Seller interface collects the endpoint, request contract, authentication mode, public metadata, and per-call price Mahshar needs.'],
+  ['Do I need to understand x402 first?', 'No prior x402 expertise is required to begin the provider flow. The Seller interface collects the endpoint, request contract, authentication mode, public metadata, and listed base price Mahshar needs.'],
   ['Can my API use API-key or bearer authentication?', 'Yes. The current listing flow supports public access, an API key in the x-api-key header, bearer authentication, and a configured query credential.'],
-  ['Who sets the API price?', 'The provider sets the listing’s positive USDC price per call and can manage it through the existing listing interfaces.'],
-  ['Does Mahshar include my upstream credentials in listing data?', 'No. Stored seller credentials are not included in public discovery or buyer-facing listing data. When a configured listing requires one, Mahshar injects it server-side before calling the upstream API.'],
+  ['What fee does Mahshar take, and is my listed price what the buyer pays?', 'You set the listed base price. Buyers currently pay that price plus 10%, while Mahshar records 90% of the listed base price as your seller share. The difference is the platform accounting share.'],
+  ['Does listing cost anything?', 'The current listing path has no listing, publication, or subscription fee. Paid-call and withdrawal economics still apply.'],
+  ['When can I withdraw earnings?', 'A seller share becomes available after its paid call is durably accounted. The minimum withdrawal is 1 USDC, and estimated Arc gas is deducted from the requested withdrawal amount.'],
+  ['Does Analyze make a real request, and why can Publish test again?', 'Yes. Analyze sends a representative request to the endpoint you configure. Publish checks the persisted configuration again before activation so the active listing matches what Mahshar tested.'],
+  ['Can I edit or deactivate the listing later?', 'Yes. You can edit or deactivate it from the seller interfaces. Endpoint, authentication, or request-contract changes clear verification and deactivate the listing until the saved configuration is checked again.'],
+  ['What happens if my API repeatedly fails?', 'Marketplace health safeguards can deactivate a repeatedly failing listing. You remain responsible for upstream availability, quotas, capacity, and the effect of Mahshar traffic on your service.'],
+  ['What happens to my upstream credentials?', 'Credentials are encrypted before database storage, omitted from public discovery and buyer-facing listing data, and not returned after storage. Mahshar decrypts them server-side only where analysis, verification, or proxy execution requires them.'],
   ['Can AI agents discover my API?', 'Eligible active listings can appear through Mahshar’s machine-readable agent discovery. The OpenAPI document describes how clients use Mahshar’s public machine interface.'],
   ['What does the buyer pay with?', 'Mahshar’s current paid-call architecture uses USDC through its x402 flow on Arc Mainnet.'],
   ['Which network does Mahshar use?', 'Mahshar’s implemented production payment contract targets Arc Mainnet.'],
-  ['Can I continue serving customers outside Mahshar?', 'Yes. Mahshar is an additional listing and access path for the configured endpoint; it does not replace your existing direct customer relationships.'],
-  ['How do I get started?', 'Open the Seller application, connect the provider wallet, paste the endpoint, and follow the analysis, configuration, pricing, and publish flow.'],
+  ['Can I continue serving customers outside Mahshar?', 'Yes. Mahshar does not replace or modify your existing direct customer integrations. It adds another access path whose traffic still uses your upstream service.'],
+  ['How do I get started?', 'Open the Seller application, connect an EVM wallet, sign in, paste the endpoint, and follow the analysis, configuration, pricing, and publish flow.'],
 ] as const
 
 export default function ProvidersPage() {
@@ -76,7 +81,7 @@ export default function ProvidersPage() {
           <div className={styles.container}>
             <div className={styles.splitStatement}>
               <div><p className={styles.eyebrow}>AN ADDITIONAL CHANNEL</p><h2>Your API does not need a new business model.</h2></div>
-              <div><p>Mahshar can sit alongside the way you already sell and operate your service. Existing customers can continue using your domain, subscriptions, infrastructure, and direct authentication.</p><p>For a Mahshar listing, you define a supported request contract and per-call price. Mahshar adds a distinct agent and pay-per-call path through its Marketplace architecture.</p></div>
+              <div><p>Mahshar can sit alongside the way you already sell and operate your service. It does not replace or modify your existing direct customer integrations, subscriptions, domain, infrastructure, or authentication.</p><p>For a Mahshar listing, you define a supported request contract and listed base price. Mahshar adds a distinct agent and pay-per-call path through its Marketplace architecture.</p></div>
             </div>
             <div className={styles.preserveStrip} aria-label="Provider relationships that remain in place">
               {['Current customers', 'Existing subscriptions', 'Your API domain', 'Your infrastructure', 'Direct authentication'].map(item => <span key={item}><CheckIcon />{item}</span>)}
@@ -131,6 +136,30 @@ export default function ProvidersPage() {
 
         <section className={styles.sectionTint}>
           <div className={styles.container}>
+            <div className={styles.economicsPanel}>
+              <div className={styles.economicsCopy}>
+                <p className={styles.eyebrow}>FEES &amp; PAYOUTS</p>
+                <h2>Know the buyer total and your seller share before you list.</h2>
+                <p>You set the listed base price per call. Buyers currently pay that price plus 10%, and Mahshar records 90% of the listed base price as your seller share.</p>
+                <ul>
+                  <li>No listing, publication, or subscription fee in the current listing path.</li>
+                  <li>Minimum seller withdrawal: 1 USDC.</li>
+                  <li>Estimated Arc gas is deducted from the requested withdrawal amount.</li>
+                </ul>
+              </div>
+              <div className={styles.economicsExample} aria-label="Example provider price and payout">
+                <div><span>Listed base price</span><strong>1.00 USDC</strong></div>
+                <i aria-hidden="true">→</i>
+                <div><span>Buyer total</span><strong>1.10 USDC</strong><small>listed price + 10%</small></div>
+                <i aria-hidden="true">→</i>
+                <div><span>Seller share</span><strong>0.90 USDC</strong><small>before withdrawal gas</small></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.section}>
+          <div className={styles.container}>
             <div className={styles.noJargonPanel}>
               <div>
                 <p className={styles.eyebrow}>YOU DO NOT NEED TO UNDERSTAND X402 FIRST</p>
@@ -161,7 +190,7 @@ export default function ProvidersPage() {
           <div className={styles.container}>
             <div className={styles.securityPanel}>
               <div className={styles.securityIcon} aria-hidden="true"><LockIcon /></div>
-              <div><p className={styles.eyebrow}>WHAT HAPPENS TO MY CREDENTIALS?</p><h2>Configured credentials stay out of public listing data.</h2><p>Stored seller credentials are not included in public discovery or buyer-facing listing data. When required by the configured listing, Mahshar injects the credential server-side before calling the upstream API.</p><Link href="/docs#providers" className={styles.textLink}>Read provider documentation <ArrowIcon /></Link></div>
+              <div><p className={styles.eyebrow}>WHAT HAPPENS TO MY CREDENTIALS?</p><h2>Configured credentials stay out of public listing data.</h2><p>Credentials are encrypted before database storage, omitted from public discovery and buyer-facing listing data, and not returned after storage. Mahshar decrypts them server-side only where analysis, verification, or proxy execution requires them.</p><Link href="/docs#providers" className={styles.textLink}>Read provider documentation <ArrowIcon /></Link></div>
             </div>
           </div>
         </section>

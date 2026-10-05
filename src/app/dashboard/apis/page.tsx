@@ -91,7 +91,7 @@ export default function ApisDashboardPage() {
         <Metric label="Total APIs" value={String(myApis.length)} detail="listed services" tone="blue" icon="apis" />
         <Metric label="Active APIs" value={String(activeApis)} detail="available to buyers" tone="green" icon="dashboard" />
         <Metric label="Total Calls" value={sellerEarnings ? String(totalCalls) : '—'} detail="paid calls, all time" tone="purple" icon="earnings" />
-        <Metric label="Total API Revenue" value={`$${sellerEarnings ? formatUsdc(sellerEarnings.total_earnings) : '—'}`} detail="all-time gross purchase total" tone="pink" icon="balance" />
+        <Metric label="Lifetime buyer payments" value={`$${sellerEarnings ? formatUsdc(sellerEarnings.total_earnings) : '—'}`} detail="all-time buyer payment total" tone="pink" icon="balance" />
       </div>
 
       {loading ? <p className="text-[#6B7280]">Loading...</p> : (
@@ -106,7 +106,7 @@ export default function ApisDashboardPage() {
               <div className={styles.apiTableShell}>
                 <table className="w-full whitespace-nowrap text-sm">
                   <thead className="border-b border-[#2775CA]"><tr className="text-left text-[#6B7280]">
-                    <th className="px-6 py-4 font-medium">Name</th><th className="px-6 py-4 font-medium">Category</th><th className="px-6 py-4 font-medium">Price/call</th><th className="px-6 py-4 font-medium">Calls</th><th className="px-6 py-4 font-medium">Success</th><th className="px-6 py-4 font-medium">Earned</th><th className="px-6 py-4 font-medium">Status</th><th className="px-6 py-4 font-medium">Actions</th>
+                    <th className="px-6 py-4 font-medium">Name</th><th className="px-6 py-4 font-medium">Category</th><th className="px-6 py-4 font-medium">Price/call</th><th className="px-6 py-4 font-medium">Calls</th><th className="px-6 py-4 font-medium">Success</th><th className="px-6 py-4 font-medium">Buyer payments</th><th className="px-6 py-4 font-medium">Status</th><th className="px-6 py-4 font-medium">Actions</th>
                   </tr></thead>
                   <tbody>{myApis.map(api => {
                     const earning = sellerEarnings?.earnings_by_api.find(entry => entry.api_id === api.id)

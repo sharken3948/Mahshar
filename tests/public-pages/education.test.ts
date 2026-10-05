@@ -82,7 +82,7 @@ test('provider copy scopes credential, discovery, and listing-control guarantees
   const providers = read('src/app/providers/page.tsx')
   const source = `${about}\n${providers}`
   assert.doesNotMatch(source, /credentials? (?:are |is )?not returned to buyers|stay behind the Marketplace boundary|Expose stored seller credentials to buyers/i)
-  assert.match(source, /not included in public discovery or buyer-facing listing data/)
+  assert.match(source, /(?:not included|omitted) (?:in|from) public discovery (?:or|and) buyer-facing listing data/)
   assert.match(providers, /Eligible active listings can appear through Mahshar’s machine-readable agent discovery\./)
   assert.match(providers, /The OpenAPI document describes how clients use Mahshar’s public machine interface\./)
   assert.match(providers, /machine-readable discovery for eligible active listings, plus an OpenAPI description/)

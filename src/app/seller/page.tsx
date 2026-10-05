@@ -18,7 +18,7 @@ export default function SellerPage() {
         <main className={styles.connectMain}>
           <div className={styles.connectCard}>
             <h1>Connect Your Wallet</h1>
-            <p>You need to connect your wallet to list an API on Mahshar.</p>
+            <p>Connect an EVM wallet to list an API. The wallet flow may select Arc Mainnet and asks you to sign in with a signature before private Seller actions.</p>
             <div className={styles.connectAction}><ConnectButton /></div>
           </div>
         </main>
@@ -38,7 +38,7 @@ export default function SellerPage() {
               <span className={styles.connection}>Connected {address?.slice(0, 6)}...{address?.slice(-4)}</span>
             </div>
             <h1>List your API</h1>
-            <p>Paste your endpoint. Mahshar will help with the rest.</p>
+            <p>Paste your endpoint, analyze one representative request, configure the listing, and review it before publishing.</p>
           </header>
           <OnboardingForm sellerWallet={address ?? ''} />
           <Link href="/dashboard/apis" className={styles.footerLink}>View your listed APIs →</Link>

@@ -51,7 +51,7 @@ export default function DashboardPage() {
               <p className="mt-1 text-sm text-slate-500">Items that may need your attention.</p>
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 {pendingWithdrawal && <Link href="/dashboard/wallet" className="rounded-xl bg-blue-50 p-4 text-sm text-[#2467B5]">Pending trustless withdrawal: {formatUsdc(withdrawingRaw, true)} USDC. Review its release status in Wallet.</Link>}
-                {reservedEarnings && <Link href="/dashboard/earnings" className="rounded-xl bg-emerald-50 p-4 text-sm text-[#198254]">{formatUsdc(sellerEarnings?.in_flight_withdrawals ?? 0)} USDC is reserved by seller withdrawals. Review Earnings for details.</Link>}
+                {reservedEarnings && <Link href="/dashboard/earnings" className="rounded-xl bg-emerald-50 p-4 text-sm text-[#198254]">{formatUsdc(sellerEarnings?.in_flight_withdrawals ?? 0)} USDC is deducted or reserved by non-expired withdrawal records. Review Earnings for details.</Link>}
                 {myApis.length === 0 ? <Link href="/dashboard/apis" className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">You have not listed an API yet. Open APIs to manage your services.</Link> : activeApis.length !== myApis.length ? <Link href="/dashboard/apis" className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">Some APIs are inactive. Open APIs to review service status.</Link> : null}
                 {solanaIssue ? <Link href="/dashboard/solana" className="rounded-xl bg-red-50 p-4 text-sm text-red-700">Solana source balance information is unavailable. Open Solana to Arc to review the RPC error.</Link> : !solanaReady ? <Link href="/dashboard/solana" className="rounded-xl bg-violet-50 p-4 text-sm text-violet-700">No Solana source wallet is available in this overview. Open Solana to Arc to connect or review it.</Link> : null}
               </div>
@@ -69,7 +69,7 @@ export default function DashboardPage() {
               <div className="overflow-x-auto">
                 <table className={`${styles.listedApisTable} w-full text-left text-sm`}>
                   <caption className="sr-only">Preview of listed APIs</caption>
-                  <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"><tr><th scope="col" className="px-3 py-3">API</th><th scope="col" className="px-3 py-3">Status</th><th scope="col" className="px-3 py-3 text-right">Calls</th><th scope="col" className="px-3 py-3 text-right">Gross revenue</th></tr></thead>
+                  <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"><tr><th scope="col" className="px-3 py-3">API</th><th scope="col" className="px-3 py-3">Status</th><th scope="col" className="px-3 py-3 text-right">Calls</th><th scope="col" className="px-3 py-3 text-right">Buyer payments</th></tr></thead>
                   <tbody>{myApis.slice(0, 4).map(api => {
                     const earnings = sellerEarnings?.earnings_by_api.find(earning => earning.api_id === api.id)
                     const calls = earnings?.calls

@@ -46,6 +46,25 @@ test('Seller wallet CTA and listing actions remain centered, ordered, and analys
   assert.ok(preview > publishCardStart && analyze > preview && publish > analyze && publish < assistantStart)
   assert.match(form, /Analyze is required before publishing/)
   assert.match(publishCard, /disabled=\{!publishReady \|\| publishing \|\| analyzing\}/)
+  assert.match(form, /<ProviderPriceBreakdown listedPrice=\{form\.price_per_call\} \/>/)
+  assert.match(form, /Listed Base Price per Call/)
+})
+
+test('Seller price breakdown reuses the payment calculation without changing submitted price', () => {
+  const form = read('src/components/OnboardingForm.tsx')
+  const edit = read('src/components/EditListingForm.tsx')
+  const breakdown = read('src/components/ProviderPriceBreakdown.tsx')
+  const gateway = read('src/lib/gateway.ts')
+  for (const source of [form, edit]) {
+    assert.match(source, /<ProviderPriceBreakdown listedPrice=\{form\.price_per_call\} \/>/)
+    assert.match(source, /Listed Base Price per Call/)
+  }
+  assert.match(breakdown, /marketplacePriceAmounts\(price\)/)
+  for (const label of ['Listed price', 'Estimated buyer total', 'Seller share']) assert.ok(breakdown.includes(label), label)
+  assert.match(breakdown, /before the estimated Arc gas deducted from a later withdrawal/)
+  assert.match(gateway, /marketplacePriceAmounts\(sellerPriceUsd\)\.buyerAtomic/)
+  assert.match(gateway, /marketplacePriceAmounts\(sellerPriceUsd\)\.sellerAtomic/)
+  assert.match(form, /price_per_call: price/)
 })
 
 test('Suggested Setup renders every suggestion without clipping long values', () => {

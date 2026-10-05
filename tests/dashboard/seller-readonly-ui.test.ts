@@ -9,9 +9,10 @@ import DashboardPage from '../../src/app/dashboard/page'
 
 test('APIs page renders aggregate seller statistics without a Marketplace sign-in wall', () => {
   const html = renderToStaticMarkup(createElement(ApisPage))
-  for (const text of ['Total APIs', 'Active APIs', 'Total Calls', 'Total API Revenue', 'My Listed APIs', 'ioscope', '0.0033']) {
+  for (const text of ['Total APIs', 'Active APIs', 'Total Calls', 'Lifetime buyer payments', 'My Listed APIs', 'Buyer payments', 'ioscope', '0.0033']) {
     assert.ok(html.includes(text), text)
   }
+  assert.doesNotMatch(html, /Total API Revenue|>Earned</)
   assert.doesNotMatch(html, /Private seller statistics|Sign in to Marketplace|Marketplace sign-in|Verify seller wallet/)
 })
 
@@ -19,6 +20,8 @@ test('Dashboard Seller Earnings uses the read-only seller summary without SIWE',
   const html = renderToStaticMarkup(createElement(DashboardPage))
   assert.match(html, /Seller Earnings/)
   assert.match(html, /0\.0020/)
+  assert.match(html, /Buyer payments/)
+  assert.doesNotMatch(html, /Gross revenue/)
   assert.doesNotMatch(html, /Sign in to Marketplace|Verify seller wallet/)
 })
 

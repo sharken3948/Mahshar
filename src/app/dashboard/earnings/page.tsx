@@ -95,14 +95,14 @@ export default function EarningsDashboardPage() {
               <p className="text-xs text-slate-500">Seller share available for withdrawal.</p>
             </section>
             <section className={styles.card}>
-              <p className="text-sm font-semibold text-[#198254]">Lifetime Earned</p>
+              <p className="text-sm font-semibold text-[#198254]">Lifetime buyer payments</p>
               <div className="break-words font-mono font-bold tabular-nums">{sellerEarnings ? formatUsdc(sellerEarnings.total_earnings) : '—'} <span className="text-sm font-normal text-slate-500">USDC</span></div>
-              <p className="text-xs text-slate-500">All-time gross purchase revenue, before the platform share.</p>
+              <p className="text-xs text-slate-500">All-time buyer payments, including the buyer platform fee.</p>
             </section>
             <section className={styles.card}>
-              <p className="text-sm font-semibold text-slate-600">Reserved by Withdrawals</p>
+              <p className="text-sm font-semibold text-slate-600">Withdrawal deductions</p>
               <div className="break-words font-mono font-bold tabular-nums">{sellerEarnings ? formatUsdc(sellerEarnings.in_flight_withdrawals) : '—'} <span className="text-sm font-normal text-slate-500">USDC</span></div>
-              <p className="text-xs text-slate-500">Includes pending, unknown, completed, and failed withdrawals held against available earnings.</p>
+              <p className="text-xs text-slate-500">Requested amounts deducted or reserved by non-expired withdrawal records.</p>
             </section>
           </div>
 
@@ -136,7 +136,7 @@ export default function EarningsDashboardPage() {
             </div>
             {sellerEarnings && sellerEarnings.in_flight_withdrawals > 0 && (
               <p className="text-xs text-[#6B7280] mt-2">
-                Reserved by withdrawals: ${formatUsdc(sellerEarnings.in_flight_withdrawals)} USDC
+                Withdrawal deductions: ${formatUsdc(sellerEarnings.in_flight_withdrawals)} USDC
               </p>
             )}
             {earningsWithdrawResult && (
@@ -167,22 +167,22 @@ export default function EarningsDashboardPage() {
             />
             </section>
             <section className={styles.card}>
-              <DashboardCardHeader title="Earnings by API" subtitle="Revenue from purchases of your services." icon="apis" tone="green" />
-              <p className="mb-4 text-xs text-slate-500">All amounts are in USDC. Revenue is the gross purchase total. Calls counts purchases; success rate reflects the existing seller call records. Price/call is the current listing price.</p>
+              <DashboardCardHeader title="Buyer payments by API" subtitle="Gross buyer payments for purchases of your services." icon="apis" tone="green" />
+              <p className="mb-4 text-xs text-slate-500">All amounts are in USDC. Buyer payments are gross purchase totals, including the buyer platform fee. Calls counts purchases; success rate reflects the existing seller call records. Price/call is the current listed base price.</p>
               {!sellerEarnings ? (
                 <p className="text-sm text-slate-500">Earnings data is not available yet.</p>
               ) : sellerEarnings.earnings_by_api.length === 0 ? (
-                <p className="text-sm text-slate-500">No API purchase earnings to display yet.</p>
+                <p className="text-sm text-slate-500">No API buyer payments to display yet.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm">
-                    <caption className="sr-only">Earnings by API, in USDC</caption>
+                    <caption className="sr-only">Buyer payments by API, in USDC</caption>
                     <thead className="border-b border-slate-200 text-xs text-slate-500">
                       <tr>
                         <th scope="col" className="px-3 py-3">API</th>
                         <th scope="col" className="px-3 py-3 text-right">Calls</th>
                         <th scope="col" className="px-3 py-3 text-right">Current price/call</th>
-                        <th scope="col" className="px-3 py-3 text-right">Gross revenue</th>
+                        <th scope="col" className="px-3 py-3 text-right">Buyer payments</th>
                         <th scope="col" className="px-3 py-3 text-right">Success rate</th>
                       </tr>
                     </thead>

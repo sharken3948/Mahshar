@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { useRouter } from 'next/navigation'
 import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
 import { RequestParameterEditor } from '@/components/RequestParameterEditor'
+import { ProviderPriceBreakdown } from '@/components/ProviderPriceBreakdown'
 import type { AuthType, PaymentModel } from '@/types'
 import type { DeclaredParameter } from '@/lib/marketplace/proxy-target'
 import styles from './onboarding-form.module.css'
@@ -444,13 +445,14 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
 
           <Card title="Pricing & Publish" eyebrow="Set your price and go live">
             <div className={styles.publishRow}>
-              <Field label="Price per Call" required error={fieldErrors.price_per_call} className={styles.priceField}>
+              <Field label="Listed Base Price per Call" required error={fieldErrors.price_per_call} className={styles.priceField}>
                 <div className={styles.priceInputWrap}>
                   <input required type="number" min="0.000001" step="0.000001" value={form.price_per_call}
                     onChange={event => update('price_per_call', event.target.value)} className={inputClass(fieldErrors.price_per_call)} />
                   <span>USDC</span>
                 </div>
               </Field>
+              <ProviderPriceBreakdown listedPrice={form.price_per_call} />
               <div className={styles.miniPreview}>
                 <div><span>{form.method}</span><strong>{form.name || 'Your API'}</strong></div>
                 <p>{form.description || 'Your marketplace description will appear here.'}</p>
@@ -587,7 +589,7 @@ function PreviewModal({ form, onClose }: { form: FormState; onClose: () => void 
     <div className={styles.previewModalBody}>
       <div className={styles.previewBadges}><span>{form.category}</span><span>{form.method}</span><span>{authLabel(form.auth_type)}</span></div>
       <p>{form.description || 'Add a description to help buyers understand this API.'}</p>
-      <div><small>Price per call</small><strong>{form.price_per_call || '—'} USDC</strong></div>
+      <div><small>Listed base price</small><strong>{form.price_per_call || '—'} USDC</strong></div>
       <footer><span>Seller</span><code>{form.seller_wallet ? `${form.seller_wallet.slice(0, 6)}…${form.seller_wallet.slice(-4)}` : 'Not connected'}</code></footer>
     </div>
   </section></div>

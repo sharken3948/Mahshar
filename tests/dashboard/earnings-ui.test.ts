@@ -9,7 +9,8 @@ import Page from '../../src/app/dashboard/earnings/page'
 test('connected wallet always sees the normal earnings cards without a sign-in wall',()=>{
  world.privateAccess=false;world.sellerEarnings=null
  const html=renderToStaticMarkup(createElement(Page))
- for(const label of ['Withdrawable Earnings','Lifetime Earned','Reserved by Withdrawals','Withdraw earnings','Earnings by API'])assert.ok(html.includes(label),label)
+ for(const label of ['Withdrawable Earnings','Lifetime buyer payments','Withdrawal deductions','Withdraw earnings','Buyer payments by API'])assert.ok(html.includes(label),label)
+ assert.doesNotMatch(html,/Lifetime Earned|Reserved by Withdrawals|Gross revenue/)
  assert.doesNotMatch(html,/Verify seller wallet|Verify your seller wallet|Private seller earnings|Sign in to Marketplace|Marketplace sign-in/)
  assert.ok(html.match(/<input[^>]*aria-label="Seller earnings withdrawal amount in USDC"[^>]*>/)?.[0].includes('disabled=""'))
  assert.match(html,/Unavailable/)

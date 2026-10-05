@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react
 import { useAccount } from 'wagmi'
 import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
 import { RequestParameterEditor } from '@/components/RequestParameterEditor'
+import { ProviderPriceBreakdown } from '@/components/ProviderPriceBreakdown'
 import type { DeclaredParameter } from '@/lib/marketplace/proxy-target'
 import type { ApiListing, AuthType } from '@/types'
 import styles from './onboarding-form.module.css'
@@ -427,8 +428,9 @@ export function EditListingForm({ listing, onClose, onListingChange }: {
         <Card title="Pricing & Publish" eyebrow="Manage this existing listing">
           {executableChanged && <div className={styles.lifecycleNotice}><strong>Verification will be cleared</strong><span>Saving endpoint, authentication, or request-contract changes safely deactivates this listing. Verify the saved configuration before activating it again.</span></div>}
           <div className={styles.publishRow}>
-            <Field label="Price per Call" required className={styles.priceField}><div className={styles.priceInputWrap}>
+            <Field label="Listed Base Price per Call" required className={styles.priceField}><div className={styles.priceInputWrap}>
               <input required type="number" min="0.000001" step="0.000001" value={form.price_per_call} onChange={event => update('price_per_call', event.target.value)} className={inputClass()} /><span>USDC</span></div></Field>
+            <ProviderPriceBreakdown listedPrice={form.price_per_call} />
             <div className={styles.miniPreview}><div><span>{form.method ?? '—'}</span><strong>{form.name || 'Your API'}</strong></div><p>{form.description || 'Your marketplace description will appear here.'}</p><b>{priceValid ? `${form.price_per_call} USDC` : 'Set a price'} <small>/ call</small></b></div>
             <div className={styles.publishFooter}>
               <p className={styles.finalActionGuidance} role="status"><strong>{finalActionGuidance.title}</strong><span>{finalActionGuidance.detail}</span></p>
@@ -511,7 +513,7 @@ function PreviewModal({ form, sellerWallet, onClose }: { form: EditState; seller
   return <div className={styles.modalBackdrop} role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}><section className={styles.previewModal} role="dialog" aria-modal="true" aria-label="Marketplace preview">
     <header><div><span>Draft marketplace preview</span><h2>{form.name || 'Your API'}</h2></div><button type="button" onClick={onClose} aria-label="Close preview">×</button></header>
     <div className={styles.previewModalBody}><div className={styles.previewBadges}><span>{form.category}</span><span>{form.method ?? 'Method not set'}</span><span>{authLabel(form.auth_type)}</span></div>
-      <p>{form.description || 'Add a description to help buyers understand this API.'}</p><div><small>Price per call</small><strong>{form.price_per_call || '—'} USDC</strong></div>
+      <p>{form.description || 'Add a description to help buyers understand this API.'}</p><div><small>Listed base price</small><strong>{form.price_per_call || '—'} USDC</strong></div>
       <footer><span>Seller</span><code>{`${sellerWallet.slice(0, 6)}…${sellerWallet.slice(-4)}`}</code></footer></div>
   </section></div>
 }

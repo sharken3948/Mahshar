@@ -159,11 +159,16 @@ textarea.input { resize: vertical; }
 .parameterEditor[open] > summary { width: fit-content; margin-left: auto; }
 .parameterSummary:has(.parameterEditor[open]) { flex-wrap: wrap; }
 
-.publishRow { display: grid; grid-template-columns: minmax(190px, .72fr) minmax(360px, 1.55fr); gap: 14px; align-items: end; }
+.publishRow { display: grid; grid-template-columns: minmax(190px, .72fr) minmax(340px, 1.2fr) minmax(300px, 1.15fr); gap: 14px; align-items: end; }
 .priceField { min-width: 0; }
 .priceInputWrap { position: relative; }
 .priceInputWrap .input { padding-right: 64px; font-family: var(--font-geist-mono, ui-monospace, monospace); }
 .priceInputWrap span { position: absolute; top: 50%; right: 13px; color: #718198; font-size: 13px; font-weight: 700; transform: translateY(-50%); }
+.priceBreakdown { display: grid; min-width: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; overflow: hidden; border: 1px solid #d6e4f1; border-radius: 12px; background: #d6e4f1; }
+.priceBreakdown > div { min-width: 0; padding: 11px 12px; background: #f8fbff; }
+.priceBreakdown span { display: block; color: #718198; font-size: 13px; line-height: 1.35; }
+.priceBreakdown strong { display: block; margin-top: 4px; color: #1d344f; font-family: var(--font-geist-mono, ui-monospace, monospace); font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+.priceBreakdown p { grid-column: 1 / -1; margin: 0; padding: 9px 12px; background: #f1f7fd; color: #667b92; font-size: 13px; line-height: 1.45; }
 .miniPreview { display: grid; min-height: 74px; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: 5px 14px; padding: 13px 15px; border: 1px solid #dce6f0; border-radius: 12px; background: linear-gradient(120deg, #fbfdff, #f6faff); }
 .miniPreview div { display: flex; min-width: 0; align-items: center; gap: 9px; }
 .miniPreview div span { padding: 4px 7px; border-radius: 6px; background: #eaf3fd; color: #2775ca; font-family: var(--font-geist-mono, ui-monospace, monospace); font-size: 13px; font-weight: 750; }
@@ -271,7 +276,8 @@ textarea.input { resize: vertical; }
 @media (max-width: 1370px) {
   .workspace { grid-template-columns: minmax(0, 1fr) minmax(320px, 350px); gap: 20px; }
   .setupGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .publishRow { grid-template-columns: minmax(180px, .72fr) minmax(280px, 1.3fr); }
+  .publishRow { grid-template-columns: minmax(180px, .72fr) minmax(0, 1.3fr); }
+  .miniPreview { grid-column: 1 / -1; }
 }
 
 @media (max-width: 1020px) {
@@ -301,6 +307,8 @@ textarea.input { resize: vertical; }
   .publishActions { width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .miniPreview { grid-template-columns: minmax(0, 1fr); }
   .miniPreview b { grid-column: 1; grid-row: auto; margin-top: 6px; }
+  .priceBreakdown { grid-template-columns: minmax(0, 1fr); }
+  .priceBreakdown p { grid-column: 1; }
   .parameterSummary { flex-direction: column; }
   .parameterEditor { width: 100%; }
   .parameterEditor > summary { width: 100%; text-align: center; }

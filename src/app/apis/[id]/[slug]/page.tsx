@@ -47,7 +47,7 @@ export default async function ApiDetailPage({ params }: ApiPageProps) {
           <div className={styles.container}>
             <div className={styles.breadcrumb}><Link href="/">Explore</Link><span>›</span><Link href="/marketplace">Marketplace</Link><span>›</span><strong>{listing.name}</strong></div>
             <div className={detailStyles.badges}>
-              <span className={styles.method}>{listing.method}</span><span>{listing.category}</span>{listing.verified && <span className={styles.verified}>Verified</span>}
+              <span className={styles.method}>{listing.method}</span><span>{listing.category}</span>{listing.verified && <span className={styles.verified}>Endpoint checked</span>}
             </div>
             <h1>{listing.name}</h1>
             <p className={styles.lead}>{listing.description}</p>
@@ -71,7 +71,7 @@ export default async function ApiDetailPage({ params }: ApiPageProps) {
                   <Fact label="Payment model" value="x402 pay per call" />
                   <Fact label="Network" value="Arc Mainnet" />
                   <Fact label="Authentication" value={authenticationLabel(listing.authType)} />
-                  <Fact label="Verification" value={listing.verified ? 'Verified listing' : 'Not currently marked verified'} />
+                  <Fact label="Endpoint status" value={listing.verified ? 'Endpoint checked' : 'Not currently checked'} />
                   {listing.score !== null && <Fact label="AI score" value={formatNumber(listing.score)} />}
                 </dl>
               </section>
