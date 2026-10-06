@@ -15,6 +15,7 @@ DISCOVERY = ROOT / 'supabase/migrations/20261002000100_admin_worker_discovery_v1
 REVIEW_BAND = ROOT / 'supabase/migrations/20261004000100_admin_worker_discovery_review_candidates.sql'
 QUALIFIED_TARGET = ROOT / 'supabase/migrations/20261005000100_admin_worker_qualified_target_traction.sql'
 RETRY_IDEMPOTENCY = ROOT / 'supabase/migrations/20261005000200_admin_worker_retry_idempotency.sql'
+CONTACT_DISCOVERY = ROOT / 'supabase/migrations/20261005000300_admin_worker_contact_discovery.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -81,10 +82,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20260926000500', '20260928000100', '20260928000200',
             '20260928000300', '20261001000000', '20261001000030',
             '20261001000100', '20261001000110',
-            '20261002000100', '20261004000100', '20261005000100', '20261005000200',
+            '20261002000100', '20261004000100', '20261005000100', '20261005000200', '20261005000300',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -1157,7 +1158,210 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         assert resumed_target['discovery_batch_id'] == resumable_target['discovery_batch_id']
         sql(f"SET ROLE service_role; SELECT (mahshar_worker_fail_run('{resumed_target['id']}','test_cleanup')).status;")
 
-        print('PASS: Worker transactional migration, qualified target, traction schema, privileges, leases, provenance, retries, races, and concurrency')
+        # Contact Discovery is forward-only and does not rewrite the existing
+        # technical evaluations, run counters, or qualified contributions.
+        contact_history = sql("""
+          SELECT (SELECT count(*) FROM worker_runs)||','||(SELECT count(*) FROM worker_leads)||','||
+            (SELECT count(*) FROM worker_qualified_contributions)||','||
+            coalesce((SELECT sum(qualified_count) FROM worker_runs),0);
+        """)
+        rollback_sql = "BEGIN;\n" + CONTACT_DISCOVERY.read_text() + """
+          DO $rollback$ BEGIN RAISE EXCEPTION 'forced_worker_contact_discovery_rollback'; END $rollback$;
+          COMMIT;
+        """
+        expect_failure(rollback_sql, 'forced_worker_contact_discovery_rollback')
+        assert sql("SELECT to_regclass('public.worker_contacts');") == ''
+        sql('BEGIN;\n' + CONTACT_DISCOVERY.read_text() + '\nCOMMIT;')
+        assert sql("""
+          SELECT (SELECT count(*) FROM worker_runs)||','||(SELECT count(*) FROM worker_leads)||','||
+            (SELECT count(*) FROM worker_qualified_contributions)||','||
+            coalesce((SELECT sum(qualified_count) FROM worker_runs),0);
+        """) == contact_history
+
+        for table in ['worker_contacts', 'worker_contact_enrichment_claims']:
+            assert sql(f"SELECT relrowsecurity FROM pg_class WHERE oid='public.{table}'::regclass;") == 't'
+            assert sql(f"SELECT count(*) FROM pg_policy WHERE polrelid='public.{table}'::regclass;") == '0'
+            for role in ['anon', 'authenticated']:
+                for privilege in all_table_privileges:
+                    assert sql(f"SELECT has_table_privilege('{role}','public.{table}','{privilege}');") == 'f'
+            assert sql(f"SELECT has_table_privilege('service_role','public.{table}','SELECT');") == 't'
+            for privilege in ['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']:
+                assert sql(f"SELECT has_table_privilege('service_role','public.{table}','{privilege}');") == 'f'
+        for function in [
+            'mahshar_worker_save_contact_research(uuid,uuid,uuid,text,boolean,text,text,boolean,jsonb)',
+            'mahshar_worker_claim_contact_enrichment(uuid,text,integer)',
+            'mahshar_worker_apply_contact_actionability(uuid,uuid,uuid,uuid)',
+        ]:
+            assert sql(f"SELECT pg_get_userbyid(proowner) FROM pg_proc WHERE oid='public.{function}'::regprocedure;") == 'worker_test'
+            for role in ['anon', 'authenticated']:
+                assert sql(f"SELECT has_function_privilege('{role}','public.{function}','EXECUTE');") == 'f'
+            assert sql(f"SELECT has_function_privilege('service_role','public.{function}','EXECUTE');") == 't'
+            assert sql(f"SELECT coalesce(array_to_string(proconfig,'|'),'') FROM pg_proc WHERE oid='public.{function}'::regprocedure;") in {'search_path=', 'search_path=""'}
+
+        contact_run = rpc_json('mahshar_worker_create_target_run(false)')
+        contact_run_id = contact_run['id']
+        rpc_json(f"mahshar_worker_claim_run('{contact_run_id}')")
+        assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget_v2('{contact_run_id}','contact','contact:one');") == 'claimed'
+        assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget_v2('{contact_run_id}','contact','contact:one');") == 'replayed'
+        sql(f"""
+          SET ROLE service_role;
+          INSERT INTO worker_budget_claims(discovery_batch_id,budget_type,claim_key)
+          SELECT '{contact_run_id}','contact','contact:cap:'||g FROM generate_series(2,120) g;
+          UPDATE worker_runs SET contact_fetch_count=120 WHERE id='{contact_run_id}';
+        """)
+        assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget_v2('{contact_run_id}','contact','contact:one');") == 'replayed'
+        assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget_v2('{contact_run_id}','contact','contact:new');") == 'exhausted'
+
+        seed_target_candidates(contact_run_id, 'contact-gate', 5)
+        before_gate_count = int(sql(f"SELECT qualified_count FROM worker_runs WHERE id='{contact_run_id}';"))
+        no_contact = json.loads(sql(target_candidate_call(contact_run_id, 0)))
+        assert no_contact['reasonCode'] == 'qualified_contact_pending' and not no_contact['countedQualified']
+        no_contact_lead = sql(f"SELECT lead_id FROM worker_candidates WHERE discovery_batch_id='{contact_run_id}' AND ordinal=0;")
+        assert sql(f"SELECT status||','||qualification_status FROM worker_leads WHERE id='{no_contact_lead}';") == 'discovered,qualified'
+        assert int(sql(f"SELECT qualified_count FROM worker_runs WHERE id='{contact_run_id}';")) == before_gate_count
+
+        def save_fixture_contact(ordinal, prefix='api'):
+            contact_row = sql(f"""SELECT candidate.provider_id||','||candidate.lead_id||','||provider.canonical_domain
+              FROM worker_candidates candidate JOIN worker_providers provider ON provider.id=candidate.provider_id
+              WHERE candidate.discovery_batch_id='{contact_run_id}' AND candidate.ordinal={ordinal};""").split(',')
+            provider_id, lead_id, domain = contact_row
+            email = f'{prefix}@{domain}'
+            url = f'https://{domain}/contact'
+            payload = json.dumps([{
+                'type': 'email', 'value': email, 'purpose': 'api', 'sourceUrl': url,
+                'sourceType': 'official_site', 'verificationStatus': 'verified', 'preferred': True,
+                'emailReady': True, 'discoveredAt': '2026-10-05T00:00:00Z', 'verifiedAt': '2026-10-05T00:00:00Z',
+            }])
+            saved = sql(f"""SET ROLE service_role;
+              SELECT mahshar_worker_save_contact_research('{contact_run_id}','{provider_id}','{lead_id}',
+                'verified_email',true,'{email}','{url}',true,$evidence${payload}$evidence$::jsonb);""")
+            return saved, provider_id, lead_id
+
+        # Human/provider state changed after contact research must still win at
+        # the final actionability boundary.
+        saved, race_provider, race_lead = save_fixture_contact(0, 'race')
+        assert saved == 'saved'
+        race_candidate = sql(f"SELECT id FROM worker_candidates WHERE discovery_batch_id='{contact_run_id}' AND ordinal=0;")
+        sql(f"SET ROLE service_role; UPDATE worker_providers SET status='do_not_contact' WHERE id='{race_provider}';")
+        race_actionability = json.loads(sql(f"""
+          SET ROLE service_role;
+          SELECT mahshar_worker_apply_contact_actionability('{contact_run_id}','{race_candidate}',
+            '{race_provider}','{race_lead}');
+        """))
+        assert race_actionability['blocked'] and not race_actionability['countedQualified']
+        assert int(sql(f"SELECT qualified_count FROM worker_runs WHERE id='{contact_run_id}';")) == before_gate_count
+
+        saved, _, actionable_lead = save_fixture_contact(1)
+        assert saved == 'saved'
+        with_contact = json.loads(sql(target_candidate_call(contact_run_id, 1)))
+        assert with_contact['reasonCode'] == 'qualified' and with_contact['countedQualified']
+        assert int(sql(f"SELECT qualified_count FROM worker_runs WHERE id='{contact_run_id}';")) == before_gate_count + 1
+
+        # A decision-only human DNC committed concurrently with final contact
+        # actionability must win even when it does not update an entity row.
+        decision_race_pending = json.loads(sql(target_candidate_call(contact_run_id, 4)))
+        assert decision_race_pending['reasonCode'] == 'qualified_contact_pending' and not decision_race_pending['countedQualified']
+        saved, decision_race_provider, decision_race_lead = save_fixture_contact(4, 'decision-race')
+        assert saved == 'saved'
+        decision_race_candidate = sql(f"SELECT id FROM worker_candidates WHERE discovery_batch_id='{contact_run_id}' AND ordinal=4;")
+        before_decision_race = int(sql(f"SELECT qualified_count FROM worker_runs WHERE id='{contact_run_id}';"))
+        decision_only_dnc = f"""BEGIN;
+          INSERT INTO worker_decisions(provider_id,lead_id,decision,reason_code)
+            VALUES('{decision_race_provider}','{decision_race_lead}','do_not_contact','concurrent_contact_block');
+          SELECT pg_sleep(1) /* race_contact_decision_only */;
+          COMMIT;"""
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            admin_future = pool.submit(sql, decision_only_dnc)
+            wait_for_marker('race_contact_decision_only')
+            actionability_future = pool.submit(sql, f"""SET ROLE service_role;
+              SELECT mahshar_worker_apply_contact_actionability('{contact_run_id}','{decision_race_candidate}',
+                '{decision_race_provider}','{decision_race_lead}');""")
+            decision_race_result = json.loads(actionability_future.result())
+            admin_future.result()
+        assert decision_race_result['blocked'] and not decision_race_result['countedQualified']
+        assert int(sql(f"SELECT qualified_count FROM worker_runs WHERE id='{contact_run_id}';")) == before_decision_race
+        assert sql(f"SELECT count(*) FROM worker_qualified_contributions WHERE lead_id='{decision_race_lead}';") == '0'
+        assert sql(f"SELECT status FROM worker_leads WHERE id='{decision_race_lead}';") == 'discovered'
+        assert sql(f"SELECT count(*) FROM worker_decisions WHERE lead_id='{decision_race_lead}' AND decision='do_not_contact';") == '1'
+
+        saved, _, review_lead = save_fixture_contact(2)
+        assert saved == 'saved'
+        review_contact = json.loads(sql(target_candidate_call(contact_run_id, 2, traction_review_json)))
+        assert review_contact['reasonCode'] == 'review_candidate' and not review_contact['countedQualified']
+        assert sql(f"SELECT status||','||qualification_status FROM worker_leads WHERE id='{review_lead}';") == 'discovered,review_candidate'
+        review_candidate = sql(f"SELECT id FROM worker_candidates WHERE discovery_batch_id='{contact_run_id}' AND ordinal=2;")
+        review_product = sql(f"SELECT product_id FROM worker_leads WHERE id='{review_lead}';")
+        sql(f"SET ROLE service_role; UPDATE worker_products SET status='rejected' WHERE id='{review_product}';")
+        product_race = json.loads(sql(f"""
+          SET ROLE service_role;
+          SELECT mahshar_worker_apply_contact_actionability('{contact_run_id}','{review_candidate}',
+            (SELECT provider_id FROM worker_leads WHERE id='{review_lead}'),'{review_lead}');
+        """))
+        assert product_race['blocked'] and not product_race['countedQualified']
+
+        dnc_provider = sql(f"SELECT provider_id FROM worker_candidates WHERE discovery_batch_id='{contact_run_id}' AND ordinal=3;")
+        sql(f"SET ROLE service_role; INSERT INTO worker_decisions(provider_id,lead_id,decision,reason_code) VALUES('{dnc_provider}',NULL,'do_not_contact','contact_fixture');")
+        saved, _, dnc_lead = save_fixture_contact(3)
+        assert saved == 'blocked'
+        assert sql(f"SELECT count(*) FROM worker_contacts WHERE lead_id='{dnc_lead}';") == '0'
+
+        # Reuse a historical technically-qualified, unknown-contact lead. It
+        # is enrichable without raw discovery or another qualification call.
+        enrich_claim = json.loads(sql(f"""
+          SET ROLE service_role;
+          SELECT coalesce(json_agg(candidate_id),'[]') FROM
+            mahshar_worker_claim_contact_enrichment('{contact_run_id}','contact-enrichment:{contact_run_id}',5);
+        """))
+        assert enrich_claim
+        enrich_candidate = enrich_claim[0]
+        enrich_row = sql(f"""SELECT candidate.provider_id||','||candidate.lead_id||','||provider.canonical_domain
+          FROM worker_candidates candidate JOIN worker_providers provider ON provider.id=candidate.provider_id
+          WHERE candidate.id='{enrich_candidate}';""").split(',')
+        enrich_provider, enrich_lead, enrich_domain = enrich_row
+        enrich_email = f'api@{enrich_domain}'
+        enrich_url = f'https://{enrich_domain}/contact'
+        evidence = json.dumps([{
+            'type': 'email', 'value': enrich_email, 'purpose': 'api',
+            'sourceUrl': enrich_url, 'sourceType': 'official_site',
+            'verificationStatus': 'verified', 'preferred': True, 'emailReady': True,
+            'discoveredAt': '2026-10-05T00:00:00Z', 'verifiedAt': '2026-10-05T00:00:00Z',
+        }])
+        assert sql(f"""
+          SET ROLE service_role;
+          SELECT mahshar_worker_save_contact_research('{contact_run_id}','{enrich_provider}','{enrich_lead}',
+            'verified_email',true,'{enrich_email}','{enrich_url}',true,
+            $evidence${evidence}$evidence$::jsonb);
+        """) == 'saved'
+        # Replaying evidence upserts the same logical contact instead of duplicating it.
+        assert sql(f"""
+          SET ROLE service_role;
+          SELECT mahshar_worker_save_contact_research('{contact_run_id}','{enrich_provider}','{enrich_lead}',
+            'verified_email',true,'{enrich_email}','{enrich_url}',true,
+            $evidence${evidence}$evidence$::jsonb);
+        """) == 'saved'
+        assert sql(f"SELECT count(*) FROM worker_contacts WHERE lead_id='{enrich_lead}';") == '1'
+        sibling_product = sql("SELECT gen_random_uuid();")
+        sibling_lead = sql("SELECT gen_random_uuid();")
+        sql(f"""SET ROLE service_role;
+          INSERT INTO worker_products(id,provider_id,normalized_product_key,display_name)
+            VALUES('{sibling_product}','{enrich_provider}','contact-sibling','Contact sibling API');
+          INSERT INTO worker_leads(id,provider_id,product_id,status)
+            VALUES('{sibling_lead}','{enrich_provider}','{sibling_product}','discovered');
+          SELECT mahshar_worker_save_contact_research('{contact_run_id}','{enrich_provider}','{sibling_lead}',
+            'verified_email',true,'{enrich_email}','{enrich_url}',true,$evidence${evidence}$evidence$::jsonb);
+        """)
+        assert sql(f"SELECT count(*) FROM worker_contacts WHERE provider_id='{enrich_provider}';") == '1'
+        assert sql(f"SELECT contactability_status FROM worker_leads WHERE id='{sibling_lead}';") == 'verified_email'
+        actionability = json.loads(sql(f"""
+          SET ROLE service_role;
+          SELECT mahshar_worker_apply_contact_actionability('{contact_run_id}','{enrich_candidate}',
+            '{enrich_provider}','{enrich_lead}');
+        """))
+        assert not actionability['blocked']
+        assert sql(f"SELECT email_ready::text||','||contactability_status FROM worker_leads WHERE id='{enrich_lead}';") == 'true,verified_email'
+        sql(f"SET ROLE service_role; SELECT (mahshar_worker_fail_run('{contact_run_id}','test_cleanup')).status;")
+
+        print('PASS: Worker transactional migration, qualified target, traction/contact schema, privileges, leases, provenance, retries, races, and concurrency')
     finally:
         if started:
             run([BIN / 'pg_ctl', '-D', data, '-m', 'immediate', '-w', 'stop'])

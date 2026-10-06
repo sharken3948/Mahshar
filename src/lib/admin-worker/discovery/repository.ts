@@ -1,7 +1,7 @@
 import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
 import { canonicalExternalUrl, durableExternalName, durableExternalSummary } from './sanitize'
-import type { BudgetClaimResult, CandidateOutcome, DurableCandidate, ProvenanceFact, RawCandidate, WorkerQualification, WorkerTraction } from './types'
+import type { BudgetClaimResult, CandidateOutcome, ContactResearchResult, DurableCandidate, ProvenanceFact, RawCandidate, WorkerQualification, WorkerTraction } from './types'
 
 type DbError = { message?: string; code?: string } | null
 type DbResult = { data: unknown; error: DbError }
@@ -69,13 +69,87 @@ export async function getDiscoveryRunContext(runId: string): Promise<{
     qualifiedCount: currentRow.qualified_count as number, qualifiedTarget: currentRow.qualified_target as number }
 }
 
-export async function claimDiscoveryBudget(runId: string, budget: 'source' | 'research' | 'groq' | 'traction', claimKey: string): Promise<BudgetClaimResult> {
+export async function claimDiscoveryBudget(runId: string, budget: 'source' | 'research' | 'groq' | 'traction' | 'contact', claimKey: string): Promise<BudgetClaimResult> {
   const result = await createServiceClient().rpc('mahshar_worker_claim_budget_v2', {
     p_run_id: runId, p_budget: budget, p_claim_key: claimKey,
   }) as DbResult
   if (result.error) fail('worker_discovery_budget', result.error)
   if (!['claimed', 'replayed', 'exhausted', 'deadline_reached'].includes(String(result.data))) throw new Error('worker_discovery_budget_result_invalid')
   return result.data as BudgetClaimResult
+}
+
+export async function getSavedContactResearch(leadId: string): Promise<ContactResearchResult | null> {
+  const db = createServiceClient()
+  const leadResult = await db.from('worker_leads').select('provider_id,contactability_status,email_ready,preferred_email,preferred_contact_url,contact_researched_at')
+    .eq('id', leadId).single() as DbResult
+  if (leadResult.error) fail('worker_contact_lead_lookup', leadResult.error)
+  const lead = row(leadResult.data)
+  if (!lead || typeof lead.contact_researched_at !== 'string') return null
+  if (typeof lead.provider_id !== 'string') throw new Error('worker_contact_lead_invalid')
+  const contactsResult = await db.from('worker_contacts')
+    .select('contact_type,value,purpose,source_url,source_type,verification_status,preferred,email_ready,discovered_at,verified_at')
+    .eq('provider_id', lead.provider_id).order('preferred', { ascending: false }).order('verified_at', { ascending: false }).limit(12) as DbResult
+  if (contactsResult.error) fail('worker_contact_evidence_lookup', contactsResult.error)
+  const evidence = Array.isArray(contactsResult.data) ? contactsResult.data.flatMap(value => {
+    const item = row(value)
+    if (!item || typeof item.value !== 'string' || typeof item.source_url !== 'string'
+      || typeof item.discovered_at !== 'string' || typeof item.verified_at !== 'string') return []
+    return [{
+      type: item.contact_type as ContactResearchResult['evidence'][number]['type'], value: item.value,
+      purpose: item.purpose as ContactResearchResult['evidence'][number]['purpose'], sourceUrl: item.source_url,
+      sourceType: item.source_type as ContactResearchResult['evidence'][number]['sourceType'], verificationStatus: 'verified' as const,
+      preferred: item.preferred === true, emailReady: item.email_ready === true,
+      discoveredAt: item.discovered_at, verifiedAt: item.verified_at,
+    }]
+  }) : []
+  return {
+    status: lead.contactability_status as ContactResearchResult['status'], emailReady: lead.email_ready === true,
+    preferredEmail: typeof lead.preferred_email === 'string' ? lead.preferred_email : null,
+    preferredContactUrl: typeof lead.preferred_contact_url === 'string' ? lead.preferred_contact_url : null,
+    evidence, completed: true, failureCode: null,
+  }
+}
+
+export async function saveContactResearch(input: {
+  runId: string; providerId: string; leadId: string; research: ContactResearchResult
+}): Promise<'saved' | 'blocked'> {
+  const result = await createServiceClient().rpc('mahshar_worker_save_contact_research', {
+    p_run_id: input.runId, p_provider_id: input.providerId, p_lead_id: input.leadId,
+    p_status: input.research.status, p_email_ready: input.research.emailReady,
+    p_preferred_email: input.research.preferredEmail, p_preferred_contact_url: input.research.preferredContactUrl,
+    p_completed: input.research.completed, p_evidence: input.research.evidence,
+  }) as DbResult
+  if (result.error) fail('worker_contact_research_save', result.error)
+  if (!['saved', 'blocked'].includes(String(result.data))) throw new Error('worker_contact_research_result_invalid')
+  return result.data as 'saved' | 'blocked'
+}
+
+export async function claimContactEnrichmentCandidates(runId: string, limit = 5): Promise<DurableCandidate[]> {
+  const claimed = await createServiceClient().rpc('mahshar_worker_claim_contact_enrichment', {
+    p_run_id: runId, p_claim_key: `contact-enrichment:${runId}`, p_limit: limit,
+  }) as DbResult
+  if (claimed.error) fail('worker_contact_enrichment_claim', claimed.error)
+  const ids = Array.isArray(claimed.data) ? claimed.data.flatMap(value => {
+    const item = row(value); return typeof item?.candidate_id === 'string' ? [item.candidate_id] : []
+  }) : []
+  if (!ids.length) return []
+  const result = await createServiceClient().from('worker_candidates').select('*').in('id', ids).order('updated_at', { ascending: true }) as DbResult
+  if (result.error) fail('worker_contact_enrichment_candidates', result.error)
+  return Array.isArray(result.data) ? result.data.map(candidateRow) : []
+}
+
+export async function applyContactActionability(input: {
+  runId: string; candidateId: string; providerId: string; leadId: string
+}): Promise<{ countedQualified: boolean; targetReached: boolean; blocked: boolean }> {
+  const result = await createServiceClient().rpc('mahshar_worker_apply_contact_actionability', {
+    p_run_id: input.runId, p_candidate_id: input.candidateId, p_provider_id: input.providerId, p_lead_id: input.leadId,
+  }) as DbResult
+  if (result.error) fail('worker_contact_actionability', result.error)
+  const value = row(result.data)
+  if (!value || typeof value.countedQualified !== 'boolean' || typeof value.targetReached !== 'boolean' || typeof value.blocked !== 'boolean') {
+    throw new Error('worker_contact_actionability_invalid')
+  }
+  return { countedQualified: value.countedQualified, targetReached: value.targetReached, blocked: value.blocked }
 }
 
 export async function getMaterializedSourceWork(batchId: string, claimKey: string): Promise<unknown | null> {
@@ -320,7 +394,7 @@ export function provenanceRecords(leadId: string, facts: ProvenanceFact[]): Arra
 
 export async function saveQualification(input: {
   runId: string; candidate: DurableCandidate; providerId: string; productId: string; leadId: string; result?: WorkerQualification; model?: string;
-  traction?: WorkerTraction; qualified: boolean; deferredReason?: string
+  traction?: WorkerTraction; contact?: ContactResearchResult; qualified: boolean; deferredReason?: string
 }): Promise<{ status: CandidateOutcome['status']; reasonCode: string; countedQualified: boolean; targetReached: boolean }> {
   if (!input.deferredReason && (!input.result || !input.model)) throw new Error('worker_qualification_missing')
   const result = await createServiceClient().rpc('mahshar_worker_persist_qualification_v2', {
@@ -328,7 +402,7 @@ export async function saveQualification(input: {
     p_candidate_id: input.candidate.id, p_lease_id: input.candidate.processingLeaseId,
     p_provider_id: input.providerId, p_product_id: input.productId, p_lead_id: input.leadId,
     p_qualification: input.result ? { ...input.result, summary: durableExternalSummary(input.result.summary, 500) } : null,
-    p_traction: input.traction ?? null, p_contactability: input.traction?.contactability ?? 'unknown',
+    p_traction: input.traction ?? null, p_contactability: input.contact?.status ?? 'unknown',
     p_model: input.model ?? null, p_qualified: input.qualified, p_deferred_reason: input.deferredReason ?? null,
   }) as DbResult
   if (result.error) fail('worker_qualification_save', result.error)

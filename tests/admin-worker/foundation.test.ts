@@ -11,6 +11,7 @@ const discoveryMigrationPath = 'supabase/migrations/20261002000100_admin_worker_
 const reviewMigrationPath = 'supabase/migrations/20261004000100_admin_worker_discovery_review_candidates.sql'
 const targetMigrationPath = 'supabase/migrations/20261005000100_admin_worker_qualified_target_traction.sql'
 const retryMigrationPath = 'supabase/migrations/20261005000200_admin_worker_retry_idempotency.sql'
+const contactMigrationPath = 'supabase/migrations/20261005000300_admin_worker_contact_discovery.sql'
 
 test('Worker migration creates the bounded server-only schema and lifecycle RPCs', () => {
   const sql = read(migrationPath)
@@ -139,8 +140,10 @@ test('Admin UI includes separate Worker navigation, controls, Discovery metrics,
 
 test('Admin lead query exposes only active review candidates and preserves later human status', () => {
   const repository = read('src/lib/admin-worker/repository.ts')
-  assert.match(repository, /and\(status\.eq\.discovered,qualification_status\.eq\.review_candidate\)/)
+  assert.match(repository, /and\(status\.eq\.discovered,qualification_status\.in\.\(qualified,review_candidate\)\)/)
   assert.match(repository, /item\.status === 'discovered' && item\.qualification_status === 'review_candidate'/)
+  assert.match(repository, /technical_qualified/)
+  assert.match(repository, /worker_contacts/)
 })
 
 test('review-candidate migration adds the 60-69 band without weakening hard gates', () => {
@@ -223,6 +226,26 @@ test('retry-idempotency migration separates replay from exhaustion and recovers 
   assert.match(sql, /REVOKE ALL ON FUNCTION public\.mahshar_worker_claim_budget_v2[\s\S]*PUBLIC,anon,authenticated,service_role/)
   assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.mahshar_worker_claim_budget_v2[\s\S]*service_role/)
   assert.match(sql, /REVOKE CREATE ON SCHEMA public/)
+  assert.doesNotMatch(sql, /api_listings|purchases|api_calls|settlement|withdraw|gateway|wallet|seller_credentials/i)
+})
+
+test('contact-discovery migration is bounded, retry-safe, actionable-only, and least-privilege', () => {
+  const sql = read(contactMigrationPath)
+  assert.match(sql, /CREATE TABLE public\.worker_contacts/)
+  assert.match(sql, /CREATE TABLE public\.worker_contact_enrichment_claims/)
+  assert.match(sql, /contact_fetch_count BETWEEN 0 AND 120/)
+  assert.match(sql, /p_budget NOT IN \('source','research','groq','traction','contact'\)/)
+  assert.match(sql, /THEN RETURN 'replayed'/)
+  assert.match(sql, /contact_count<120/)
+  assert.match(sql, /mahshar_worker_save_contact_research/)
+  assert.match(sql, /mahshar_worker_claim_contact_enrichment/)
+  assert.match(sql, /mahshar_worker_apply_contact_actionability/)
+  assert.match(sql, /provider\.status IN \('do_not_contact','rejected'\) OR product\.status='rejected'/)
+  assert.match(sql, /qualification_status IN \('qualified','review_candidate'\)/)
+  assert.match(sql, /contactability_status IN \('verified_email','verified_official_contact','official_contact_page','official_sales_channel'\)/)
+  assert.match(sql, /ALTER TABLE public\.worker_contacts ENABLE ROW LEVEL SECURITY/)
+  assert.match(sql, /REVOKE ALL PRIVILEGES ON TABLE public\.worker_contacts FROM PUBLIC,anon,authenticated,service_role/)
+  assert.match(sql, /SET search_path=''/)
   assert.doesNotMatch(sql, /api_listings|purchases|api_calls|settlement|withdraw|gateway|wallet|seller_credentials/i)
 })
 

@@ -64,7 +64,30 @@ export type WorkerQualification = {
 }
 
 export type TractionConfidence = 'low' | 'medium' | 'high' | 'unknown'
-export type Contactability = 'verified_official_contact' | 'official_contact_page' | 'official_sales_channel' | 'none_found' | 'unknown'
+export type Contactability = 'verified_email' | 'verified_official_contact' | 'official_contact_page' | 'official_sales_channel' | 'contact_unavailable' | 'none_found' | 'unknown'
+
+export type ContactEvidence = {
+  type: 'email' | 'official_contact' | 'sales_channel'
+  value: string
+  purpose: 'api' | 'developer' | 'business' | 'partnerships' | 'sales' | 'general' | 'support' | 'security' | 'privacy' | 'legal' | 'contact'
+  sourceUrl: string
+  sourceType: 'official_site' | 'official_docs' | 'official_github'
+  verificationStatus: 'verified'
+  preferred: boolean
+  emailReady: boolean
+  discoveredAt: string
+  verifiedAt: string
+}
+
+export type ContactResearchResult = {
+  status: Contactability
+  emailReady: boolean
+  preferredEmail: string | null
+  preferredContactUrl: string | null
+  evidence: ContactEvidence[]
+  completed: boolean
+  failureCode: string | null
+}
 
 export type WorkerTraction = {
   tractionScore: number

@@ -14,7 +14,7 @@ function run(status: WorkerRunStatus, checkpoint: WorkerCheckpoint, number: numb
     counts: { raw_scanned: checkpoint.nextIndex, duplicate: 0, filtered: 0, deferred: 0, qualified: 0,
       review_candidates: 0, persisted: 0, traction_scored: 0 },
     targets: { qualified: 50, remaining: 50, raw_limit: checkpoint.batchSize },
-    resources: { source: 0, research: 0, groq_evaluated: 0 },
+    resources: { source: 0, research: 0, groq_evaluated: 0, contact: 0 },
     source_cursor: checkpoint.nextIndex,
     source_exhausted: false,
     completion_reason: null,

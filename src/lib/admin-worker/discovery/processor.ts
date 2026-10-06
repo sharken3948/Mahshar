@@ -4,11 +4,12 @@ import { WORKER_QUALIFICATION_MODEL, qualificationDisposition, qualifyCandidate 
 import { deterministicCandidateFilter } from './filters'
 import { discoverApiDirectoryRange } from './registry'
 import { researchCandidate } from './research'
+import { discoverProviderContacts } from './contact'
 import { assessTraction } from './traction'
 import {
-  claimDeferredCandidates, claimDiscoveryBudget, getDiscoveryCandidates, getDiscoveryRunContext,
-  getMaterializedSourceWork, getReusableProvenance, markDiscoveryCandidate, materializeSourceWork, preflightCandidate, resolveDiscoveryLead,
-  saveDiscoveryCandidate, saveProvenance, saveQualification,
+  applyContactActionability, claimContactEnrichmentCandidates, claimDeferredCandidates, claimDiscoveryBudget, getDiscoveryCandidates, getDiscoveryRunContext,
+  getMaterializedSourceWork, getReusableProvenance, getSavedContactResearch, markDiscoveryCandidate, materializeSourceWork, preflightCandidate, resolveDiscoveryLead,
+  saveContactResearch, saveDiscoveryCandidate, saveProvenance, saveQualification,
 } from './repository'
 import type { CandidateOutcome, DurableCandidate, ProvenanceFact } from './types'
 
@@ -24,11 +25,15 @@ export type DiscoveryProcessorDependencies = {
   saveQualification: typeof saveQualification
   markDiscoveryCandidate: typeof markDiscoveryCandidate
   qualifyCandidate: typeof qualifyCandidate
+  discoverProviderContacts: typeof discoverProviderContacts
+  getSavedContactResearch: typeof getSavedContactResearch
+  saveContactResearch: typeof saveContactResearch
 }
 
 const defaultDependencies: DiscoveryProcessorDependencies = {
   preflightCandidate, researchCandidate, resolveDiscoveryLead, claimDiscoveryBudget,
   getReusableProvenance, saveProvenance, saveQualification, markDiscoveryCandidate, qualifyCandidate,
+  discoverProviderContacts, getSavedContactResearch, saveContactResearch,
 }
 
 function outcome(status: CandidateOutcome['status'], reasonCode: string, values: Partial<CandidateOutcome> = {}): CandidateOutcome {
@@ -193,9 +198,26 @@ export async function processDiscoveryCandidate(
   }
   const disposition = qualificationDisposition(qualification)
   const traction = assessTraction(candidate, facts)
+  let contact = await deps.getSavedContactResearch(entity.leadId)
+  if (disposition !== 'rejected' && !contact) {
+    contact = await deps.discoverProviderContacts({
+      candidate, normalizedDomain: domain, facts,
+      claimContactBudget: key => deps.claimDiscoveryBudget(runId, 'contact', `candidate:${candidate.id}:${key}`),
+    })
+    if (contact.completed) {
+      const saved = await deps.saveContactResearch({ runId, providerId: entity.providerId, leadId: entity.leadId, research: contact })
+      if (saved === 'blocked') {
+        const blocked = outcome('blocked', 'existing_human_state', { ...entity, discovered, duplicate: 1 })
+        await deps.markDiscoveryCandidate(candidate, blocked, domain, productKey)
+        return blocked
+      }
+    }
+  }
   const persisted = await deps.saveQualification({ runId, candidate, ...entity, result: qualification,
-    traction, model: WORKER_QUALIFICATION_MODEL, qualified: disposition === 'qualified' })
-  return outcome(persisted.status, persisted.reasonCode, { ...entity, discovered,
+    traction, contact: contact ?? undefined, model: WORKER_QUALIFICATION_MODEL, qualified: disposition === 'qualified' })
+  const reasonCode = contact?.failureCode === 'contact_budget_exhausted' ? 'contact_budget_exhausted'
+    : contact?.failureCode === 'run_budget_exhausted' ? 'run_budget_exhausted' : persisted.reasonCode
+  return outcome(persisted.status, reasonCode, { ...entity, discovered,
     duplicate: persisted.status === 'duplicate' || persisted.status === 'blocked' ? 1 : 0,
     filtered: persisted.status === 'filtered' ? 1 : 0,
     qualified: persisted.countedQualified ? 1 : 0,
@@ -206,6 +228,13 @@ export async function processDiscoveryCandidate(
 }
 
 export type DiscoveryRangeDependencies = {
+  claimContactEnrichmentCandidates: typeof claimContactEnrichmentCandidates
+  getReusableProvenance: typeof getReusableProvenance
+  getSavedContactResearch: typeof getSavedContactResearch
+  discoverProviderContacts: typeof discoverProviderContacts
+  claimDiscoveryBudget: typeof claimDiscoveryBudget
+  saveContactResearch: typeof saveContactResearch
+  applyContactActionability: typeof applyContactActionability
   claimDeferredCandidates: typeof claimDeferredCandidates
   getDiscoveryCandidates: typeof getDiscoveryCandidates
   getDiscoveryRunContext: typeof getDiscoveryRunContext
@@ -218,9 +247,39 @@ export type DiscoveryRangeDependencies = {
 }
 
 const defaultRangeDependencies: DiscoveryRangeDependencies = {
+  claimContactEnrichmentCandidates, getReusableProvenance, getSavedContactResearch, discoverProviderContacts,
+  claimDiscoveryBudget, saveContactResearch, applyContactActionability,
   claimDeferredCandidates, getDiscoveryCandidates, getDiscoveryRunContext, saveDiscoveryCandidate,
   markDiscoveryCandidate, getMaterializedSourceWork, materializeSourceWork,
   discoverApiDirectoryRange, processDiscoveryCandidate,
+}
+
+async function enrichExistingLeads(
+  runId: string, deadlineMs: number, remaining: number, deps: DiscoveryRangeDependencies,
+): Promise<CandidateOutcome[]> {
+  if (remaining <= 0) return []
+  const candidates = await deps.claimContactEnrichmentCandidates(runId, Math.min(DEFERRED_SLICE, remaining))
+  const results: CandidateOutcome[] = []
+  for (const candidate of candidates) {
+    if (!candidate.providerId || !candidate.leadId || !candidate.normalizedDomain || Date.now() >= deadlineMs) break
+    const current = await deps.getSavedContactResearch(candidate.leadId)
+    const research = current ?? await deps.discoverProviderContacts({
+      candidate, normalizedDomain: candidate.normalizedDomain, facts: await deps.getReusableProvenance(candidate.leadId),
+      claimContactBudget: key => deps.claimDiscoveryBudget(runId, 'contact', `enrich:${candidate.leadId}:${key}`),
+    })
+    if (!current && research.completed) {
+      const saved = await deps.saveContactResearch({ runId, providerId: candidate.providerId, leadId: candidate.leadId, research })
+      if (saved === 'blocked') continue
+    }
+    if (!research.completed) continue
+    const applied = await deps.applyContactActionability({ runId, candidateId: candidate.id, providerId: candidate.providerId, leadId: candidate.leadId })
+    results.push(outcome(applied.blocked ? 'blocked' : 'persisted', applied.blocked ? 'existing_human_state' : 'contact_enriched', {
+      providerId: candidate.providerId, productId: candidate.productId ?? undefined, leadId: candidate.leadId,
+      discovered: 0, qualified: applied.countedQualified ? 1 : 0, persisted: applied.blocked ? 0 : 1, targetReached: applied.targetReached,
+    }))
+    if (applied.targetReached) break
+  }
+  return results
 }
 
 async function drainDeferredWithDependencies(
@@ -251,17 +310,23 @@ export async function processDiscoveryRange(
   if (context.qualifiedCount >= context.qualifiedTarget) {
     return { outcomes: [], nextIndex: start, sourceExhausted: false, deadlineReached: false, hardLimitReached: false }
   }
+  const enrichmentOutcomes = start === 0 && runId === context.batchId
+    ? await enrichExistingLeads(runId, deadlineMs, context.qualifiedTarget - context.qualifiedCount, deps) : []
+  const enrichmentQualified = enrichmentOutcomes.reduce((sum, item) => sum + item.qualified, 0)
+  if (context.qualifiedCount + enrichmentQualified >= context.qualifiedTarget) {
+    return { outcomes: enrichmentOutcomes, nextIndex: start, sourceExhausted: false, deadlineReached: false, hardLimitReached: false }
+  }
   const deferredOutcomes = start === 0 && runId === context.batchId
     ? await drainDeferredWithDependencies(runId, context.batchId, deadlineMs,
-      context.qualifiedTarget - context.qualifiedCount, deps) : []
+      context.qualifiedTarget - context.qualifiedCount - enrichmentQualified, deps) : []
   const deferredQualified = deferredOutcomes.reduce((sum, item) => sum + item.qualified, 0)
-  if (context.qualifiedCount + deferredQualified >= context.qualifiedTarget) {
-    return { outcomes: deferredOutcomes, nextIndex: start, sourceExhausted: false, deadlineReached: false, hardLimitReached: false }
+  if (context.qualifiedCount + enrichmentQualified + deferredQualified >= context.qualifiedTarget) {
+    return { outcomes: [...enrichmentOutcomes, ...deferredOutcomes], nextIndex: start, sourceExhausted: false, deadlineReached: false, hardLimitReached: false }
   }
   let candidates = await deps.getDiscoveryCandidates(context.batchId, start, end)
   const existing = new Set(candidates.map(candidate => candidate.ordinal))
   if (Date.now() >= deadlineMs) {
-    return { outcomes: deferredOutcomes, nextIndex: start, sourceExhausted: false, deadlineReached: true, hardLimitReached: false }
+    return { outcomes: [...enrichmentOutcomes, ...deferredOutcomes], nextIndex: start, sourceExhausted: false, deadlineReached: true, hardLimitReached: false }
   }
   let sourceExhausted = false
   let sourceDeadlineReached = false
@@ -291,7 +356,7 @@ export async function processDiscoveryRange(
   const results: CandidateOutcome[] = []
   let nextIndex = start
   let hardLimitReached = false
-  let qualified = context.qualifiedCount + deferredQualified
+  let qualified = context.qualifiedCount + enrichmentQualified + deferredQualified
   for (let ordinal = start; ordinal < end; ordinal += 1) {
     const candidate = byOrdinal.get(ordinal)
     if (!candidate) break
@@ -300,11 +365,11 @@ export async function processDiscoveryRange(
     nextIndex = ordinal + 1
     qualified += result.qualified
     if (qualified >= context.qualifiedTarget || result.targetReached) break
-    if (['source_budget_exhausted', 'research_budget_exhausted', 'groq_budget_exhausted'].includes(result.reasonCode)) {
+    if (['source_budget_exhausted', 'research_budget_exhausted', 'groq_budget_exhausted', 'contact_budget_exhausted'].includes(result.reasonCode)) {
       hardLimitReached = true
       break
     }
   }
-  return { outcomes: [...deferredOutcomes, ...results], nextIndex, sourceExhausted,
+  return { outcomes: [...enrichmentOutcomes, ...deferredOutcomes, ...results], nextIndex, sourceExhausted,
     deadlineReached: sourceDeadlineReached || Date.now() >= deadlineMs, hardLimitReached }
 }

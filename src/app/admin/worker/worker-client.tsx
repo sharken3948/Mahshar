@@ -145,7 +145,7 @@ export function WorkerClient() {
     {commandError && <div className={styles.error} role="alert">{commandError}</div>}
 
     <section className={styles.statusGrid} aria-label="Worker configuration">
-      <article><span>Qualified target</span><strong>{status?.qualified_target ?? '—'}</strong><small>Only final qualified leads count</small></article>
+      <article><span>Qualified target</span><strong>{status?.qualified_target ?? '—'}</strong><small>Only actionable technical fits count</small></article>
       <article><span>Raw scan hard cap</span><strong>{status?.raw_candidate_limit ?? '—'}</strong><small>Stops safely even below target</small></article>
       <article><span>Last checkpoint</span><strong>{checkpoint ? `${checkpoint.nextIndex} / ${checkpoint.batchSize}` : 'None'}</strong><small>Compact checkpoint version {checkpoint?.version ?? '—'}</small></article>
       <article><span>Last completed</span><strong className={styles.timeValue}>{timeLabel(status?.last_completed_at ?? null)}</strong><small>Durable completion timestamp</small></article>
@@ -161,7 +161,7 @@ export function WorkerClient() {
     </section>
 
     <section className={styles.notice}>
-      <div aria-hidden="true">i</div><p><strong>Discovery V1</strong>Bounded public API discovery and Groq fit qualification are enabled. Leads remain Admin-only; no outreach, account creation, or Marketplace listing occurs.</p>
+      <div aria-hidden="true">i</div><p><strong>Discovery V1</strong>Bounded public API discovery, technical Fit, and official contact research are enabled. Leads remain Admin-only; no outreach, account creation, or Marketplace listing occurs.</p>
     </section>
 
     <section className={styles.panel}>
@@ -174,7 +174,7 @@ export function WorkerClient() {
           <td data-label="Provider / API"><strong>{lead.provider}</strong><span>{lead.product}</span></td>
           <td data-label="Fit / band"><strong>{lead.fit_score}</strong><QualificationLabel status={lead.status} reasonCodes={lead.reason_codes}/></td>
           <td data-label="Traction estimate"><strong>{lead.traction_score ?? 'Unknown'}</strong><span>{lead.traction_level ? statusLabel(lead.traction_level) : 'Unknown'} activity · {statusLabel(lead.traction_confidence)} confidence</span><small>{lead.traction_summary ?? 'No bounded activity estimate available.'}{lead.last_activity_at ? ` · Last supported activity ${timeLabel(lead.last_activity_at)}` : ''}</small></td>
-          <td data-label="Contactability"><span>{statusLabel(lead.contactability)}</span></td>
+          <td data-label="Contactability"><strong>{lead.actionable ? 'Actionable' : 'Not actionable'}</strong><span>{statusLabel(lead.contactability)} · Email ready: {lead.email_ready ? 'Yes' : 'No'}</span>{lead.preferred_email && <a href={`mailto:${lead.preferred_email}`}>{lead.preferred_email}</a>}{lead.preferred_contact_url && <a href={lead.preferred_contact_url} target="_blank" rel="noopener noreferrer">Preferred official contact</a>}{lead.contact_evidence.length > 0 && <small>Evidence: {lead.contact_evidence.map((evidence, index) => <span key={`${evidence.type}:${evidence.value}`}>{index > 0 && ' · '}<a href={evidence.source_url} target="_blank" rel="noopener noreferrer">{statusLabel(evidence.purpose)}</a></span>)}</small>}</td>
           <td data-label="AI qualification summary"><span>{lead.summary}</span></td>
           <td data-label="Verified evidence">{lead.official_site && <a href={lead.official_site} target="_blank" rel="noopener noreferrer">Official site</a>}{lead.docs_url && <>{lead.official_site && ' · '}<a href={lead.docs_url} target="_blank" rel="noopener noreferrer">Official docs</a></>}<small>Pricing: {verificationLabel(lead.pricing_available)} · Contact: {verificationLabel(lead.contact_available)}</small>{lead.directory_sources.length > 0 && <small>Directory assertions: {lead.directory_sources.map((url, index) => <span key={url}>{index > 0 && ' · '}<a href={url} target="_blank" rel="noopener noreferrer">Source {index + 1}</a></span>)}</small>}</td>
           <td data-label="Discovered"><span>{timeLabel(lead.discovered_at)}</span></td>

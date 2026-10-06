@@ -58,7 +58,7 @@ export type WorkerRunDto = {
     traction_scored: number
   }
   targets: { qualified: number; remaining: number; raw_limit: number }
-  resources: { source: number; research: number; groq_evaluated: number }
+  resources: { source: number; research: number; groq_evaluated: number; contact: number }
   source_cursor: number
   source_exhausted: boolean
   completion_reason: WorkerCompletionReason | null
@@ -113,12 +113,18 @@ export type WorkerQualifiedLeadDto = {
   traction_summary: string | null
   last_activity_at: string | null
   contactability: 'verified_official_contact' | 'official_contact_page' | 'official_sales_channel' | 'none_found' | 'unknown'
+    | 'verified_email' | 'contact_unavailable'
+  actionable: boolean
+  email_ready: boolean
+  preferred_email: string | null
+  preferred_contact_url: string | null
+  contact_evidence: Array<{ type: 'email' | 'official_contact' | 'sales_channel'; value: string; source_url: string; purpose: string }>
   official_site: string | null
   docs_url: string | null
   pricing_available: boolean
   contact_available: boolean
   directory_sources: string[]
-  status: 'qualified' | 'review_candidate' | 'reviewed' | 'contact_ready' | 'contacted' | 'replied' | 'interested' | 'listed'
+  status: 'qualified' | 'technical_qualified' | 'review_candidate' | 'reviewed' | 'contact_ready' | 'contacted' | 'replied' | 'interested' | 'listed'
   discovered_at: string
 }
 

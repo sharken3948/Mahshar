@@ -4,6 +4,7 @@ type QualificationDisplayStatus = WorkerQualifiedLeadDto['status'] | 'rejected' 
 
 function qualificationStatusLabel(status: QualificationDisplayStatus): string {
   if (status === 'qualified') return 'Qualified'
+  if (status === 'technical_qualified') return 'Technical fit · contact pending'
   if (status === 'review_candidate') return 'Review candidate'
   if (status === 'rejected') return 'Low fit'
   return status.replace(/_/g, ' ').replace(/^./, letter => letter.toUpperCase())

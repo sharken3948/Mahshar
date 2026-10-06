@@ -21,7 +21,7 @@ import type { WorkerStartMode } from './control'
 
 type DbError = { message?: string; code?: string } | null
 type DbResult = { data: unknown; error: DbError }
-const RUN_SELECT = 'id, run_number, status, batch_size, processed_count, discovered_count, duplicate_count, filtered_count, deferred_count, qualified_count, review_candidate_count, persisted_count, traction_scored_count, checkpoint, workflow_run_id, error_code, qualified_target, raw_candidate_limit, source_cursor, source_exhausted, completion_reason, source_query_count, research_fetch_count, groq_call_count, traction_fetch_count, started_at, stopped_at, completed_at, created_at, updated_at'
+const RUN_SELECT = 'id, run_number, status, batch_size, processed_count, discovered_count, duplicate_count, filtered_count, deferred_count, qualified_count, review_candidate_count, persisted_count, traction_scored_count, checkpoint, workflow_run_id, error_code, qualified_target, raw_candidate_limit, source_cursor, source_exhausted, completion_reason, source_query_count, research_fetch_count, groq_call_count, traction_fetch_count, contact_fetch_count, started_at, stopped_at, completed_at, created_at, updated_at'
 
 function dbFailure(scope: string, error: DbError): never {
   console.error(`[admin-worker] ${scope} unavailable`, error?.code ?? error?.message ?? 'unknown database error')
@@ -40,7 +40,7 @@ const provenanceRoleOrder = new Map([
 export function sortQualifiedLeadRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
   const band = (row: Record<string, unknown>) => row.qualification_status === 'review_candidate' ? 1 : 0
   const confidence = new Map([['high', 0], ['medium', 1], ['low', 2], ['unknown', 3]])
-  const contact = new Map([['verified_official_contact', 0], ['official_contact_page', 1], ['official_sales_channel', 2], ['none_found', 3], ['unknown', 4]])
+  const contact = new Map([['verified_email', 0], ['verified_official_contact', 1], ['official_sales_channel', 2], ['official_contact_page', 3], ['contact_unavailable', 4], ['none_found', 5], ['unknown', 6]])
   const score = (value: unknown) => typeof value === 'number' ? value : -1
   return [...rows].sort((left, right) => band(left) - band(right)
     || score(right.fit_score) - score(left.fit_score)
@@ -129,7 +129,7 @@ export function workerRunDto(value: unknown): WorkerRunDto {
     targets: { qualified: safeInteger(row.qualified_target, 1, 50),
       remaining: Math.max(0, safeInteger(row.qualified_target, 1, 50) - safeInteger(row.qualified_count)), raw_limit: rawLimit },
     resources: { source: safeInteger(row.source_query_count, 0, 301), research: safeInteger(row.research_fetch_count, 0, 240),
-      groq_evaluated: safeInteger(row.groq_call_count, 0, 100) },
+      groq_evaluated: safeInteger(row.groq_call_count, 0, 100), contact: safeInteger(row.contact_fetch_count ?? 0, 0, 120) },
     source_cursor: row.source_cursor === null ? processedCount : safeInteger(row.source_cursor, 0, rawLimit),
     source_exhausted: row.source_exhausted === true,
     completion_reason: safeCompletionReason(row.completion_reason),
@@ -289,8 +289,8 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
   if (!Number.isInteger(limit) || limit < 1 || limit > WORKER_QUALIFIED_LEADS_MAX) throw new Error('worker_limit_invalid')
   const db = createServiceClient()
   const leadsResult = await db.from('worker_leads').select(
-    'id,provider_id,product_id,status,qualification_status,qualification_rank,fit_score,fit_reason,qualification_reason_codes,traction_score,traction_level,traction_confidence,traction_confidence_rank,last_activity_at,traction_signals,traction_concerns,traction_summary,contactability_status,contactability_rank,created_at',
-  ).or('status.in.(qualified,reviewed,contact_ready,contacted,replied,interested,listed),and(status.eq.discovered,qualification_status.eq.review_candidate)')
+    'id,provider_id,product_id,status,qualification_status,qualification_rank,fit_score,fit_reason,qualification_reason_codes,traction_score,traction_level,traction_confidence,traction_confidence_rank,last_activity_at,traction_signals,traction_concerns,traction_summary,contactability_status,contactability_rank,email_ready,preferred_email,preferred_contact_url,created_at',
+  ).or('status.in.(qualified,reviewed,contact_ready,contacted,replied,interested,listed),and(status.eq.discovered,qualification_status.in.(qualified,review_candidate))')
     .order('qualification_rank', { ascending: true }).order('fit_score', { ascending: false, nullsFirst: false })
     .order('traction_score', { ascending: false, nullsFirst: false }).order('traction_confidence_rank', { ascending: true })
     .order('contactability_rank', { ascending: true }).order('created_at', { ascending: false })
@@ -301,18 +301,22 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
   const providerIds = [...new Set(leads.map(item => item.provider_id).filter((id): id is string => typeof id === 'string'))]
   const productIds = [...new Set(leads.map(item => item.product_id).filter((id): id is string => typeof id === 'string'))]
   const leadIds = leads.map(item => item.id).filter((id): id is string => typeof id === 'string')
-  const [providersResult, productsResult, sourcesResult] = await Promise.all([
+  const [providersResult, productsResult, sourcesResult, contactsResult] = await Promise.all([
     providerIds.length ? db.from('worker_providers').select('id,canonical_name,canonical_domain').in('id', providerIds) : Promise.resolve({ data: [], error: null }),
     productIds.length ? db.from('worker_products').select('id,display_name').in('id', productIds) : Promise.resolve({ data: [], error: null }),
     leadIds.length ? db.from('worker_sources').select('id,lead_id,source_role,url,created_at').in('lead_id', leadIds)
       .order('created_at', { ascending: false }).order('id', { ascending: false }) : Promise.resolve({ data: [], error: null }),
-  ]) as [DbResult, DbResult, DbResult]
+    providerIds.length ? db.from('worker_contacts').select('provider_id,contact_type,value,purpose,source_url,preferred,verified_at').in('provider_id', providerIds)
+      .order('preferred', { ascending: false }).order('verified_at', { ascending: false }) : Promise.resolve({ data: [], error: null }),
+  ]) as [DbResult, DbResult, DbResult, DbResult]
   if (providersResult.error) dbFailure('worker_lead_providers', providersResult.error)
   if (productsResult.error) dbFailure('worker_lead_products', productsResult.error)
   if (sourcesResult.error) dbFailure('worker_lead_sources', sourcesResult.error)
+  if (contactsResult.error) dbFailure('worker_lead_contacts', contactsResult.error)
   const providers = new Map((providersResult.data as unknown[]).map(value => { const item = objectRow(value)!; return [item.id, item] }))
   const products = new Map((productsResult.data as unknown[]).map(value => { const item = objectRow(value)!; return [item.id, item] }))
   const sources = sortQualifiedLeadSources((sourcesResult.data as unknown[]).map(objectRow).filter(Boolean) as Record<string, unknown>[])
+  const contacts = (contactsResult.data as unknown[]).map(objectRow).filter(Boolean) as Record<string, unknown>[]
   const result: WorkerQualifiedLeadDto[] = leads.map(item => {
     const provider = providers.get(item.provider_id)
     const product = products.get(item.product_id)
@@ -327,6 +331,7 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
     const directory_sources = leadSources.filter(source => source.source_role === 'directory_assertion')
       .flatMap(source => typeof source.url === 'string' ? [canonicalExternalUrl(source.url)].filter((url): url is string => Boolean(url)) : [])
       .slice(0, 3)
+    const leadContacts = contacts.filter(contact => contact.provider_id === item.provider_id)
     return {
       id: item.id, provider: provider.canonical_name, provider_domain: provider.canonical_domain,
       product: product.display_name, fit_score: item.fit_score, summary: item.fit_reason,
@@ -340,15 +345,27 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
       traction_concerns: Array.isArray(item.traction_concerns) ? item.traction_concerns.filter(value => typeof value === 'string').slice(0, 8) as string[] : [],
       traction_summary: typeof item.traction_summary === 'string' ? item.traction_summary : null,
       last_activity_at: item.last_activity_at === null ? null : safeTimestamp(item.last_activity_at),
-      contactability: ['verified_official_contact', 'official_contact_page', 'official_sales_channel', 'none_found', 'unknown'].includes(String(item.contactability_status))
+      contactability: ['verified_email', 'verified_official_contact', 'official_contact_page', 'official_sales_channel', 'contact_unavailable', 'none_found', 'unknown'].includes(String(item.contactability_status))
         ? item.contactability_status as WorkerQualifiedLeadDto['contactability'] : 'unknown',
+      actionable: leadContacts.some(contact => contact.preferred === true),
+      email_ready: item.email_ready === true,
+      preferred_email: typeof item.preferred_email === 'string' ? item.preferred_email : null,
+      preferred_contact_url: typeof item.preferred_contact_url === 'string' ? canonicalExternalUrl(item.preferred_contact_url) ?? null : null,
+      contact_evidence: leadContacts.slice(0, 5).flatMap(contact => {
+        const source = typeof contact.source_url === 'string' ? canonicalExternalUrl(contact.source_url) : null
+        if (!source || !['email', 'official_contact', 'sales_channel'].includes(String(contact.contact_type)) || typeof contact.value !== 'string') return []
+        return [{ type: contact.contact_type as 'email' | 'official_contact' | 'sales_channel', value: contact.value,
+          source_url: source, purpose: typeof contact.purpose === 'string' ? contact.purpose : 'contact' }]
+      }),
       reason_codes: Array.isArray(item.qualification_reason_codes)
         ? item.qualification_reason_codes.filter(code => typeof code === 'string').slice(0, 8) as string[] : [],
       official_site: sourceUrl('official_site'), docs_url: sourceUrl('official_docs'),
-      pricing_available: Boolean(sourceUrl('official_pricing')), contact_available: Boolean(sourceUrl('official_contact')),
+      pricing_available: Boolean(sourceUrl('official_pricing')), contact_available: leadContacts.length > 0
+        || Boolean(sourceUrl('official_contact')),
       directory_sources,
       status: item.status === 'discovered' && item.qualification_status === 'review_candidate'
-        ? 'review_candidate' : item.status as WorkerQualifiedLeadDto['status'],
+        ? 'review_candidate' : item.status === 'discovered' && item.qualification_status === 'qualified'
+          ? 'technical_qualified' : item.status as WorkerQualifiedLeadDto['status'],
       discovered_at: safeTimestamp(item.created_at, false) as string,
     }
   })
