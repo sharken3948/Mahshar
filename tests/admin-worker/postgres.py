@@ -16,6 +16,7 @@ REVIEW_BAND = ROOT / 'supabase/migrations/20261004000100_admin_worker_discovery_
 QUALIFIED_TARGET = ROOT / 'supabase/migrations/20261005000100_admin_worker_qualified_target_traction.sql'
 RETRY_IDEMPOTENCY = ROOT / 'supabase/migrations/20261005000200_admin_worker_retry_idempotency.sql'
 CONTACT_DISCOVERY = ROOT / 'supabase/migrations/20261005000300_admin_worker_contact_discovery.sql'
+CONTACT_REENRICHMENT = ROOT / 'supabase/migrations/20261007000100_admin_worker_contact_reenrichment.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -83,9 +84,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20260928000300', '20261001000000', '20261001000030',
             '20261001000100', '20261001000110',
             '20261002000100', '20261004000100', '20261005000100', '20261005000200', '20261005000300',
+            '20261007000100',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -1361,6 +1363,165 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         assert not actionability['blocked']
         assert sql(f"SELECT email_ready::text||','||contactability_status FROM worker_leads WHERE id='{enrich_lead}';") == 'true,verified_email'
         sql(f"SET ROLE service_role; SELECT (mahshar_worker_fail_run('{contact_run_id}','test_cleanup')).status;")
+
+        # Controlled contact maintenance is independently transactional and
+        # never requires or mutates a Worker run.
+        rollback_sql = "BEGIN;\n" + CONTACT_REENRICHMENT.read_text() + """
+          DO $rollback$ BEGIN RAISE EXCEPTION 'forced_worker_contact_reenrichment_rollback'; END $rollback$;
+          COMMIT;
+        """
+        expect_failure(rollback_sql, 'forced_worker_contact_reenrichment_rollback')
+        assert sql("SELECT to_regprocedure('public.mahshar_worker_maintain_contact_research(uuid,uuid,boolean,jsonb)');") == ''
+        assert sql("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='worker_contacts' AND column_name='evidence_origin';") == '0'
+        sql('BEGIN;\n' + CONTACT_REENRICHMENT.read_text() + '\nCOMMIT;')
+
+        maintenance_function = 'mahshar_worker_maintain_contact_research(uuid,uuid,boolean,jsonb)'
+        assert sql(f"SELECT pg_get_userbyid(proowner) FROM pg_proc WHERE oid='public.{maintenance_function}'::regprocedure;") == 'worker_test'
+        assert sql(f"SELECT coalesce(array_to_string(proconfig,'|'),'') FROM pg_proc WHERE oid='public.{maintenance_function}'::regprocedure;") in {'search_path=', 'search_path=""'}
+        for role in ['anon', 'authenticated']:
+            assert sql(f"SELECT has_function_privilege('{role}','public.{maintenance_function}','EXECUTE');") == 'f'
+        assert sql(f"SELECT has_function_privilege('service_role','public.{maintenance_function}','EXECUTE');") == 't'
+        for privilege in ['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']:
+            assert sql(f"SELECT has_table_privilege('service_role','public.worker_contacts','{privilege}');") == 'f'
+
+        maintenance_provider = sql('SELECT gen_random_uuid();')
+        maintenance_product = sql('SELECT gen_random_uuid();')
+        maintenance_lead = sql('SELECT gen_random_uuid();')
+        sql(f"""
+          INSERT INTO worker_providers(id,canonical_name,canonical_domain)
+            VALUES('{maintenance_provider}','Maintenance Fixture','maintenance.example');
+          INSERT INTO worker_products(id,provider_id,normalized_product_key,display_name)
+            VALUES('{maintenance_product}','{maintenance_provider}','maintenance-api','Maintenance API');
+          INSERT INTO worker_leads(id,provider_id,product_id,status,fit_score,qualification_status,
+            contactability_status,email_ready,preferred_email,preferred_contact_url,contact_researched_at)
+          VALUES('{maintenance_lead}','{maintenance_provider}','{maintenance_product}','qualified',78,'qualified',
+            'verified_email',true,'//www.tiktok.com/@maintenance','https://maintenance.example/',clock_timestamp());
+          INSERT INTO worker_contacts(provider_id,lead_id,contact_type,value,purpose,source_url,source_type,
+            verification_status,preferred,email_ready,discovered_at,verified_at,evidence_origin)
+          VALUES
+            ('{maintenance_provider}','{maintenance_lead}','email','//www.tiktok.com/@maintenance','general',
+              'https://maintenance.example/','official_site','verified',true,true,clock_timestamp(),clock_timestamp(),'automatic'),
+            ('{maintenance_provider}','{maintenance_lead}','official_contact','https://directory.example/vendor','business',
+              'https://maintenance.example/','official_site','verified',false,false,clock_timestamp(),clock_timestamp(),'automatic'),
+            ('{maintenance_provider}','{maintenance_lead}','official_contact','https://maintenance.example/api-product','api',
+              'https://maintenance.example/api-product','official_site','verified',false,false,clock_timestamp(),clock_timestamp(),'automatic'),
+            ('{maintenance_provider}','{maintenance_lead}','email','support@maintenance.example','support',
+              'https://maintenance.example/support','official_site','verified',false,true,clock_timestamp(),clock_timestamp(),'automatic'),
+            ('{maintenance_provider}','{maintenance_lead}','email','security@maintenance.example','security',
+              'https://maintenance.example/security','official_site','verified',false,true,clock_timestamp(),clock_timestamp(),'automatic'),
+            ('{maintenance_provider}','{maintenance_lead}','official_contact','https://maintenance.example/manual-contact','contact',
+              'https://maintenance.example/manual-contact','official_site','verified',false,false,clock_timestamp(),clock_timestamp(),'manual');
+        """)
+        assert sql("SELECT count(*) FROM worker_runs WHERE status IN ('queued','running','stop_requested');") == '0'
+        historical_runs = sql("SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY id),'[]') FROM worker_runs r;")
+        historical_contributions = sql("SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY discovery_batch_id,lead_id),'[]') FROM worker_qualified_contributions c;")
+        technical_state = sql(f"SELECT fit_score||','||qualification_status FROM worker_leads WHERE id='{maintenance_lead}';")
+        rediscovered_contact_id = sql(f"SELECT id FROM worker_contacts WHERE lead_id='{maintenance_lead}' AND value='support@maintenance.example';")
+
+        maintenance_evidence = json.dumps([
+            {
+                'type': 'email', 'value': 'support@maintenance.example', 'purpose': 'support',
+                'sourceUrl': 'https://maintenance.example/support', 'sourceType': 'official_site',
+                'verificationStatus': 'verified', 'preferred': False, 'emailReady': True,
+                'discoveredAt': '2026-10-07T12:00:00Z', 'verifiedAt': '2026-10-07T12:00:00Z',
+            },
+            {
+                'type': 'email', 'value': 'security@maintenance.example', 'purpose': 'security',
+                'sourceUrl': 'https://maintenance.example/security', 'sourceType': 'official_site',
+                'verificationStatus': 'verified', 'preferred': True, 'emailReady': True,
+                'discoveredAt': '2026-10-07T12:00:00Z', 'verifiedAt': '2026-10-07T12:00:00Z',
+            },
+            {
+                'type': 'official_contact', 'value': 'https://maintenance.example/contact', 'purpose': 'contact',
+                'sourceUrl': 'https://maintenance.example/contact', 'sourceType': 'official_site',
+                'verificationStatus': 'verified', 'preferred': False, 'emailReady': False,
+                'discoveredAt': '2026-10-07T12:00:00Z', 'verifiedAt': '2026-10-07T12:00:00Z',
+            },
+        ])
+
+        maintenance_call = f"""mahshar_worker_maintain_contact_research(
+          '{maintenance_provider}','{maintenance_lead}',true,$evidence${maintenance_evidence}$evidence$::jsonb)"""
+        maintained = json.loads(sql(f"SET ROLE service_role; SELECT {maintenance_call};"))
+        assert maintained == {
+            'result': 'saved', 'contactStatus': 'verified_email', 'emailReady': True,
+            'preferredEmail': 'support@maintenance.example',
+            'preferredContactUrl': 'https://maintenance.example/support', 'actionable': True,
+        }
+        assert sql(f"SELECT count(*) FROM worker_contacts WHERE lead_id='{maintenance_lead}' AND value IN ('//www.tiktok.com/@maintenance','https://directory.example/vendor','https://maintenance.example/api-product');") == '0'
+        assert sql(f"SELECT count(*) FROM worker_contacts WHERE lead_id='{maintenance_lead}' AND value='support@maintenance.example';") == '1'
+        assert sql(f"SELECT id FROM worker_contacts WHERE lead_id='{maintenance_lead}' AND value='support@maintenance.example';") == rediscovered_contact_id
+        assert sql(f"SELECT email_ready::text||','||preferred::text FROM worker_contacts WHERE lead_id='{maintenance_lead}' AND value='security@maintenance.example';") == 'false,false'
+        assert sql(f"SELECT evidence_origin||','||preferred::text FROM worker_contacts WHERE lead_id='{maintenance_lead}' AND value='https://maintenance.example/manual-contact';") == 'manual,false'
+        assert sql(f"SELECT status||','||contactability_status||','||email_ready::text||','||preferred_email FROM worker_leads WHERE id='{maintenance_lead}';") == 'qualified,verified_email,true,support@maintenance.example'
+        assert sql(f"SELECT fit_score||','||qualification_status FROM worker_leads WHERE id='{maintenance_lead}';") == technical_state
+
+        contact_snapshot = sql(f"""SELECT jsonb_agg(jsonb_build_object('id',id,'type',contact_type,'value',value,'purpose',purpose,
+          'preferred',preferred,'emailReady',email_ready,'origin',evidence_origin) ORDER BY contact_type,value)
+          FROM worker_contacts WHERE lead_id='{maintenance_lead}';""")
+        assert json.loads(sql(f"SET ROLE service_role; SELECT {maintenance_call};")) == maintained
+        assert sql(f"""SELECT jsonb_agg(jsonb_build_object('id',id,'type',contact_type,'value',value,'purpose',purpose,
+          'preferred',preferred,'emailReady',email_ready,'origin',evidence_origin) ORDER BY contact_type,value)
+          FROM worker_contacts WHERE lead_id='{maintenance_lead}';""") == contact_snapshot
+
+        unavailable = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_worker_maintain_contact_research(
+            '{maintenance_provider}','{maintenance_lead}',true,'[]'::jsonb);"""))
+        assert unavailable == {
+            'result': 'saved', 'contactStatus': 'contact_unavailable', 'emailReady': False,
+            'preferredEmail': None, 'preferredContactUrl': None, 'actionable': False,
+        }
+        assert sql(f"SELECT status||','||qualification_status||','||fit_score FROM worker_leads WHERE id='{maintenance_lead}';") == 'discovered,qualified,78.00'
+        assert sql(f"SELECT count(*) FROM worker_contacts WHERE lead_id='{maintenance_lead}' AND evidence_origin='automatic';") == '0'
+        assert sql(f"SELECT count(*) FROM worker_contacts WHERE lead_id='{maintenance_lead}' AND evidence_origin='manual';") == '1'
+
+        retryable = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_worker_maintain_contact_research(
+            '{maintenance_provider}','{maintenance_lead}',false,'[]'::jsonb);"""))
+        assert retryable == {
+            'result': 'saved', 'contactStatus': 'unknown', 'emailReady': False,
+            'preferredEmail': None, 'preferredContactUrl': None, 'actionable': False,
+        }
+        assert sql(f"SELECT contact_researched_at IS NULL FROM worker_leads WHERE id='{maintenance_lead}';") == 't'
+        assert sql(f"SELECT fit_score||','||qualification_status FROM worker_leads WHERE id='{maintenance_lead}';") == technical_state
+
+        sql(f"UPDATE worker_contacts SET preferred=true WHERE lead_id='{maintenance_lead}' AND evidence_origin='manual';")
+        manual_result = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_worker_maintain_contact_research(
+            '{maintenance_provider}','{maintenance_lead}',true,'[]'::jsonb);"""))
+        assert manual_result == {
+            'result': 'saved', 'contactStatus': 'official_contact_page', 'emailReady': False,
+            'preferredEmail': None,
+            'preferredContactUrl': 'https://maintenance.example/manual-contact', 'actionable': True,
+        }
+        assert sql(f"SELECT evidence_origin||','||preferred::text FROM worker_contacts WHERE lead_id='{maintenance_lead}';") == 'manual,true'
+        assert sql(f"SELECT status||','||qualification_status||','||fit_score FROM worker_leads WHERE id='{maintenance_lead}';") == 'qualified,qualified,78.00'
+
+        blocked_provider = sql('SELECT gen_random_uuid();')
+        blocked_product = sql('SELECT gen_random_uuid();')
+        blocked_lead = sql('SELECT gen_random_uuid();')
+        sql(f"""
+          INSERT INTO worker_providers(id,canonical_name,canonical_domain)
+            VALUES('{blocked_provider}','Blocked Fixture','blocked-maintenance.example');
+          INSERT INTO worker_products(id,provider_id,normalized_product_key,display_name)
+            VALUES('{blocked_product}','{blocked_provider}','blocked-api','Blocked API');
+          INSERT INTO worker_leads(id,provider_id,product_id,status,fit_score,qualification_status,contactability_status)
+            VALUES('{blocked_lead}','{blocked_provider}','{blocked_product}','discovered',65,'review_candidate','official_contact_page');
+          INSERT INTO worker_contacts(provider_id,lead_id,contact_type,value,purpose,source_url,source_type,
+            verification_status,preferred,email_ready,discovered_at,verified_at)
+          VALUES('{blocked_provider}','{blocked_lead}','official_contact','https://blocked-maintenance.example/contact','contact',
+            'https://blocked-maintenance.example/contact','official_site','verified',true,false,clock_timestamp(),clock_timestamp());
+          INSERT INTO worker_decisions(provider_id,lead_id,decision,reason_code)
+            VALUES('{blocked_provider}','{blocked_lead}','rejected','maintenance_fixture');
+        """)
+        blocked_before = sql(f"SELECT to_jsonb(l) FROM worker_leads l WHERE id='{blocked_lead}';")
+        blocked_result = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_worker_maintain_contact_research('{blocked_provider}','{blocked_lead}',true,'[]'::jsonb);"""))
+        assert blocked_result['result'] == 'blocked' and not blocked_result['actionable']
+        assert sql(f"SELECT to_jsonb(l) FROM worker_leads l WHERE id='{blocked_lead}';") == blocked_before
+        assert sql(f"SELECT count(*) FROM worker_contacts WHERE lead_id='{blocked_lead}';") == '1'
+
+        assert sql("SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY id),'[]') FROM worker_runs r;") == historical_runs
+        assert sql("SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY discovery_batch_id,lead_id),'[]') FROM worker_qualified_contributions c;") == historical_contributions
 
         print('PASS: Worker transactional migration, qualified target, traction/contact schema, privileges, leases, provenance, retries, races, and concurrency')
     finally:
