@@ -118,13 +118,17 @@ export type WorkerQualifiedLeadDto = {
   email_ready: boolean
   preferred_email: string | null
   preferred_contact_url: string | null
-  contact_evidence: Array<{ type: 'email' | 'official_contact' | 'sales_channel'; value: string; source_url: string; purpose: string }>
+  contact_evidence: Array<{ type: 'email' | 'official_contact' | 'sales_channel'; value: string; source_url: string; purpose: string;
+    source_type: 'official_site' | 'official_docs' | 'official_github'; preferred: boolean }>
   official_site: string | null
   docs_url: string | null
+  github_url: string | null
+  pricing_url: string | null
   pricing_available: boolean
   contact_available: boolean
   directory_sources: string[]
   status: 'qualified' | 'technical_qualified' | 'review_candidate' | 'reviewed' | 'contact_ready' | 'contacted' | 'replied' | 'interested' | 'listed'
+  last_evidence_at: string | null
   discovered_at: string
 }
 

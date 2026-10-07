@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAdminRequest } from '@/components/AdminAccess'
 import { workerControlAvailability } from '@/lib/admin-worker/availability'
 import { verificationLabel, workerCompletionLabel } from '@/lib/admin-worker/presentation'
 import type { WorkerQualifiedLeadDto, WorkerQualifiedLeadsDto, WorkerRunDto, WorkerRunsDto, WorkerStatusDto } from '@/lib/admin-worker/types'
+import { workerLeadContactLabel } from './lead-presentation'
 import { QualificationLabel } from './qualification-label'
 import styles from './worker.module.css'
 
@@ -57,6 +58,27 @@ function LatestRun({ run }: { run: WorkerRunDto | null }) {
   </>
 }
 
+function EvidenceLinks({ lead }: { lead: WorkerQualifiedLeadDto }) {
+  return <div className={styles.detailLinks}>
+    {lead.official_site && <a href={lead.official_site} target="_blank" rel="noopener noreferrer">Official site</a>}
+    {lead.docs_url && <a href={lead.docs_url} target="_blank" rel="noopener noreferrer">Official docs</a>}
+    {lead.pricing_url && <a href={lead.pricing_url} target="_blank" rel="noopener noreferrer">Pricing</a>}
+    {lead.github_url && <a href={lead.github_url} target="_blank" rel="noopener noreferrer">GitHub</a>}
+    {lead.directory_sources.map((url, index) => <a key={url} href={url} target="_blank" rel="noopener noreferrer">Directory source {index + 1}</a>)}
+  </div>
+}
+
+function LeadDetails({ lead }: { lead: WorkerQualifiedLeadDto }) {
+  return <div className={styles.leadDetails}>
+    <section><h3>AI qualification</h3><p>{lead.summary}</p>{lead.reason_codes.length > 0 && <small>{lead.reason_codes.map(statusLabel).join(' · ')}</small>}</section>
+    <section><h3>Technical evidence</h3><EvidenceLinks lead={lead}/><dl><div><dt>Auth</dt><dd>Supported or not declared</dd></div><div><dt>Pricing</dt><dd>{verificationLabel(lead.pricing_available)}</dd></div></dl></section>
+    <section><h3>Traction signals</h3><dl><div><dt>Activity</dt><dd>{lead.traction_level ? statusLabel(lead.traction_level) : 'Unknown'}{lead.traction_score === null ? '' : ` · score ${lead.traction_score}`}</dd></div><div><dt>Confidence</dt><dd>{statusLabel(lead.traction_confidence)}</dd></div></dl><p>{lead.traction_summary ?? 'No bounded activity estimate available.'}</p>{lead.traction_signals.length > 0 && <ul>{lead.traction_signals.map(signal => <li key={signal}>{statusLabel(signal)}</li>)}</ul>}</section>
+    <section><h3>Contact</h3><dl><div><dt>Actionable</dt><dd>{lead.actionable ? 'Yes' : 'No'}</dd></div><div><dt>Email ready</dt><dd>{lead.email_ready ? 'Yes' : 'No'}</dd></div><div><dt>Email</dt><dd>{lead.preferred_email ?? '—'}</dd></div><div><dt>Official route</dt><dd>{lead.preferred_contact_url ? <a href={lead.preferred_contact_url} target="_blank" rel="noopener noreferrer">Open contact</a> : '—'}</dd></div></dl>{lead.contact_evidence.length > 0 && <ul>{lead.contact_evidence.map(evidence => <li key={`${evidence.type}:${evidence.value}`}><a href={evidence.source_url} target="_blank" rel="noopener noreferrer">{statusLabel(evidence.purpose)} · {statusLabel(evidence.source_type)}</a></li>)}</ul>}</section>
+    <section><h3>Concerns</h3>{lead.traction_concerns.length > 0 ? <ul>{lead.traction_concerns.map(concern => <li key={concern}>{statusLabel(concern)}</li>)}</ul> : <p>None recorded.</p>}</section>
+    <section><h3>Timeline</h3><dl><div><dt>Discovered</dt><dd>{timeLabel(lead.discovered_at)}</dd></div><div><dt>Last evidence/activity</dt><dd>{timeLabel(lead.last_activity_at ?? lead.last_evidence_at)}</dd></div></dl></section>
+  </div>
+}
+
 export function WorkerClient() {
   const request = useAdminRequest()
   const mounted = useRef(true)
@@ -65,6 +87,7 @@ export function WorkerClient() {
   const [status, setStatus] = useState<WorkerStatusDto | null>(null)
   const [runs, setRuns] = useState<WorkerRunDto[]>([])
   const [leads, setLeads] = useState<WorkerQualifiedLeadDto[]>([])
+  const [expandedLeadId, setExpandedLeadId] = useState<string | null>(null)
   const [leadsPhase, setLeadsPhase] = useState<'loading' | 'ready' | 'failed'>('loading')
   const [phase, setPhase] = useState<'loading' | 'ready' | 'degraded' | 'unavailable'>('loading')
   const [busy, setBusy] = useState<'start' | 'stop' | 'resume' | null>(null)
@@ -169,16 +192,21 @@ export function WorkerClient() {
       {leadsPhase === 'loading' ? <div className={styles.empty} role="status">Loading qualified leads…</div>
         : leadsPhase === 'failed' ? <div className={styles.empty} role="alert">Qualified leads are temporarily unavailable.</div>
           : leads.length === 0 ? <div className={styles.empty}>No qualified or review candidates are available.</div> : <div className={`${styles.tableViewport} ${styles.leadsTable}`}><table>
-        <thead><tr><th>Provider / API</th><th>Fit / band</th><th>Traction estimate</th><th>Contactability</th><th>AI qualification summary</th><th>Verified evidence</th><th>Discovered</th></tr></thead>
-        <tbody>{leads.map(lead => <tr key={lead.id}>
-          <td data-label="Provider / API"><strong>{lead.provider}</strong><span>{lead.product}</span></td>
-          <td data-label="Fit / band"><strong>{lead.fit_score}</strong><QualificationLabel status={lead.status} reasonCodes={lead.reason_codes}/></td>
-          <td data-label="Traction estimate"><strong>{lead.traction_score ?? 'Unknown'}</strong><span>{lead.traction_level ? statusLabel(lead.traction_level) : 'Unknown'} activity · {statusLabel(lead.traction_confidence)} confidence</span><small>{lead.traction_summary ?? 'No bounded activity estimate available.'}{lead.last_activity_at ? ` · Last supported activity ${timeLabel(lead.last_activity_at)}` : ''}</small></td>
-          <td data-label="Contactability"><strong>{lead.actionable ? 'Actionable' : 'Not actionable'}</strong><span>{statusLabel(lead.contactability)} · Email ready: {lead.email_ready ? 'Yes' : 'No'}</span>{lead.preferred_email && <a href={`mailto:${lead.preferred_email}`}>{lead.preferred_email}</a>}{lead.preferred_contact_url && <a href={lead.preferred_contact_url} target="_blank" rel="noopener noreferrer">Preferred official contact</a>}{lead.contact_evidence.length > 0 && <small>Evidence: {lead.contact_evidence.map((evidence, index) => <span key={`${evidence.type}:${evidence.value}`}>{index > 0 && ' · '}<a href={evidence.source_url} target="_blank" rel="noopener noreferrer">{statusLabel(evidence.purpose)}</a></span>)}</small>}</td>
-          <td data-label="AI qualification summary"><span>{lead.summary}</span></td>
-          <td data-label="Verified evidence">{lead.official_site && <a href={lead.official_site} target="_blank" rel="noopener noreferrer">Official site</a>}{lead.docs_url && <>{lead.official_site && ' · '}<a href={lead.docs_url} target="_blank" rel="noopener noreferrer">Official docs</a></>}<small>Pricing: {verificationLabel(lead.pricing_available)} · Contact: {verificationLabel(lead.contact_available)}</small>{lead.directory_sources.length > 0 && <small>Directory assertions: {lead.directory_sources.map((url, index) => <span key={url}>{index > 0 && ' · '}<a href={url} target="_blank" rel="noopener noreferrer">Source {index + 1}</a></span>)}</small>}</td>
-          <td data-label="Discovered"><span>{timeLabel(lead.discovered_at)}</span></td>
-        </tr>)}</tbody>
+        <thead><tr><th>API / Provider</th><th>Category</th><th>Fit</th><th>Status</th><th>Contact</th><th>Email</th><th>Activity</th><th>Last Evidence</th><th>Details</th></tr></thead>
+        <tbody>{leads.map(lead => {
+          const expanded = expandedLeadId === lead.id
+          return <Fragment key={lead.id}><tr className={styles.leadRow}>
+            <td data-label="API / Provider"><strong title={`${lead.product} / ${lead.provider}`}>{lead.product} <span>/ {lead.provider}</span></strong></td>
+            <td data-label="Category"><span>Public API</span></td>
+            <td data-label="Fit"><strong>{lead.fit_score}</strong></td>
+            <td data-label="Status"><QualificationLabel status={lead.status} reasonCodes={lead.reason_codes}/></td>
+            <td data-label="Contact"><span>{workerLeadContactLabel(lead)}</span></td>
+            <td data-label="Email"><span>{lead.email_ready ? 'Yes' : 'No'}</span></td>
+            <td data-label="Activity"><span>{lead.traction_level ? statusLabel(lead.traction_level) : 'Unknown'}{lead.traction_score === null ? '' : ` · score ${lead.traction_score}`}</span></td>
+            <td data-label="Last Evidence"><span>{timeLabel(lead.last_activity_at ?? lead.last_evidence_at)}</span></td>
+            <td data-label="Details"><button type="button" className={styles.detailsButton} aria-expanded={expanded} aria-controls={`lead-${lead.id}`} onClick={() => setExpandedLeadId(expanded ? null : lead.id)}>{expanded ? 'Close' : 'Details'}</button></td>
+          </tr>{expanded && <tr className={styles.detailRow}><td id={`lead-${lead.id}`} colSpan={9}><LeadDetails lead={lead}/></td></tr>}</Fragment>
+        })}</tbody>
       </table></div>}
     </section>
 

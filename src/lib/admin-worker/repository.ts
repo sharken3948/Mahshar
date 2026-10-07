@@ -304,9 +304,9 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
   const [providersResult, productsResult, sourcesResult, contactsResult] = await Promise.all([
     providerIds.length ? db.from('worker_providers').select('id,canonical_name,canonical_domain').in('id', providerIds) : Promise.resolve({ data: [], error: null }),
     productIds.length ? db.from('worker_products').select('id,display_name').in('id', productIds) : Promise.resolve({ data: [], error: null }),
-    leadIds.length ? db.from('worker_sources').select('id,lead_id,source_role,url,created_at').in('lead_id', leadIds)
+    leadIds.length ? db.from('worker_sources').select('id,lead_id,source_role,url,checked_at,created_at').in('lead_id', leadIds)
       .order('created_at', { ascending: false }).order('id', { ascending: false }) : Promise.resolve({ data: [], error: null }),
-    providerIds.length ? db.from('worker_contacts').select('provider_id,contact_type,value,purpose,source_url,preferred,verified_at').in('provider_id', providerIds)
+    providerIds.length ? db.from('worker_contacts').select('provider_id,contact_type,value,purpose,source_url,source_type,preferred,verified_at').in('provider_id', providerIds)
       .order('preferred', { ascending: false }).order('verified_at', { ascending: false }) : Promise.resolve({ data: [], error: null }),
   ]) as [DbResult, DbResult, DbResult, DbResult]
   if (providersResult.error) dbFailure('worker_lead_providers', providersResult.error)
@@ -332,6 +332,10 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
       .flatMap(source => typeof source.url === 'string' ? [canonicalExternalUrl(source.url)].filter((url): url is string => Boolean(url)) : [])
       .slice(0, 3)
     const leadContacts = contacts.filter(contact => contact.provider_id === item.provider_id)
+    const evidenceTimes = [...leadSources.map(source => source.checked_at ?? source.created_at), ...leadContacts.map(contact => contact.verified_at)]
+      .flatMap(value => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? [value] : [])
+      .sort((left, right) => Date.parse(right) - Date.parse(left))
+    const githubUrl = leadContacts.find(contact => contact.source_type === 'official_github')?.source_url
     return {
       id: item.id, provider: provider.canonical_name, provider_domain: provider.canonical_domain,
       product: product.display_name, fit_score: item.fit_score, summary: item.fit_reason,
@@ -353,19 +357,23 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
       preferred_contact_url: typeof item.preferred_contact_url === 'string' ? canonicalExternalUrl(item.preferred_contact_url) ?? null : null,
       contact_evidence: leadContacts.slice(0, 5).flatMap(contact => {
         const source = typeof contact.source_url === 'string' ? canonicalExternalUrl(contact.source_url) : null
-        if (!source || !['email', 'official_contact', 'sales_channel'].includes(String(contact.contact_type)) || typeof contact.value !== 'string') return []
+        if (!source || !['email', 'official_contact', 'sales_channel'].includes(String(contact.contact_type)) || typeof contact.value !== 'string'
+          || !['official_site', 'official_docs', 'official_github'].includes(String(contact.source_type))) return []
         return [{ type: contact.contact_type as 'email' | 'official_contact' | 'sales_channel', value: contact.value,
-          source_url: source, purpose: typeof contact.purpose === 'string' ? contact.purpose : 'contact' }]
+          source_url: source, purpose: typeof contact.purpose === 'string' ? contact.purpose : 'contact',
+          source_type: contact.source_type as 'official_site' | 'official_docs' | 'official_github', preferred: contact.preferred === true }]
       }),
       reason_codes: Array.isArray(item.qualification_reason_codes)
         ? item.qualification_reason_codes.filter(code => typeof code === 'string').slice(0, 8) as string[] : [],
       official_site: sourceUrl('official_site'), docs_url: sourceUrl('official_docs'),
-      pricing_available: Boolean(sourceUrl('official_pricing')), contact_available: leadContacts.length > 0
+      github_url: typeof githubUrl === 'string' ? canonicalExternalUrl(githubUrl) ?? null : null,
+      pricing_url: sourceUrl('official_pricing'), pricing_available: Boolean(sourceUrl('official_pricing')), contact_available: leadContacts.length > 0
         || Boolean(sourceUrl('official_contact')),
       directory_sources,
       status: item.status === 'discovered' && item.qualification_status === 'review_candidate'
         ? 'review_candidate' : item.status === 'discovered' && item.qualification_status === 'qualified'
           ? 'technical_qualified' : item.status as WorkerQualifiedLeadDto['status'],
+      last_evidence_at: evidenceTimes[0] ? safeTimestamp(evidenceTimes[0]) : null,
       discovered_at: safeTimestamp(item.created_at, false) as string,
     }
   })

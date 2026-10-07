@@ -506,8 +506,16 @@ test('structured OpenAPI verification rejects malformed, empty, unsupported, and
   assert.equal(inspectOpenApiDocument(JSON.stringify({ openapi: '4.0.0', paths: { '/x': { get: {} } } })).failureCode, 'unsupported_api_spec_version')
   assert.equal(inspectOpenApiDocument(JSON.stringify({ openapi: '3.0.0', paths: { '/x': { patch: {} } } })).failureCode, 'unsupported_http_method')
   assert.equal(inspectOpenApiDocument(JSON.stringify({ openapi: '3.0.0', servers: [{ url: 'http://api.acme.com' }], paths: { '/x': { get: {} } } })).failureCode, 'unsafe_api_endpoint')
+  const derivedOpenApi = inspectOpenApiDocument(JSON.stringify({ openapi: '3.0.0', paths: { '/x': { get: {} } } }), 'https://api.acme.com/openapi.json')
+  assert.equal(derivedOpenApi.valid, true)
+  assert.equal(derivedOpenApi.endpointUrl, 'https://api.acme.com/')
+  const derivedRelative = inspectOpenApiDocument(JSON.stringify({ openapi: '3.0.0', servers: [{ url: '/v2' }], paths: { '/x': { get: {} } } }), 'https://api.acme.com/openapi.json')
+  assert.equal(derivedRelative.endpointUrl, 'https://api.acme.com/v2')
   assert.equal(inspectOpenApiDocument(JSON.stringify({ swagger: '2.0', host: 'api.acme.com', schemes: ['https'], basePath: '/v1', paths: { '/x': { get: {} } } })).valid, true)
+  const derivedSwagger = inspectOpenApiDocument(JSON.stringify({ swagger: '2.0', basePath: '/v1', paths: { '/x': { get: {} } } }), 'https://api.acme.com/swagger.json')
+  assert.equal(derivedSwagger.endpointUrl, 'https://api.acme.com/v1')
   assert.equal(inspectOpenApiDocument(JSON.stringify({ swagger: '2.0', host: 'api.acme.com', schemes: ['http'], paths: { '/x': { get: {} } } })).failureCode, 'unsafe_api_endpoint')
+  assert.equal(inspectOpenApiDocument(JSON.stringify({ swagger: '2.0', schemes: ['https'], paths: { '/x': { get: {} } } })).failureCode, 'api_endpoint_missing')
   assert.equal(inspectOpenApiDocument(JSON.stringify({ openapi: '3.0.0', servers: [{ url: 'https://api.acme.com' }], components: { securitySchemes: { broken: { type: 'http' } } }, paths: { '/x': { get: {} } } })).failureCode, 'malformed_auth_pattern')
   const verified = await researchCandidate({ candidate, normalizedDomain: 'acme.com', claimResearchBudget: async () => 'claimed',
     fetcher: async url => ({ url, status: 200, contentType: 'application/json', body: validSpec }), now: () => '2026-10-02T00:00:00.000Z' })
@@ -557,11 +565,37 @@ test('directory-hosted contract requires independent provider-owned evidence', a
   assert.equal(withDocs.docsVerified, true)
   assert.ok(withDocs.facts.some(fact => fact.sourceRole === 'official_docs' && fact.url.includes('docs.acme.com')))
 
+  const docsUnavailableButRootVerified = await researchCandidate({ candidate: { ...directory, discoveredDocsUrl: 'https://docs.acme.com/reference' },
+    normalizedDomain: 'acme.com', claimResearchBudget: async () => 'claimed',
+    fetcher: async url => {
+      if (url.includes('apis.guru')) return { url, status: 200, contentType: 'application/json', body: contractBody }
+      if (url.includes('docs.acme.com')) throw new Error('temporary_docs_failure')
+      return { url, status: 200, contentType: 'text/html', body: '<html>Acme API provider acme.com</html>' }
+    } })
+  assert.equal(docsUnavailableButRootVerified.docsVerified, true)
+  assert.ok(docsUnavailableButRootVerified.facts.some(fact => fact.sourceRole === 'official_site'))
+
   const malicious = await researchCandidate({ candidate: directory, normalizedDomain: 'acme.com', claimResearchBudget: async () => 'claimed',
     fetcher: async url => ({ url, status: 200, contentType: 'application/json', body: JSON.stringify({ openapi: '3.0.0',
       servers: [{ url: 'https://api.unrelated.example/v1' }], paths: { '/x': { get: {} } } }) }) })
   assert.equal(malicious.docsVerified, false)
   assert.equal(malicious.failureCode, 'provider_ownership_unverified')
+})
+
+test('temporary docs and ambiguous ownership outcomes defer instead of permanently filtering', async () => {
+  for (const reason of ['official_docs_unreachable', 'provider_ownership_unverified']) {
+    let groqCalls = 0
+    const result = await processDiscoveryCandidate('run', durable(), Date.now() + 60_000, {
+      preflightCandidate: async () => ({ action: 'continue' }),
+      researchCandidate: async () => ({ facts: [], docsVerified: false, failureCode: reason, compatibilityFailure: null }),
+      qualifyCandidate: async () => { groqCalls += 1; return validQualification },
+      markDiscoveryCandidate: async () => {},
+    })
+    assert.equal(result.status, 'deferred')
+    assert.equal(result.reasonCode, reason)
+    assert.equal(result.filtered, 0)
+    assert.equal(groqCalls, 0)
+  }
 })
 
 test('deterministic filters reject missing docs, obsolete, unsupported, and abuse records without censoring categories', () => {

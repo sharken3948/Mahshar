@@ -158,7 +158,8 @@ export async function processDiscoveryCandidate(
     facts = research.facts
     if (!research.docsVerified || research.compatibilityFailure) {
       const reason = research.compatibilityFailure ?? research.failureCode ?? 'official_docs_unverified'
-      const deferred = ['research_budget_exhausted', 'research_claim_replayed', 'run_budget_exhausted'].includes(reason)
+      const deferred = ['research_budget_exhausted', 'research_claim_replayed', 'run_budget_exhausted',
+        'official_docs_unreachable', 'provider_ownership_unverified'].includes(reason)
       if (deferred) return deferCandidate(runId, candidate, reason, domain, productKey, discovered, deps)
       const result = outcome('filtered', reason, { discovered, filtered: 1 })
       await deps.markDiscoveryCandidate(candidate, result, domain, productKey)

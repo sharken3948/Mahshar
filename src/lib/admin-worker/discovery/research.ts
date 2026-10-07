@@ -45,17 +45,33 @@ function inspectSecuritySchemes(specification: Record<string, unknown>): string 
   return supported ? null : 'unsupported_auth_pattern'
 }
 
-function inspectEndpoint(specification: Record<string, unknown>, openapi: string | null, swagger: string | null): { endpointUrl?: string; failureCode?: string } {
+function endpointUrl(value: unknown, safeBaseUrl?: string): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined
+  const direct = canonicalExternalUrl(value)
+  if (direct) return direct
+  if (!safeBaseUrl) return undefined
+  try { return canonicalExternalUrl(new URL(value, safeBaseUrl).toString()) } catch { return undefined }
+}
+
+function inspectEndpoint(specification: Record<string, unknown>, openapi: string | null, swagger: string | null,
+  safeBaseUrl?: string): { endpointUrl?: string; failureCode?: string } {
   if (openapi) {
     const servers = specification.servers
-    if (!Array.isArray(servers) || servers.length === 0) return { failureCode: 'api_endpoint_missing' }
-    const urls = servers.map(server => canonicalExternalUrl(typeof record(server)?.url === 'string' ? String(record(server)?.url) : undefined))
+    if (!Array.isArray(servers) || servers.length === 0) {
+      const fallback = endpointUrl('/', safeBaseUrl)
+      return fallback ? { endpointUrl: fallback } : { failureCode: 'api_endpoint_missing' }
+    }
+    const urls = servers.map(server => endpointUrl(record(server)?.url, safeBaseUrl))
     if (urls.some(url => !url)) return { failureCode: 'unsafe_api_endpoint' }
     return { endpointUrl: urls[0] }
   }
   if (swagger === '2.0') {
-    const host = typeof specification.host === 'string' ? specification.host.trim() : ''
-    const schemes = Array.isArray(specification.schemes) ? specification.schemes : []
+    let base: URL | null = null
+    try { base = safeBaseUrl ? new URL(safeBaseUrl) : null } catch { base = null }
+    const host = typeof specification.host === 'string' ? specification.host.trim() : base?.host ?? ''
+    const declaredSchemes = Array.isArray(specification.schemes)
+      ? specification.schemes.filter((value): value is string => typeof value === 'string').map(value => value.toLowerCase()) : []
+    const schemes = declaredSchemes.length ? declaredSchemes : base?.protocol === 'https:' ? ['https'] : []
     if (!host || !/^[A-Za-z0-9.-]+(?::443)?$/.test(host)) return { failureCode: 'api_endpoint_missing' }
     if (!schemes.includes('https')) return { failureCode: 'unsafe_api_endpoint' }
     const basePath = typeof specification.basePath === 'string' ? specification.basePath : '/'
@@ -66,7 +82,7 @@ function inspectEndpoint(specification: Record<string, unknown>, openapi: string
   return { failureCode: 'api_endpoint_missing' }
 }
 
-export function inspectOpenApiDocument(body: string): OpenApiInspection {
+export function inspectOpenApiDocument(body: string, safeBaseUrl?: string): OpenApiInspection {
   let specification: Record<string, unknown> | null
   try { specification = record(JSON.parse(body)) } catch { return { valid: false, failureCode: 'malformed_api_spec' } }
   if (!specification) return { valid: false, failureCode: 'malformed_api_spec' }
@@ -82,7 +98,7 @@ export function inspectOpenApiDocument(body: string): OpenApiInspection {
   if (!methods.some(method => SUPPORTED_METHODS.has(method))) return { valid: false, failureCode: 'unsupported_http_method' }
   const authFailure = inspectSecuritySchemes(specification)
   if (authFailure) return { valid: false, failureCode: authFailure }
-  const endpoint = inspectEndpoint(specification, openapi, swagger)
+  const endpoint = inspectEndpoint(specification, openapi, swagger, safeBaseUrl)
   if (endpoint.failureCode) return { valid: false, failureCode: endpoint.failureCode }
   const info = record(specification.info)
   const description = durableExternalSummary(typeof info?.description === 'string' ? info.description : undefined, 360)
@@ -166,9 +182,9 @@ export async function researchCandidate(input: {
       facts.push({ sourceType: 'api_directory', sourceRole: 'directory_assertion', url: finalUrl, factualSummary: 'Directory-linked page reached; no structured API contract was verified.', checkedAt })
       return { facts, docsVerified: false, failureCode: 'structured_api_contract_missing', compatibilityFailure: null }
     }
-    const inspection = inspectOpenApiDocument(response.body)
-    if (!inspection.valid) return { facts, docsVerified: false, failureCode: inspection.failureCode, compatibilityFailure: inspection.failureCode }
     const contractIsProviderOwned = providerOwnsUrl(finalUrl, input.normalizedDomain)
+    const inspection = inspectOpenApiDocument(response.body, contractIsProviderOwned ? finalUrl : undefined)
+    if (!inspection.valid) return { facts, docsVerified: false, failureCode: inspection.failureCode, compatibilityFailure: inspection.failureCode }
     const endpointIsProviderOwned = Boolean(inspection.endpointUrl && providerOwnsUrl(inspection.endpointUrl, input.normalizedDomain))
     facts.push(contractIsProviderOwned ? {
       sourceType: 'website', sourceRole: 'official_docs', url: finalUrl,
@@ -186,14 +202,16 @@ export async function researchCandidate(input: {
           failureCode: ownershipDocsClaim === 'replayed' ? 'research_claim_replayed'
             : ownershipDocsClaim === 'deadline_reached' ? 'run_budget_exhausted' : 'research_budget_exhausted', compatibilityFailure: null }
       }
-      const docsResponse = await fetcher(docsUrl, { maxBytes: 256 * 1024, accept: 'text/html,application/json' })
-      const officialUrl = canonicalExternalUrl(docsResponse.url)
-      if (officialUrl && providerOwnsUrl(officialUrl, input.normalizedDomain) && docsResponse.status >= 200 && docsResponse.status < 300
-        && providerIdentityEstablished(docsResponse.body, input.candidate, input.normalizedDomain)) {
-        facts.push({ sourceType: 'website', sourceRole: 'official_docs', url: officialUrl,
-          factualSummary: 'Provider-owned documentation linked from the directory contract.', checkedAt })
-        ownershipVerified = true
-      }
+      try {
+        const docsResponse = await fetcher(docsUrl, { maxBytes: 256 * 1024, accept: 'text/html,application/json' })
+        const officialUrl = canonicalExternalUrl(docsResponse.url)
+        if (officialUrl && providerOwnsUrl(officialUrl, input.normalizedDomain) && docsResponse.status >= 200 && docsResponse.status < 300
+          && providerIdentityEstablished(docsResponse.body, input.candidate, input.normalizedDomain)) {
+          facts.push({ sourceType: 'website', sourceRole: 'official_docs', url: officialUrl,
+            factualSummary: 'Provider-owned documentation linked from the directory contract.', checkedAt })
+          ownershipVerified = true
+        }
+      } catch { /* Continue to the bounded provider-root fallback. */ }
     }
     if (!ownershipVerified && endpointIsProviderOwned) {
       const ownershipRootClaim = await input.claimResearchBudget('ownership_root')
@@ -203,15 +221,17 @@ export async function researchCandidate(input: {
             : ownershipRootClaim === 'deadline_reached' ? 'run_budget_exhausted' : 'research_budget_exhausted', compatibilityFailure: null }
       }
       const rootUrl = `https://${input.normalizedDomain}/`
-      const rootResponse = await fetcher(rootUrl, { maxBytes: 128 * 1024, accept: 'text/html,text/plain,application/json' })
-      const finalRoot = canonicalExternalUrl(rootResponse.url)
-      if (finalRoot && providerOwnsUrl(finalRoot, input.normalizedDomain)
-        && rootResponse.status >= 200 && rootResponse.status < 300
-        && providerIdentityEstablished(rootResponse.body, input.candidate, input.normalizedDomain)) {
-        facts.push({ sourceType: 'website', sourceRole: 'official_site', url: finalRoot,
-          factualSummary: 'Provider-owned site independently verified for this directory contract.', checkedAt })
-        ownershipVerified = true
-      }
+      try {
+        const rootResponse = await fetcher(rootUrl, { maxBytes: 128 * 1024, accept: 'text/html,text/plain,application/json' })
+        const finalRoot = canonicalExternalUrl(rootResponse.url)
+        if (finalRoot && providerOwnsUrl(finalRoot, input.normalizedDomain)
+          && rootResponse.status >= 200 && rootResponse.status < 300
+          && providerIdentityEstablished(rootResponse.body, input.candidate, input.normalizedDomain)) {
+          facts.push({ sourceType: 'website', sourceRole: 'official_site', url: finalRoot,
+            factualSummary: 'Provider-owned site independently verified for this directory contract.', checkedAt })
+          ownershipVerified = true
+        }
+      } catch { /* Ambiguous ownership remains non-terminal in the processor. */ }
     }
     if (!ownershipVerified) {
       return { facts, docsVerified: false, failureCode: 'provider_ownership_unverified', compatibilityFailure: null }
