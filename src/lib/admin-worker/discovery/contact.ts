@@ -11,12 +11,19 @@ import { boundedDiscoveryFetch, type DiscoveryFetcher } from './fetch'
 import { canonicalExternalUrl } from './sanitize'
 import type { BudgetClaimResult, ContactEvidence, ContactResearchResult, ProvenanceFact, RawCandidate } from './types'
 
-const EMAIL = /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i
+const EMAIL = /^[a-z0-9.!#$%&'*+=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i
 const NAVIGATION_ROUTE = /(contact|support|sales|business|partner|company|about|pricing|developer)/i
-const CONTACT_ROUTE = /(contact|support|sales|business|partner)/i
+const CONTACT_INTENT = /\b(?:contact(?:\s+us)?|customer\s+support|developer\s+support|support\s+(?:portal|center|team)|sales\s+(?:team|contact|inquir(?:y|ies))|talk\s+to\s+sales|request\s+(?:a\s+)?demo|partnerships?|partner\s+with\s+us|help\s+(?:center|desk)|business\s+(?:inquir(?:y|ies)|contact|support|development|partnerships?))\b/i
+const CONTACT_HEADING = /^(?:contact(?:\s+us)?|support|sales|help|partnerships?)(?:\s*[|:—–-]\s*[^|:—–-]+)?$/i
+const CONTACT_PATH = /(?:^|\/)(?:contact(?:-us|-sales|-form)?|developer-support|support(?:-center|-portal)?|sales|help(?:-center|-desk)?|partnerships?|business-inquir(?:y|ies)|request-(?:a-)?demo|talk-to-sales)(?:\/|\.html?|$)/i
+const EXTERNAL_CONTACT_LABEL = /\b(?:official\s+support|support\s+portal|help\s+center|contact\s+us|contact\s+(?:our|the)\s+team|contact\s+sales|talk\s+to\s+sales|request\s+(?:a\s+)?demo|sales\s+inquir(?:y|ies)|business\s+inquir(?:y|ies)|partner(?:ship)?\s+inquir(?:y|ies))\b/i
+const NON_CONTACT_DESTINATION = /\b(?:article|blog|database|directory|feature|guide|industry|news|resource)\b/i
 const GITHUB_CONTACT_FILE = /(readme|support|security|contributing)/i
 const GITHUB = /^github\.com$/i
 const NON_OUTREACH = new Set(['security', 'privacy', 'legal'])
+const SOCIAL_HOSTS = [
+  'facebook.com', 'instagram.com', 'linkedin.com', 'tiktok.com', 'twitter.com', 'x.com', 'youtube.com', 'youtu.be',
+]
 
 function hostname(url: string): string | null {
   try { return new URL(url).hostname.toLowerCase() } catch { return null }
@@ -25,6 +32,41 @@ function hostname(url: string): string | null {
 function ownsDomain(url: string, domain: string): boolean {
   const host = hostname(url)
   return Boolean(host && (host === domain || host.endsWith(`.${domain}`) || normalizeWorkerIdentity('domain', host) === domain))
+}
+
+function isSocialUrl(url: string): boolean {
+  const host = hostname(url)
+  return Boolean(host && SOCIAL_HOSTS.some(domain => host === domain || host.endsWith(`.${domain}`)))
+}
+
+function textContactIntent(value: string): boolean {
+  const text = value.replace(/\s+/g, ' ').trim()
+  return CONTACT_INTENT.test(text) || CONTACT_HEADING.test(text)
+}
+
+function pageContactIntent(body: string, url: string): boolean {
+  let path = ''
+  try { path = decodeURIComponent(new URL(url).pathname) } catch { return false }
+  if (CONTACT_PATH.test(path)) return true
+  const metadata = [...body.slice(0, 96 * 1024).matchAll(/<(?:title|h[1-3])\b[^>]*>([\s\S]*?)<\/(?:title|h[1-3])>/gi)]
+    .map(match => (match[1] ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
+  if (!NON_CONTACT_DESTINATION.test(`${path} ${metadata.join(' ')}`) && metadata.some(textContactIntent)) return true
+  return [...body.slice(0, 128 * 1024).matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/gi)].some(match => {
+    const form = match[0]
+    const text = form.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
+    return textContactIntent(text) || (/<textarea\b/i.test(form) && /type\s*=\s*["']email["']|name\s*=\s*["']email["']/i.test(form))
+  })
+}
+
+function externalContactContinuity(label: string, url: string): boolean {
+  return !isSocialUrl(url) && EXTERNAL_CONTACT_LABEL.test(label) && !NON_CONTACT_DESTINATION.test(`${label} ${url}`)
+}
+
+function searchResultHasContactIntent(title: string, url: string): boolean {
+  if (isSocialUrl(url)) return false
+  let path = ''
+  try { path = decodeURIComponent(new URL(url).pathname) } catch { return false }
+  return CONTACT_PATH.test(path) || (!NON_CONTACT_DESTINATION.test(`${path} ${title}`) && textContactIntent(title))
 }
 
 function identityMatches(body: string, candidate: RawCandidate, domain: string): boolean {
@@ -71,7 +113,7 @@ function htmlLinks(body: string, base: string): Array<{ url: string; label: stri
 
 function verifiedEmail(raw: string, domain: string, officialGithub = false): string | null {
   const value = raw.replace(/^mailto:/i, '').split('?')[0]?.trim().toLowerCase() ?? ''
-  if (!EMAIL.test(value)) return null
+  if (!EMAIL.test(value) || value.includes('/') || value.includes(':') || value.startsWith('.') || value.includes('..')) return null
   const host = value.split('@')[1] ?? ''
   return officialGithub || host === domain || host.endsWith(`.${domain}`) ? value : null
 }
@@ -81,7 +123,8 @@ function selectedEvidence(found: ContactEvidence[]): { evidence: ContactEvidence
   const outreach = unique.filter(item => !NON_OUTREACH.has(item.purpose))
     .sort((a, b) => preference(a) - preference(b) || a.value.localeCompare(b.value))
   if (outreach[0]) outreach[0].preferred = true
-  return { evidence: unique.slice(0, 12), preferred: outreach[0] ?? null, email: outreach.find(item => item.type === 'email') ?? null }
+  return { evidence: unique.slice(0, 12), preferred: outreach[0] ?? null,
+    email: outreach.find(item => item.type === 'email' && item.emailReady) ?? null }
 }
 
 function successfulResult(found: ContactEvidence[]): ContactResearchResult | null {
@@ -142,7 +185,7 @@ export async function discoverProviderContacts(input: {
   const collect = (body: string, finalUrl: string, kind: ContactEvidence['sourceType'], officialGithub: boolean,
     allowQueue: boolean): string[] => {
     const githubCandidates: string[] = []
-    if (!officialGithub && (finalUrl === asserted || /(contact|support|sales|business|partner)/i.test(new URL(finalUrl).pathname))) {
+    if (!officialGithub && !isSocialUrl(finalUrl) && pageContactIntent(body, finalUrl)) {
       const contactPurpose = purpose(finalUrl)
       found.push({ type: contactPurpose === 'sales' ? 'sales_channel' : 'official_contact', value: finalUrl,
         purpose: contactPurpose, sourceUrl: finalUrl, sourceType: kind, verificationStatus: 'verified', preferred: false,
@@ -151,12 +194,14 @@ export async function discoverProviderContacts(input: {
     for (const link of htmlLinks(body, finalUrl)) {
       if (link.url.toLowerCase().startsWith('mailto:')) {
         const email = verifiedEmail(link.url, input.normalizedDomain, officialGithub)
-        if (email) found.push({ type: 'email', value: email, purpose: purpose(`${email} ${link.label}`), sourceUrl: finalUrl,
-          sourceType: kind, verificationStatus: 'verified', preferred: false, emailReady: true, discoveredAt: now, verifiedAt: now })
+        const emailPurpose = email ? purpose(`${email} ${link.label}`) : null
+        if (email && emailPurpose) found.push({ type: 'email', value: email, purpose: emailPurpose, sourceUrl: finalUrl,
+          sourceType: kind, verificationStatus: 'verified', preferred: false, emailReady: !NON_OUTREACH.has(emailPurpose),
+          discoveredAt: now, verifiedAt: now })
         continue
       }
       const canonical = canonicalExternalUrl(link.url)
-      if (!canonical) continue
+      if (!canonical || isSocialUrl(canonical)) continue
       const host = hostname(canonical) ?? ''
       if (!officialGithub && GITHUB.test(host) && /github/i.test(link.label + canonical)) {
         const owner = new URL(canonical).pathname.split('/').filter(Boolean)[0]?.toLowerCase()
@@ -164,19 +209,25 @@ export async function discoverProviderContacts(input: {
       } else if (officialGithub && GITHUB.test(host) && GITHUB_CONTACT_FILE.test(`${link.label} ${canonical}`)) {
         githubCandidates.push(canonical)
       }
-      if (!officialGithub && !GITHUB.test(host) && CONTACT_ROUTE.test(`${link.label} ${canonical}`)) {
+      const owned = trusted(canonical)
+      if (!officialGithub && !GITHUB.test(host) && !owned && externalContactContinuity(link.label, canonical)) {
         const contactPurpose = purpose(`${link.label} ${canonical}`)
         found.push({ type: contactPurpose === 'sales' ? 'sales_channel' : 'official_contact', value: canonical,
           purpose: contactPurpose, sourceUrl: finalUrl, sourceType: kind, verificationStatus: 'verified', preferred: false,
           emailReady: false, discoveredAt: now, verifiedAt: now })
       }
-      if (!officialGithub && !GITHUB.test(host) && allowQueue && trusted(canonical)
-        && NAVIGATION_ROUTE.test(`${link.label} ${canonical}`) && queue.length + visited.size < WORKER_CONTACT_PAGE_LIMIT) queue.push(canonical)
+      if (!officialGithub && !GITHUB.test(host) && allowQueue && owned
+        && NAVIGATION_ROUTE.test(`${link.label} ${canonical}`) && queue.length + visited.size < WORKER_CONTACT_PAGE_LIMIT) {
+        if (CONTACT_PATH.test(new URL(canonical).pathname) || textContactIntent(link.label)) queue.unshift(canonical)
+        else queue.push(canonical)
+      }
     }
     for (const raw of body.match(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? []) {
       const email = verifiedEmail(raw, input.normalizedDomain, officialGithub)
-      if (email) found.push({ type: 'email', value: email, purpose: purpose(email), sourceUrl: finalUrl,
-        sourceType: kind, verificationStatus: 'verified', preferred: false, emailReady: true, discoveredAt: now, verifiedAt: now })
+      const emailPurpose = email ? purpose(email) : null
+      if (email && emailPurpose) found.push({ type: 'email', value: email, purpose: emailPurpose, sourceUrl: finalUrl,
+        sourceType: kind, verificationStatus: 'verified', preferred: false, emailReady: !NON_OUTREACH.has(emailPurpose),
+        discoveredAt: now, verifiedAt: now })
     }
     return githubCandidates
   }
@@ -272,7 +323,7 @@ export async function discoverProviderContacts(input: {
         if (!url || seenSearchResults.has(url)) continue
         seenSearchResults.add(url)
         const host = hostname(url) ?? ''
-        if (trusted(url) || GITHUB.test(host)) verificationQueue.push(url)
+        if (GITHUB.test(host) || (trusted(url) && searchResultHasContactIntent(result.title, url))) verificationQueue.push(url)
       }
     } catch { temporaryFailure = true; searchCompleted = false; break }
     const verified = await verifySearchResults()

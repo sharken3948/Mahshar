@@ -157,6 +157,22 @@ test('official mailto and visible email are verified, deduplicated, and ordered 
   assert.equal(result.preferredEmail, 'partnerships@opencage.example')
   assert.equal(result.evidence.filter(item => item.value === 'partnerships@opencage.example').length, 1)
   assert.equal(result.evidence.find(item => item.purpose === 'security')?.preferred, false)
+  assert.equal(result.evidence.find(item => item.purpose === 'security')?.emailReady, false)
+})
+
+test('info, support, and team addresses from verified official docs remain email-ready', async () => {
+  const docs = 'https://docs.opencage.example/contact'
+  const result = await discoverProviderContacts({ candidate, normalizedDomain: 'opencage.example',
+    facts: [{ sourceType: 'website', sourceRole: 'official_docs', url: docs, checkedAt: now() }],
+    claimContactBudget: claim, now, fetcher: fixture({
+      'https://opencage.example/': '<h1>OpenCage Fixture</h1>',
+      [docs]: '<h1>Developer support</h1> info@opencage.example support@opencage.example team@opencage.example',
+    }) })
+  assert.equal(result.status, 'verified_email')
+  for (const email of ['info@opencage.example', 'support@opencage.example', 'team@opencage.example']) {
+    const evidence = result.evidence.find(item => item.value === email)
+    assert.deepEqual([evidence?.sourceType, evidence?.emailReady], ['official_docs', true])
+  }
 })
 
 test('Contact, Support, and Sales pages remain official non-email channels', async () => {
@@ -170,6 +186,20 @@ test('Contact, Support, and Sales pages remain official non-email channels', asy
   assert.equal(result.status, 'official_sales_channel')
   assert.equal(result.emailReady, false)
   assert.ok(result.evidence.some(item => item.purpose === 'support'))
+})
+
+test('contact-sales paths and explicit contact forms remain valid outreach routes', async () => {
+  for (const [path, body, expected] of [
+    ['/contact-sales', '<h1>Talk to sales</h1>', 'official_sales_channel'],
+    ['/reach', '<h1>Send a message</h1><form><input type="email" name="email"><textarea name="message"></textarea></form>',
+      'official_contact_page'],
+  ] as const) {
+    const result = await discoverProviderContacts({ candidate: { ...candidate, discoveredContactUrl: `https://opencage.example${path}` },
+      normalizedDomain: 'opencage.example', facts: [], claimContactBudget: claim, now,
+      fetcher: fixture({ 'https://opencage.example/': '<h1>OpenCage Fixture</h1>', [`https://opencage.example${path}`]: body }) })
+    assert.equal(result.status, expected)
+    assert.equal(result.preferredContactUrl, `https://opencage.example${path}`)
+  }
 })
 
 test('provider homepage may verify an external official support form without trusting directories', async () => {
@@ -364,6 +394,88 @@ test('security, privacy, abuse, legal, DMCA, and compliance addresses never beco
   assert.equal(result.preferredEmail, null)
   assert.ok(result.evidence.every(item => ['security', 'privacy', 'legal'].includes(item.purpose)))
   assert.ok(result.evidence.every(item => !item.preferred))
+  assert.ok(result.evidence.every(item => !item.emailReady))
+})
+
+test('remove.bg-style social URL text cannot become an email or contact channel', async () => {
+  const socialLinks = [
+    '//www.tiktok.com/@remove.bg', 'https://instagram.com/remove', 'https://x.com/remove',
+    'https://twitter.com/remove', 'https://facebook.com/remove', 'https://youtube.com/@remove',
+    'https://linkedin.com/company/remove',
+  ]
+  const result = await discoverProviderContacts({ candidate: { ...candidate, discoveredName: 'Remove Fixture' },
+    normalizedDomain: 'remove.example', facts: [], claimContactBudget: claim, now, searchAdapter: noSearch,
+    fetcher: fixture({ 'https://remove.example/': `<h1>Remove Fixture</h1>
+      ${socialLinks.map(url => `<a href="${url}">Contact us</a>`).join('')}<p>//www.tiktok.com/@remove.bg</p>` }) })
+  assert.equal(result.status, 'contact_unavailable')
+  assert.equal(result.emailReady, false)
+  assert.equal(result.preferredEmail, null)
+  assert.equal(result.evidence.length, 0)
+})
+
+test('production false-positive pages do not satisfy contact intent without an outreach route', async () => {
+  for (const [domain, name, path, body] of [
+    ['selectpdf.example', 'SelectPDF Fixture', '/html-to-pdf-api/', '<title>HTML to PDF API</title><h1>HTML to PDF API</h1>'],
+    ['spectrocoin.example', 'SpectroCoin Fixture', '/accept-bitcoin-payments.html', '<title>Accept Bitcoin Payments</title><h1>Business payments product</h1>'],
+    ['spinitron.example', 'Spinitron Fixture', '/about/for-music-industry', '<title>For Music Industry</title><h1>Industry information</h1>'],
+    ['sales.example', 'Sales Fixture', '/sales-automation', '<title>Sales Automation Platform</title><h1>Sales feature</h1>'],
+  ] as const) {
+    const url = `https://${domain}${path}`
+    const result = await discoverProviderContacts({ candidate: { ...candidate, discoveredName: name, discoveredContactUrl: url },
+      normalizedDomain: domain, facts: [], claimContactBudget: claim, now, searchAdapter: noSearch,
+      fetcher: fixture({ [`https://${domain}/`]: `<h1>${name}</h1>`, [url]: body }) })
+    assert.equal(result.status, 'contact_unavailable', url)
+    assert.equal(result.evidence.length, 0, url)
+  }
+})
+
+test('provider pages cannot promote third-party directories or articles as official contacts', async () => {
+  for (const [domain, name, external, label] of [
+    ['scideas.example', 'SCI Fixture', 'https://www.uksmallbusinessdirectory.co.uk/', 'UK Small Business Directory'],
+    ['stoplight.example', 'Stoplight Fixture', 'https://biz.crast.net/low-code-and-no-code-pitfalls/', 'API Business Transformation'],
+  ] as const) {
+    let thirdPartyFetches = 0
+    const result = await discoverProviderContacts({ candidate: { ...candidate, discoveredName: name }, normalizedDomain: domain,
+      facts: [], claimContactBudget: claim, now, searchAdapter: noSearch, fetcher: async url => {
+        if (url === external) thirdPartyFetches += 1
+        return { url, status: 200, contentType: 'text/html',
+          body: url === `https://${domain}/` ? `<h1>${name}</h1><a href="${external}">${label}</a>` : '<h1>Third party</h1>' }
+      } })
+    assert.equal(result.status, 'contact_unavailable', external)
+    assert.equal(result.evidence.length, 0, external)
+    assert.equal(thirdPartyFetches, 0, external)
+  }
+})
+
+test('shorten.rest-style security-only email remains evidence but is never email-ready', async () => {
+  const result = await discoverProviderContacts({ candidate: { ...candidate, discoveredName: 'Shorten Fixture' },
+    normalizedDomain: 'shorten.example', facts: [], claimContactBudget: claim, now, searchAdapter: noSearch,
+    fetcher: fixture({ 'https://shorten.example/': '<h1>Shorten Fixture</h1><a href="mailto:security@shorten.example">Security</a>' }) })
+  assert.equal(result.status, 'contact_unavailable')
+  assert.equal(result.emailReady, false)
+  assert.equal(result.preferredEmail, null)
+  assert.deepEqual(result.evidence.map(item => [item.value, item.purpose, item.preferred, item.emailReady]),
+    [['security@shorten.example', 'security', false, false]])
+})
+
+test('search skips unrelated and generic results before spending verification claims', async () => {
+  const claims: ContactClaimDescriptor[] = []
+  let thirdPartyFetches = 0
+  const result = await discoverProviderContacts({ candidate, normalizedDomain: 'opencage.example', facts: [], now,
+    claimContactBudget: async descriptor => { claims.push(descriptor); return 'claimed' },
+    searchAdapter: { search: async query => query.endsWith(' contact') ? [
+      { url: 'https://directory.example/opencage', title: 'OpenCage contact directory' },
+      { url: 'https://opencage.example/blog/business-api', title: 'Business API article' },
+      { url: 'https://opencage.example/contact', title: 'Contact OpenCage' },
+    ] : [] }, fetcher: async url => {
+      if (url.includes('directory.example')) thirdPartyFetches += 1
+      return { url, status: 200, contentType: 'text/html', body: url.endsWith('/contact')
+        ? '<h1>Contact OpenCage Fixture</h1><a href="mailto:team@opencage.example">Team</a>'
+        : '<h1>OpenCage Fixture</h1><p>Geocoding API.</p>' }
+    } })
+  assert.equal(result.preferredEmail, 'team@opencage.example')
+  assert.deepEqual(claims.filter(item => item.operation === 'verify').map(item => item.value), ['https://opencage.example/contact'])
+  assert.equal(thirdPartyFetches, 0)
 })
 
 test('claim replay and real budget exhaustion perform no external call and remain distinguishable', async () => {
