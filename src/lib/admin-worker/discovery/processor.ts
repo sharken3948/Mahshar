@@ -5,6 +5,7 @@ import { deterministicCandidateFilter } from './filters'
 import { discoverApiDirectoryRange } from './registry'
 import { researchCandidate } from './research'
 import { discoverProviderContacts } from './contact'
+import { buildContactClaimKey } from './contact-claim-key'
 import { assessTraction } from './traction'
 import {
   applyContactActionability, claimContactEnrichmentCandidates, claimDeferredCandidates, claimDiscoveryBudget, getDiscoveryCandidates, getDiscoveryRunContext,
@@ -202,7 +203,9 @@ export async function processDiscoveryCandidate(
   if (disposition !== 'rejected' && !contact) {
     contact = await deps.discoverProviderContacts({
       candidate, normalizedDomain: domain, facts,
-      claimContactBudget: key => deps.claimDiscoveryBudget(runId, 'contact', `candidate:${candidate.id}:${key}`),
+      claimContactBudget: claim => deps.claimDiscoveryBudget(runId, 'contact', buildContactClaimKey({
+        scope: 'candidate', scopeId: candidate.id, ...claim,
+      })),
     })
     if (contact.completed) {
       const saved = await deps.saveContactResearch({ runId, providerId: entity.providerId, leadId: entity.leadId, research: contact })
@@ -262,10 +265,13 @@ async function enrichExistingLeads(
   const results: CandidateOutcome[] = []
   for (const candidate of candidates) {
     if (!candidate.providerId || !candidate.leadId || !candidate.normalizedDomain || Date.now() >= deadlineMs) break
+    const leadId = candidate.leadId
     const current = await deps.getSavedContactResearch(candidate.leadId)
     const research = current ?? await deps.discoverProviderContacts({
       candidate, normalizedDomain: candidate.normalizedDomain, facts: await deps.getReusableProvenance(candidate.leadId),
-      claimContactBudget: key => deps.claimDiscoveryBudget(runId, 'contact', `enrich:${candidate.leadId}:${key}`),
+      claimContactBudget: claim => deps.claimDiscoveryBudget(runId, 'contact', buildContactClaimKey({
+        scope: 'enrich', scopeId: leadId, ...claim,
+      })),
     })
     if (!current && research.completed) {
       const saved = await deps.saveContactResearch({ runId, providerId: candidate.providerId, leadId: candidate.leadId, research })

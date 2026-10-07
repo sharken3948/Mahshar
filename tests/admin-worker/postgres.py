@@ -1203,6 +1203,7 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         rpc_json(f"mahshar_worker_claim_run('{contact_run_id}')")
         assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget_v2('{contact_run_id}','contact','contact:one');") == 'claimed'
         assert sql(f"SET ROLE service_role; SELECT mahshar_worker_claim_budget_v2('{contact_run_id}','contact','contact:one');") == 'replayed'
+        assert sql(f"SELECT contact_fetch_count FROM worker_runs WHERE id='{contact_run_id}';") == '1'
         sql(f"""
           SET ROLE service_role;
           INSERT INTO worker_budget_claims(discovery_batch_id,budget_type,claim_key)

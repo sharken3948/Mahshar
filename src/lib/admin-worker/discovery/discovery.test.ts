@@ -394,6 +394,15 @@ test('Workflow research-claim replay continues the chunk and advances without a 
   assert.equal(result.outcomes.length, 2)
 })
 
+test('contact-claim replay advances without reporting a false hard limit', async () => {
+  const result = await processDiscoveryRange('target-run', 0, 1, rangeDependencies({ outcomes: [
+    { status: 'deferred', reasonCode: 'contact_claim_replayed', deferred: 1 },
+  ] }))
+  assert.equal(result.hardLimitReached, false)
+  assert.equal(result.nextIndex, 1)
+  assert.equal(result.outcomes[0]?.reasonCode, 'contact_claim_replayed')
+})
+
 test('at-least-once Workflow retry reuses one research claim and advances the retried chunk', async () => {
   const work = [durable({ ordinal: 0 }), durable({ id: '10000000-0000-4000-8000-000000000002', ordinal: 1 })]
   const claims = new Set<string>()
@@ -756,6 +765,7 @@ test('OpenCage-style no-contact directory candidate becomes actionable only afte
   let evidencePersisted = false
   let persistedFit = -1
   let persistedContact = 'missing'
+  const contactClaims: string[] = []
   const pages: Record<string, string> = {
     'https://acme.com/': '<h1>Acme</h1><p>Weather REST API.</p>',
     'https://api.acme.com/openapi.json': '<h1>Acme API documentation</h1>',
@@ -765,7 +775,10 @@ test('OpenCage-style no-contact directory candidate becomes actionable only afte
     preflightCandidate: async () => ({ action: 'continue' }),
     researchCandidate: async () => ({ facts: [officialDocs], docsVerified: true, failureCode: null, compatibilityFailure: null }),
     resolveDiscoveryLead: async () => ({ action: 'continue', providerId: 'provider', productId: 'product', leadId: 'lead' }),
-    saveProvenance: async () => {}, claimDiscoveryBudget: async () => 'claimed', getSavedContactResearch: async () => null,
+    saveProvenance: async () => {}, claimDiscoveryBudget: async (_runId, budget, key) => {
+      if (budget === 'contact') contactClaims.push(key)
+      return 'claimed'
+    }, getSavedContactResearch: async () => null,
     discoverProviderContacts: input => discoverProviderContacts({ ...input,
       fetcher: async url => ({ url, status: pages[url] === undefined ? 404 : 200, contentType: 'text/html', body: pages[url] ?? '' }),
       searchAdapter: { search: async query => query === '"Acme" contact'
@@ -788,19 +801,31 @@ test('OpenCage-style no-contact directory candidate becomes actionable only afte
   assert.equal(persistedContact, 'verified_email')
   assert.equal(result.qualified, 1)
   assert.equal(result.reasonCode, 'qualified')
+  assert.ok(contactClaims.length > 0)
+  for (const key of contactClaims) assert.match(key, /^[a-z0-9:_-]{1,120}$/)
+  assert.ok(contactClaims.every(key => key.startsWith('candidate:')))
 })
 
 test('existing technical lead contact enrichment uses no raw slot and no Groq call', async () => {
   const old = durable({ status: 'persisted', reasonCode: 'qualified_contact_pending', normalizedDomain: 'acme.com',
-    normalizedProductKey: 'weather', providerId: 'provider', productId: 'product', leadId: 'lead' })
+    normalizedProductKey: 'weather', providerId: 'provider', productId: 'product',
+    leadId: '20000000-0000-4000-8000-000000000001' })
   let externalCalls = 0
   let applied = 0
+  const contactClaims: string[] = []
   const result = await processDiscoveryRange('target-run', 0, 0, {
     getDiscoveryRunContext: async () => ({ batchId: 'target-run', rootRunNumber: 1,
       deadlineAt: new Date(Date.now() + 60_000).toISOString(), qualifiedCount: 49, qualifiedTarget: 50 }),
     claimContactEnrichmentCandidates: async () => [old], claimDeferredCandidates: async () => [], getDiscoveryCandidates: async () => [],
     getReusableProvenance: async () => [officialDocs], getSavedContactResearch: async () => null,
-    claimDiscoveryBudget: async () => 'claimed', discoverProviderContacts: async () => { externalCalls += 1; return verifiedContact },
+    claimDiscoveryBudget: async (_runId, budget, key) => {
+      if (budget === 'contact') contactClaims.push(key)
+      return 'claimed'
+    }, discoverProviderContacts: async input => {
+      externalCalls += 1
+      await input.claimContactBudget({ operation: 'page', value: 'https://fraudlabspro.com/' })
+      return verifiedContact
+    },
     saveContactResearch: async () => 'saved', applyContactActionability: async () => {
       applied += 1; return { countedQualified: true, targetReached: true, blocked: false }
     },
@@ -810,6 +835,33 @@ test('existing technical lead contact enrichment uses no raw slot and no Groq ca
   assert.equal(result.outcomes[0]?.discovered, 0)
   assert.equal(result.outcomes[0]?.qualified, 1)
   assert.equal(result.nextIndex, 0)
+  assert.equal(contactClaims.length, 1)
+  assert.match(contactClaims[0]!, /^[a-z0-9:_-]{1,120}$/)
+  assert.ok(contactClaims[0]!.startsWith(`enrich:${old.leadId}:page:https-fraudlabspro-com-`))
+})
+
+test('runtime contact descriptor validation rejects an injected operation before the budget RPC', async () => {
+  const old = durable({ status: 'persisted', reasonCode: 'qualified_contact_pending', normalizedDomain: 'acme.com',
+    normalizedProductKey: 'weather', providerId: 'provider', productId: 'product',
+    leadId: '20000000-0000-4000-8000-000000000002' })
+  let contactRpcCalls = 0
+  await assert.rejects(processDiscoveryRange('target-run', 0, 0, {
+    getDiscoveryRunContext: async () => ({ batchId: 'target-run', rootRunNumber: 1,
+      deadlineAt: new Date(Date.now() + 60_000).toISOString(), qualifiedCount: 0, qualifiedTarget: 50 }),
+    claimContactEnrichmentCandidates: async () => [old], claimDeferredCandidates: async () => [],
+    getDiscoveryCandidates: async () => [], getReusableProvenance: async () => [officialDocs],
+    getSavedContactResearch: async () => null,
+    claimDiscoveryBudget: async (_runId, budget) => {
+      if (budget === 'contact') contactRpcCalls += 1
+      return 'claimed'
+    },
+    discoverProviderContacts: async input => {
+      const injected = ({ operation: 'page:extra', value: 'https://acme.com/' } as unknown) as Parameters<typeof input.claimContactBudget>[0]
+      await input.claimContactBudget(injected)
+      return verifiedContact
+    },
+  }), /worker_contact_claim_operation_invalid/)
+  assert.equal(contactRpcCalls, 0)
 })
 
 test('persisted qualification replays without Groq and deferred qualification is handled once', async () => {

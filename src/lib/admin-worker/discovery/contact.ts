@@ -6,6 +6,7 @@ import {
   WORKER_CONTACT_SEARCH_VERIFICATION_LIMIT,
 } from '../constants'
 import { publicContactSearchAdapter, contactSearchQueries, type ContactSearchAdapter } from './contact-search'
+import type { ContactClaimDescriptor } from './contact-claim-key'
 import { boundedDiscoveryFetch, type DiscoveryFetcher } from './fetch'
 import { canonicalExternalUrl } from './sanitize'
 import type { BudgetClaimResult, ContactEvidence, ContactResearchResult, ProvenanceFact, RawCandidate } from './types'
@@ -103,7 +104,7 @@ export async function discoverProviderContacts(input: {
   candidate: RawCandidate
   normalizedDomain: string
   facts: ProvenanceFact[]
-  claimContactBudget: (key: string) => Promise<BudgetClaimResult>
+  claimContactBudget: (claim: ContactClaimDescriptor) => Promise<BudgetClaimResult>
   fetcher?: DiscoveryFetcher
   searchAdapter?: ContactSearchAdapter
   now?: () => string
@@ -183,7 +184,7 @@ export async function discoverProviderContacts(input: {
   while (queue.length && visited.size < WORKER_CONTACT_PAGE_LIMIT) {
     const url = queue.shift()!
     if (visited.has(url)) continue
-    const claim = await input.claimContactBudget(`page:${visited.size}:${new URL(url).hostname.toLowerCase()}`)
+    const claim = await input.claimContactBudget({ operation: 'page', value: url })
     if (claim === 'replayed') return retryable('contact_claim_replayed')
     if (claim === 'deadline_reached') return retryable('run_budget_exhausted')
     if (claim === 'exhausted') return retryable('contact_budget_exhausted')
@@ -217,7 +218,7 @@ export async function discoverProviderContacts(input: {
   const verifySearchResults = async (): Promise<ContactResearchResult | null> => {
     while (verificationQueue.length && verifiedResults < WORKER_CONTACT_SEARCH_VERIFICATION_LIMIT) {
       const url = verificationQueue.shift()!
-      const claim = await input.claimContactBudget(`verify:${verifiedResults}:${hostname(url) ?? 'invalid'}`)
+      const claim = await input.claimContactBudget({ operation: 'verify', value: url })
       if (claim === 'replayed') return retryable('contact_claim_replayed', found)
       if (claim === 'deadline_reached') return retryable('run_budget_exhausted', found)
       if (claim === 'exhausted') return retryable('contact_budget_exhausted', found)
@@ -261,7 +262,7 @@ export async function discoverProviderContacts(input: {
   }
   const queries = contactSearchQueries(input.candidate.discoveredName, input.normalizedDomain)
   for (let index = 0; index < queries.length; index += 1) {
-    const claim = await input.claimContactBudget(`search:${index}`)
+    const claim = await input.claimContactBudget({ operation: 'search', value: queries[index]! })
     if (claim === 'replayed') return retryable('contact_claim_replayed', found)
     if (claim === 'deadline_reached') return retryable('run_budget_exhausted', found)
     if (claim === 'exhausted') return retryable('contact_budget_exhausted', found)

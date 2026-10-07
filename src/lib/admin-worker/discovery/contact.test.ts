@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { test } from 'node:test'
 import { discoverProviderContacts } from './contact'
+import {
+  buildContactClaimKey, canonicalContactClaimValue, contactClaimKeySegment, CONTACT_CLAIM_FINGERPRINT_LENGTH,
+  type ContactClaimDescriptor, type ContactClaimOperation,
+} from './contact-claim-key'
 import { contactSearchQueries, createPublicContactSearchAdapter, type ContactSearchAdapter } from './contact-search'
 import type { DiscoveryFetcher } from './fetch'
 import type { RawCandidate } from './types'
@@ -21,6 +26,108 @@ function fixture(pages: Record<string, string | Error>): DiscoveryFetcher {
 const claim = async () => 'claimed' as const
 const now = () => '2026-10-05T12:00:00.000Z'
 const noSearch: ContactSearchAdapter = { search: async () => [] }
+
+const CLAIM_KEY_PATTERN = /^[a-z0-9:_-]{1,120}$/
+const CANDIDATE_ID = '131f8b3d-82e0-4f6f-b137-3f53e6f7c950'
+const FAILED_LEAD_ID = '7b00f795-46db-4bac-b8fe-6c8e99619d1e'
+
+test('contact claim keys always fingerprint the canonical dynamic value across the edge matrix', () => {
+  const longHost = Array.from({ length: 4 }, (_, index) => `${'h'.repeat(50)}${index}`).join('.')
+  const cases: Array<{ operation: ContactClaimOperation; value: string }> = [
+    { operation: 'search', value: '' },
+    { operation: 'search', value: '!@#$%^&*()[]{}' },
+    { operation: 'search', value: 'PROVIDER CONTACT' },
+    { operation: 'search', value: 'İstanbul sağlayıcı iletişim' },
+    { operation: 'search', value: 'Cafe\u0301 contact' },
+    { operation: 'search', value: 'provider 😀 contact' },
+    { operation: 'page', value: `https://${longHost}.example/contact` },
+    { operation: 'page', value: `https://api.example.com/${'long-path/'.repeat(40)}contact` },
+    { operation: 'verify', value: `https://github.com/example-org/api/blob/main/${'nested/'.repeat(30)}SUPPORT.md` },
+    { operation: 'search', value: `"${'Long Provider '.repeat(40)}" contact` },
+    { operation: 'search', value: 'provider---___...contact' },
+    { operation: 'page', value: 'https://api.example.com/contact?team=API&source=worker' },
+    { operation: 'verify', value: 'https://github.com/example-org/a%2Fb/SUPPORT.md?ref=Main%2FNext' },
+  ]
+  const keys = cases.map(({ operation, value }) => {
+    const canonical = canonicalContactClaimValue(operation, value)
+    const expectedFingerprint = createHash('sha256').update(canonical).digest('hex')
+      .slice(0, CONTACT_CLAIM_FINGERPRINT_LENGTH)
+    const key = buildContactClaimKey({ scope: 'candidate', scopeId: CANDIDATE_ID, operation, value })
+    assert.ok(key.length > 0 && key.length <= 120)
+    assert.match(key, CLAIM_KEY_PATTERN)
+    assert.ok(key.endsWith(`-${expectedFingerprint}`))
+    return key
+  })
+  assert.equal(new Set(keys).size, keys.length)
+})
+
+test('exact rendered-form collision remains distinct because every value has its own fingerprint', () => {
+  const unsafe = contactClaimKeySegment('provider.name', 48)
+  const safeLiteral = contactClaimKeySegment('provider-name-174b5661fbd14a44f7d009ed', 48)
+  assert.equal(unsafe, 'provider-name-174b5661fbd14a44f7d009ed')
+  assert.notEqual(unsafe, safeLiteral)
+})
+
+test('URL and query canonicalization is stable without merging meaningful paths, queries, or encodings', () => {
+  const key = (operation: ContactClaimOperation, value: string) => buildContactClaimKey({
+    scope: 'candidate', scopeId: CANDIDATE_ID, operation, value,
+  })
+  assert.equal(key('page', 'HTTPS://API.EXAMPLE.COM/Contact?Team=API#top'),
+    key('page', 'https://api.example.com/Contact?Team=API#other'))
+  assert.notEqual(key('page', 'https://api.example.com/Contact'), key('page', 'https://api.example.com/contact'))
+  assert.notEqual(key('page', 'https://api.example.com/contact?a=1&b=2'),
+    key('page', 'https://api.example.com/contact?b=2&a=1'))
+  assert.notEqual(key('verify', 'https://github.com/org/repo/blob/main/SUPPORT.md'),
+    key('verify', 'https://github.com/org/repo/blob/dev/SUPPORT.md'))
+  assert.notEqual(key('verify', 'https://github.com/org/a%2Fb/SUPPORT.md'),
+    key('verify', 'https://github.com/org/a/b/SUPPORT.md'))
+  assert.equal(key('search', 'Café contact'), key('search', 'Cafe\u0301 contact'))
+})
+
+test('reordered navigation URLs, search-result URLs, and queries keep one persisted replay identity', () => {
+  const urlAt = (operation: 'page' | 'verify', ordinal: number) => {
+    const runtimeInput = { scope: 'candidate' as const, scopeId: CANDIDATE_ID, operation,
+      value: 'https://api.example.com/contact?team=sales', ordinal }
+    return buildContactClaimKey(runtimeInput)
+  }
+  const queryAt = (index: number) => {
+    const runtimeInput = { scope: 'candidate' as const, scopeId: CANDIDATE_ID, operation: 'search' as const,
+      value: '"Provider" contact', index }
+    return buildContactClaimKey(runtimeInput)
+  }
+  assert.equal(new Set([0, 1, 5].map(ordinal => urlAt('page', ordinal))).size, 1)
+  assert.equal(new Set([0, 1, 5].map(ordinal => urlAt('verify', ordinal))).size, 1)
+  assert.equal(new Set([0, 1, 5].map(queryAt)).size, 1)
+})
+
+test('runtime structural validation rejects injection and malformed scope IDs before the RPC boundary', () => {
+  let rpcCalls = 0
+  const runtimeBuild = (overrides: Record<string, unknown>) => buildContactClaimKey({
+    scope: 'candidate', scopeId: CANDIDATE_ID, operation: 'page', value: 'https://api.example.com/',
+    ...overrides,
+  } as Parameters<typeof buildContactClaimKey>[0])
+  const runtimeClaim = (overrides: Record<string, unknown>) => {
+    const key = runtimeBuild(overrides)
+    rpcCalls += 1
+    return key
+  }
+  assert.throws(() => runtimeClaim({ scope: 'candidate:extra' }), /worker_contact_claim_scope_invalid/)
+  assert.throws(() => runtimeClaim({ scope: 'unknown' }), /worker_contact_claim_scope_invalid/)
+  assert.throws(() => runtimeClaim({ operation: 'page:extra' }), /worker_contact_claim_operation_invalid/)
+  assert.throws(() => runtimeClaim({ operation: 'unknown' }), /worker_contact_claim_operation_invalid/)
+  assert.throws(() => runtimeClaim({ scopeId: 'not-a-worker-uuid' }), /worker_contact_claim_scope_id_invalid/)
+  assert.equal(rpcCalls, 0)
+})
+
+test('failed production enrichment page key conforms to the existing RPC contract', () => {
+  const key = buildContactClaimKey({
+    scope: 'enrich', scopeId: FAILED_LEAD_ID, operation: 'page', value: 'https://fraudlabspro.com/',
+  })
+  assert.equal(key,
+    `enrich:${FAILED_LEAD_ID}:page:https-fraudlabspro-com-9c94107c75d53767b6742dea`)
+  assert.match(key, CLAIM_KEY_PATTERN)
+  assert.ok(!key.includes('.'))
+})
 
 test('OpenCage-style source without contact discovers an official Contact route', async () => {
   let searchCalls = 0
@@ -178,7 +285,7 @@ test('malformed search RSS keeps completed official research retryable instead o
 
 test('search fallback verifies an official Contact page instead of trusting the result', async () => {
   const queries: string[] = []
-  const claims: string[] = []
+  const claims: ContactClaimDescriptor[] = []
   const result = await discoverProviderContacts({ candidate, normalizedDomain: 'opencage.example', facts: [],
     claimContactBudget: async key => { claims.push(key); return 'claimed' }, now,
     searchAdapter: { search: async query => { queries.push(query); return query.endsWith(' contact')
@@ -188,7 +295,10 @@ test('search fallback verifies an official Contact page instead of trusting the 
       'https://opencage.example/contact': '<h1>OpenCage Fixture contact</h1><a href="mailto:business@opencage.example">Business</a>',
     }) })
   assert.equal(queries.length, 1)
-  assert.deepEqual(claims.map(key => key.split(':')[0]), ['page', 'search', 'verify'])
+  assert.deepEqual(claims.map(item => item.operation), ['page', 'search', 'verify'])
+  assert.deepEqual(claims.map(item => item.value), [
+    'https://opencage.example/', '"OpenCage Fixture" contact', 'https://opencage.example/contact',
+  ])
   assert.equal(result.status, 'verified_email')
   assert.equal(result.preferredEmail, 'business@opencage.example')
   assert.equal(result.evidence[0]?.sourceUrl, 'https://opencage.example/contact')
@@ -265,6 +375,33 @@ test('claim replay and real budget exhaustion perform no external call and remai
     assert.equal(result.completed, false)
     assert.equal(calls, 0)
   }
+})
+
+test('same logical contact retry replays one stable key without another fetch or duplicate evidence', async () => {
+  const claims = new Set<string>()
+  let budgetIncrements = 0
+  let fetches = 0
+  const claimContactBudget = async (descriptor: ContactClaimDescriptor) => {
+    const key = buildContactClaimKey({ scope: 'candidate', scopeId: CANDIDATE_ID, ...descriptor })
+    if (claims.has(key)) return 'replayed' as const
+    claims.add(key)
+    budgetIncrements += 1
+    return 'claimed' as const
+  }
+  const run = () => discoverProviderContacts({ candidate, normalizedDomain: 'opencage.example', facts: [], now,
+    claimContactBudget, fetcher: async url => {
+      fetches += 1
+      return { url, status: 200, contentType: 'text/html',
+        body: '<h1>OpenCage Fixture</h1><a href="mailto:sales@opencage.example">Sales</a> sales@opencage.example' }
+    } })
+  const first = await run()
+  const replay = await run()
+  assert.equal(first.status, 'verified_email')
+  assert.equal(first.evidence.filter(item => item.value === 'sales@opencage.example').length, 1)
+  assert.equal(replay.failureCode, 'contact_claim_replayed')
+  assert.equal(fetches, 1)
+  assert.equal(budgetIncrements, 1)
+  assert.equal(claims.size, 1)
 })
 
 test('search-claim replay does not repeat search work or become real exhaustion', async () => {
