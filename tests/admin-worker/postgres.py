@@ -17,6 +17,7 @@ QUALIFIED_TARGET = ROOT / 'supabase/migrations/20261005000100_admin_worker_quali
 RETRY_IDEMPOTENCY = ROOT / 'supabase/migrations/20261005000200_admin_worker_retry_idempotency.sql'
 CONTACT_DISCOVERY = ROOT / 'supabase/migrations/20261005000300_admin_worker_contact_discovery.sql'
 CONTACT_REENRICHMENT = ROOT / 'supabase/migrations/20261007000100_admin_worker_contact_reenrichment.sql'
+ADMIN_OUTREACH = ROOT / 'supabase/migrations/20261007000200_admin_outreach_v1.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -84,10 +85,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20260928000300', '20261001000000', '20261001000030',
             '20261001000100', '20261001000110',
             '20261002000100', '20261004000100', '20261005000100', '20261005000200', '20261005000300',
-            '20261007000100',
+            '20261007000100', '20261007000200',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -1523,7 +1524,104 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         assert sql("SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY id),'[]') FROM worker_runs r;") == historical_runs
         assert sql("SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY discovery_batch_id,lead_id),'[]') FROM worker_qualified_contributions c;") == historical_contributions
 
-        print('PASS: Worker transactional migration, qualified target, traction/contact schema, privileges, leases, provenance, retries, races, and concurrency')
+        # Admin Outreach is private, manually approved, and isolated from all
+        # Worker qualification and run state.
+        outreach_worker_before = sql("SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY id),'[]') FROM worker_runs r;")
+        outreach_leads_before = sql("SELECT coalesce(jsonb_agg(to_jsonb(l) ORDER BY id),'[]') FROM worker_leads l;")
+        rollback_sql = "BEGIN;\n" + ADMIN_OUTREACH.read_text() + """
+          DO $rollback$ BEGIN RAISE EXCEPTION 'forced_admin_outreach_rollback'; END $rollback$;
+          COMMIT;
+        """
+        expect_failure(rollback_sql, 'forced_admin_outreach_rollback')
+        assert sql("SELECT to_regclass('public.admin_outreach_threads');") == ''
+        assert sql("SELECT to_regprocedure('public.mahshar_admin_outreach_save_draft(uuid,uuid,text,text,text)');") == ''
+        sql('BEGIN;\n' + ADMIN_OUTREACH.read_text() + '\nCOMMIT;')
+        assert sql("SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY id),'[]') FROM worker_runs r;") == outreach_worker_before
+        assert sql("SELECT coalesce(jsonb_agg(to_jsonb(l) ORDER BY id),'[]') FROM worker_leads l;") == outreach_leads_before
+
+        outreach_tables = ['admin_outreach_threads', 'admin_outreach_messages']
+        for table in outreach_tables:
+            assert sql(f"SELECT relrowsecurity FROM pg_class WHERE oid='public.{table}'::regclass;") == 't'
+            assert sql(f"SELECT count(*) FROM pg_policy WHERE polrelid='public.{table}'::regclass;") == '0'
+            for role in ['anon', 'authenticated']:
+                for privilege in all_table_privileges:
+                    assert sql(f"SELECT has_table_privilege('{role}','public.{table}','{privilege}');") == 'f'
+            for privilege in all_table_privileges:
+                expected = 't' if privilege == 'SELECT' else 'f'
+                assert sql(f"SELECT has_table_privilege('service_role','public.{table}','{privilege}');") == expected
+
+        outreach_functions = [
+            'mahshar_admin_outreach_save_draft(uuid,uuid,text,text,text)',
+            'mahshar_admin_outreach_edit_draft(uuid,text,text)',
+            'mahshar_admin_outreach_approve_draft(uuid,text)',
+            'mahshar_admin_outreach_set_status(uuid,uuid,text)',
+            'mahshar_admin_outreach_mark_sent(uuid,text)',
+        ]
+        for function in outreach_functions:
+            assert sql(f"SELECT coalesce(array_to_string(proconfig,'|'),'') FROM pg_proc WHERE oid='public.{function}'::regprocedure;") in {'search_path=', 'search_path=""'}
+            assert sql(f"SELECT has_function_privilege('anon','public.{function}','EXECUTE');") == 'f'
+            assert sql(f"SELECT has_function_privilege('authenticated','public.{function}','EXECUTE');") == 'f'
+            assert sql(f"SELECT has_function_privilege('service_role','public.{function}','EXECUTE');") == 't'
+
+        outreach_provider = sql('SELECT gen_random_uuid();')
+        outreach_product = sql('SELECT gen_random_uuid();')
+        outreach_lead = sql('SELECT gen_random_uuid();')
+        sql(f"""
+          INSERT INTO worker_providers(id,canonical_name,canonical_domain)
+            VALUES('{outreach_provider}','Outreach Fixture','outreach.example');
+          INSERT INTO worker_products(id,provider_id,normalized_product_key,display_name)
+            VALUES('{outreach_product}','{outreach_provider}','outreach-api','Outreach API');
+          INSERT INTO worker_leads(id,provider_id,product_id,status,fit_score,fit_reason,qualification_status,
+            contactability_status,email_ready,preferred_email,preferred_contact_url)
+          VALUES('{outreach_lead}','{outreach_provider}','{outreach_product}','qualified',82,'Grounded fit','qualified',
+            'verified_email',true,'team@outreach.example','https://outreach.example/contact');
+          INSERT INTO worker_contacts(provider_id,lead_id,contact_type,value,purpose,source_url,source_type,
+            verification_status,preferred,email_ready,discovered_at,verified_at,evidence_origin)
+          VALUES('{outreach_provider}','{outreach_lead}','email','team@outreach.example','business',
+            'https://outreach.example/contact','official_site','verified',true,true,clock_timestamp(),clock_timestamp(),'automatic');
+        """)
+        technical_before = sql(f"SELECT fit_score||','||qualification_status||','||status FROM worker_leads WHERE id='{outreach_lead}';")
+        draft = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_save_draft('{outreach_provider}','{outreach_lead}',
+            'team@outreach.example','Outreach API on Mahshar','Hello Outreach team.');"""))
+        message_id = draft['id']
+        assert draft['status'] == 'draft'
+        assert sql(f"SELECT status||','||(approved_at IS NULL)::text||','||(sent_at IS NULL)::text FROM admin_outreach_messages WHERE id='{message_id}';") == 'draft,true,true'
+        assert sql(f"SELECT status FROM admin_outreach_threads WHERE lead_id='{outreach_lead}';") == 'draft'
+        assert sql(f"SELECT fit_score||','||qualification_status||','||status FROM worker_leads WHERE id='{outreach_lead}';") == technical_before
+
+        # Saving the same lead updates its one editable draft instead of
+        # creating another message or thread.
+        repeated = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_save_draft('{outreach_provider}','{outreach_lead}',
+            'team@outreach.example','Edited subject','Edited body');"""))
+        assert repeated['id'] == message_id
+        assert sql(f"SELECT count(*) FROM admin_outreach_messages WHERE thread_id='{draft['threadId']}';") == '1'
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_set_status('{outreach_provider}','{outreach_lead}','interested');", 'admin_outreach_transition_invalid')
+        approved = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_approve_draft('{message_id}','0x{'1' * 40}');"""))
+        assert approved['status'] == 'ready_to_send'
+        assert sql(f"SELECT status||','||(approved_at IS NOT NULL)::text||','||(sent_at IS NULL)::text FROM admin_outreach_messages WHERE id='{message_id}';") == 'ready_to_send,true,true'
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_edit_draft('{message_id}','Changed','Changed');", 'admin_outreach_draft_not_editable')
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_save_draft('{outreach_provider}','{outreach_lead}','team@outreach.example','Another','Another');", 'admin_outreach_thread_blocked')
+
+        sent = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_mark_sent('{message_id}','provider-message-1');"""))
+        assert sent['status'] == 'sent'
+        assert sql(f"SELECT status||','||(sent_at IS NOT NULL)::text||','||provider_message_id FROM admin_outreach_messages WHERE id='{message_id}';") == 'sent,true,provider-message-1'
+        assert sql(f"SELECT status||','||(last_outreach_at IS NOT NULL)::text FROM admin_outreach_threads WHERE lead_id='{outreach_lead}';") == 'sent,true'
+        assert json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_mark_sent('{message_id}','provider-message-1');")) == sent
+
+        # A human DNC state is terminal for drafting/approval and preserves
+        # the already approved history.
+        dnc = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_set_status('{outreach_provider}','{outreach_lead}','do_not_contact');"))
+        assert dnc['status'] == 'do_not_contact'
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_save_draft('{outreach_provider}','{outreach_lead}','team@outreach.example','Blocked','Blocked');", 'admin_outreach_thread_blocked')
+        assert sql(f"SELECT status FROM admin_outreach_messages WHERE id='{message_id}';") == 'sent'
+        assert sql(f"SELECT fit_score||','||qualification_status||','||status FROM worker_leads WHERE id='{outreach_lead}';") == technical_before
+        assert sql("SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY id),'[]') FROM worker_runs r;") == outreach_worker_before
+
+        print('PASS: Worker and Admin Outreach transactional migrations, privileges, manual approval, DNC, retries, races, and concurrency')
     finally:
         if started:
             run([BIN / 'pg_ctl', '-D', data, '-m', 'immediate', '-w', 'stop'])

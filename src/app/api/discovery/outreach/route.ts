@@ -22,8 +22,8 @@ export const POST = withAdmin(async (request: NextRequest) => {
   }
 
   const supabase = createServiceClient();
-  const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) return NextResponse.json({ error: 'Email delivery is not configured' }, { status: 503 });
+  const brevoKey = process.env.BREVO_API_KEY;
+  if (!brevoKey) return NextResponse.json({ error: 'Email delivery is not configured' }, { status: 503 });
   const origin = marketplaceOrigin();
 
   const { data: candidates } = await supabase
@@ -59,17 +59,18 @@ export const POST = withAdmin(async (request: NextRequest) => {
     let emailSent = false;
 
     {
-      const res = await fetch('https://api.resend.com/emails', {
+      const res = await fetch('https://api.brevo.com/v3/smtp/email', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${resendKey}`,
+          Accept: 'application/json',
+          'api-key': brevoKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          from: 'Mahshar <noreply@mahshar.xyz>',
-          to: [row.owner_email],
+          sender: { name: 'Mahshar', email: 'support@mahshar.xyz' },
+          to: [{ email: row.owner_email }],
           subject,
-          html,
+          htmlContent: html,
         }),
         signal: AbortSignal.timeout(15000),
       });

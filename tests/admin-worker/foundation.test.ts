@@ -261,7 +261,7 @@ test('contact-discovery migration is bounded, retry-safe, actionable-only, and l
 })
 
 test('protected core source does not import the Admin Worker module', () => {
-  const excluded = ['src/app/api/admin', 'src/app/admin', 'src/lib/admin-worker', 'src/workflows']
+  const excluded = ['src/app/api/admin', 'src/app/admin', 'src/lib/admin-worker', 'src/lib/admin-outreach', 'src/workflows']
   const walk = (path: string): string[] => readdirSync(path).flatMap(name => {
     const child = join(path, name)
     if (excluded.some(prefix => child.startsWith(prefix))) return []
