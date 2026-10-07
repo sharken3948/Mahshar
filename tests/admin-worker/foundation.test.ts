@@ -112,18 +112,18 @@ test('Worker presentation is conservative for legacy completion and unverified e
   assert.equal(verificationLabel(true), 'Verified')
 })
 
-test('Admin UI includes separate Worker navigation, controls, Discovery metrics, and qualified leads', () => {
+test('Admin UI includes separate Worker navigation, controls, Discovery metrics, and contact-ready leads', () => {
   const shell = read('src/app/admin/operations/operations-shell.tsx')
   const client = read('src/app/admin/worker/worker-client.tsx')
   assert.match(shell, /href="\/admin\/worker"/)
   assert.match(shell, />Worker Agent</)
   assert.match(client, /Discovery V1/)
-  assert.match(client, /Qualified & Review Candidates/)
-  assert.match(client, /manual review 60–69/)
+  assert.match(client, /Contact-ready Discovery leads/)
+  assert.match(client, /Verified outreach channel required/)
   assert.match(client, /Loading qualified leads…/)
   assert.match(client, /leadsPhase === 'loading'/)
   assert.match(client, /Qualified leads are temporarily unavailable/)
-  for (const column of ['API / Provider', 'Category', 'Fit', 'Status', 'Contact', 'Email', 'Activity', 'Last Evidence', 'Details']) {
+  for (const column of ['API', 'Provider', 'Category', 'Fit', 'Status', 'Preferred Email', 'Official Contact', 'Email-ready', 'Activity', 'Last Evidence', 'Details']) {
     assert.match(client, new RegExp(column.replace('/', '\\/')))
   }
   assert.doesNotMatch(client, /not found/i)
@@ -146,12 +146,15 @@ test('Admin UI includes separate Worker navigation, controls, Discovery metrics,
   assert.doesNotMatch(client, /dangerouslySetInnerHTML/)
 })
 
-test('Admin lead query exposes only active review candidates and preserves later human status', () => {
+test('Admin lead query exposes only outreach-ready technical fits and preserves non-actionable counts', () => {
   const repository = read('src/lib/admin-worker/repository.ts')
   assert.match(repository, /and\(status\.eq\.discovered,qualification_status\.in\.\(qualified,review_candidate\)\)/)
   assert.match(repository, /item\.status === 'discovered' && item\.qualification_status === 'review_candidate'/)
   assert.match(repository, /technical_qualified/)
   assert.match(repository, /worker_contacts/)
+  assert.match(repository, /result\.filter\(isOperationalWorkerLead\)/)
+  assert.match(repository, /contact_unavailable/)
+  assert.match(repository, /contact_unknown/)
 })
 
 test('review-candidate migration adds the 60-69 band without weakening hard gates', () => {

@@ -88,6 +88,8 @@
 .leadsTable a { color: #8db8ff; text-decoration: none; }
 .leadsTable a:hover { text-decoration: underline; }
 .leadRow:hover { background: rgba(76, 141, 255, .035); }
+.leadCounts { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 12px 27px; border-bottom: 1px solid rgba(146, 169, 211, .1); color: #8293ad; font-size: 12.5px; }
+.leadCounts strong { color: #d9e5f8; font-variant-numeric: tabular-nums; }
 .detailsButton { padding: 6px 10px; border: 1px solid rgba(76, 141, 255, .32); border-radius: 7px; color: #b8d0f8; background: rgba(76, 141, 255, .08); font: inherit; font-size: 12.5px; font-weight: 650; cursor: pointer; }
 .detailsButton:hover { border-color: rgba(90, 155, 255, .62); background: rgba(76, 141, 255, .16); }
 .detailRow td { padding: 0; white-space: normal; }

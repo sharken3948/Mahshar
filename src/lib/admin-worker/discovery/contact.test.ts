@@ -160,6 +160,15 @@ test('official mailto and visible email are verified, deduplicated, and ordered 
   assert.equal(result.evidence.find(item => item.purpose === 'security')?.emailReady, false)
 })
 
+test('HTML attribute fragments cannot be persisted as verified email values', async () => {
+  const result = await discoverProviderContacts({ candidate, normalizedDomain: 'opencage.example', facts: [],
+    claimContactBudget: claim, now, searchAdapter: noSearch,
+    fetcher: fixture({ 'https://opencage.example/': `<h1>OpenCage Fixture</h1>
+      <meta content='feedback@opencage.example'><p>content='feedback@opencage.example</p>` }) })
+  assert.ok(!result.evidence.some(item => item.value.startsWith("content='")))
+  assert.ok(result.evidence.every(item => item.type !== 'email' || item.value === 'feedback@opencage.example'))
+})
+
 test('info, support, and team addresses from verified official docs remain email-ready', async () => {
   const docs = 'https://docs.opencage.example/contact'
   const result = await discoverProviderContacts({ candidate, normalizedDomain: 'opencage.example',

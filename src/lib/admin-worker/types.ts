@@ -118,6 +118,7 @@ export type WorkerQualifiedLeadDto = {
   email_ready: boolean
   preferred_email: string | null
   preferred_contact_url: string | null
+  official_contact_url: string | null
   contact_evidence: Array<{ type: 'email' | 'official_contact' | 'sales_channel'; value: string; source_url: string; purpose: string;
     source_type: 'official_site' | 'official_docs' | 'official_github'; preferred: boolean }>
   official_site: string | null
@@ -134,6 +135,16 @@ export type WorkerQualifiedLeadDto = {
 
 export type WorkerQualifiedLeadsDto = {
   leads: WorkerQualifiedLeadDto[]
+  counts: {
+    technical_qualified: number
+    technical_review_candidates: number
+    actionable_qualified: number
+    actionable_review_candidates: number
+    email_ready: number
+    contact_form_only: number
+    contact_unavailable: number
+    contact_unknown: number
+  }
   limit: number
   as_of: string
 }

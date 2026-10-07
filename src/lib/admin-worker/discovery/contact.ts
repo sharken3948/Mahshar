@@ -1,5 +1,6 @@
 import 'server-only'
 import { normalizeWorkerIdentity } from '../normalization'
+import { isVerifiedOutreachEmail } from '../contact-readiness'
 import {
   WORKER_CONTACT_PAGE_LIMIT,
   WORKER_CONTACT_SEARCH_RESULT_LIMIT,
@@ -11,7 +12,6 @@ import { boundedDiscoveryFetch, type DiscoveryFetcher } from './fetch'
 import { canonicalExternalUrl } from './sanitize'
 import type { BudgetClaimResult, ContactEvidence, ContactResearchResult, ProvenanceFact, RawCandidate } from './types'
 
-const EMAIL = /^[a-z0-9.!#$%&'*+=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i
 const NAVIGATION_ROUTE = /(contact|support|sales|business|partner|company|about|pricing|developer)/i
 const CONTACT_INTENT = /\b(?:contact(?:\s+us)?|customer\s+support|developer\s+support|support\s+(?:portal|center|team)|sales\s+(?:team|contact|inquir(?:y|ies))|talk\s+to\s+sales|request\s+(?:a\s+)?demo|partnerships?|partner\s+with\s+us|help\s+(?:center|desk)|business\s+(?:inquir(?:y|ies)|contact|support|development|partnerships?))\b/i
 const CONTACT_HEADING = /^(?:contact(?:\s+us)?|support|sales|help|partnerships?)(?:\s*[|:—–-]\s*[^|:—–-]+)?$/i
@@ -113,7 +113,7 @@ function htmlLinks(body: string, base: string): Array<{ url: string; label: stri
 
 function verifiedEmail(raw: string, domain: string, officialGithub = false): string | null {
   const value = raw.replace(/^mailto:/i, '').split('?')[0]?.trim().toLowerCase() ?? ''
-  if (!EMAIL.test(value) || value.includes('/') || value.includes(':') || value.startsWith('.') || value.includes('..')) return null
+  if (!isVerifiedOutreachEmail(value) || value.includes('..')) return null
   const host = value.split('@')[1] ?? ''
   return officialGithub || host === domain || host.endsWith(`.${domain}`) ? value : null
 }

@@ -1,6 +1,7 @@
 import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
 import { canonicalExternalUrl } from './discovery/sanitize'
+import { isOperationalWorkerLead } from './contact-readiness'
 import { isResumableWorkerRun, parseWorkerCheckpoint } from './checkpoint'
 import {
   activeWorkerRunStatuses, WORKER_QUALIFIED_LEADS_DEFAULT, WORKER_QUALIFIED_LEADS_MAX,
@@ -294,7 +295,7 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
     .order('qualification_rank', { ascending: true }).order('fit_score', { ascending: false, nullsFirst: false })
     .order('traction_score', { ascending: false, nullsFirst: false }).order('traction_confidence_rank', { ascending: true })
     .order('contactability_rank', { ascending: true }).order('created_at', { ascending: false })
-    .order('id', { ascending: false }).limit(limit) as DbResult
+    .order('id', { ascending: false }) as DbResult
   if (leadsResult.error) dbFailure('worker_qualified_leads', leadsResult.error)
   if (!Array.isArray(leadsResult.data)) throw new Error('worker_leads_invalid')
   const leads = sortQualifiedLeadRows(leadsResult.data.map(objectRow).filter(Boolean) as Record<string, unknown>[])
@@ -306,7 +307,7 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
     productIds.length ? db.from('worker_products').select('id,display_name').in('id', productIds) : Promise.resolve({ data: [], error: null }),
     leadIds.length ? db.from('worker_sources').select('id,lead_id,source_role,url,checked_at,created_at').in('lead_id', leadIds)
       .order('created_at', { ascending: false }).order('id', { ascending: false }) : Promise.resolve({ data: [], error: null }),
-    providerIds.length ? db.from('worker_contacts').select('provider_id,contact_type,value,purpose,source_url,source_type,preferred,verified_at').in('provider_id', providerIds)
+    providerIds.length ? db.from('worker_contacts').select('provider_id,contact_type,value,purpose,source_url,source_type,verification_status,preferred,verified_at').in('provider_id', providerIds)
       .order('preferred', { ascending: false }).order('verified_at', { ascending: false }) : Promise.resolve({ data: [], error: null }),
   ]) as [DbResult, DbResult, DbResult, DbResult]
   if (providersResult.error) dbFailure('worker_lead_providers', providersResult.error)
@@ -332,6 +333,11 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
       .flatMap(source => typeof source.url === 'string' ? [canonicalExternalUrl(source.url)].filter((url): url is string => Boolean(url)) : [])
       .slice(0, 3)
     const leadContacts = contacts.filter(contact => contact.provider_id === item.provider_id)
+    const officialContactUrl = leadContacts.find(contact => contact.verification_status === 'verified'
+      && ['official_contact', 'sales_channel'].includes(String(contact.contact_type))
+      && ['official_site', 'official_docs', 'official_github'].includes(String(contact.source_type))
+      && !['security', 'privacy', 'legal'].includes(String(contact.purpose))
+      && typeof contact.value === 'string' && canonicalExternalUrl(contact.value))?.value
     const evidenceTimes = [...leadSources.map(source => source.checked_at ?? source.created_at), ...leadContacts.map(contact => contact.verified_at)]
       .flatMap(value => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? [value] : [])
       .sort((left, right) => Date.parse(right) - Date.parse(left))
@@ -355,9 +361,11 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
       email_ready: item.email_ready === true,
       preferred_email: typeof item.preferred_email === 'string' ? item.preferred_email : null,
       preferred_contact_url: typeof item.preferred_contact_url === 'string' ? canonicalExternalUrl(item.preferred_contact_url) ?? null : null,
+      official_contact_url: typeof officialContactUrl === 'string' ? canonicalExternalUrl(officialContactUrl) ?? null : null,
       contact_evidence: leadContacts.slice(0, 5).flatMap(contact => {
         const source = typeof contact.source_url === 'string' ? canonicalExternalUrl(contact.source_url) : null
-        if (!source || !['email', 'official_contact', 'sales_channel'].includes(String(contact.contact_type)) || typeof contact.value !== 'string'
+        if (!source || contact.verification_status !== 'verified'
+          || !['email', 'official_contact', 'sales_channel'].includes(String(contact.contact_type)) || typeof contact.value !== 'string'
           || !['official_site', 'official_docs', 'official_github'].includes(String(contact.source_type))) return []
         return [{ type: contact.contact_type as 'email' | 'official_contact' | 'sales_channel', value: contact.value,
           source_url: source, purpose: typeof contact.purpose === 'string' ? contact.purpose : 'contact',
@@ -377,7 +385,23 @@ export async function getQualifiedWorkerLeads(limit = WORKER_QUALIFIED_LEADS_DEF
       discovered_at: safeTimestamp(item.created_at, false) as string,
     }
   })
-  return { leads: result, limit, as_of: new Date().toISOString() }
+  const operational = result.filter(isOperationalWorkerLead)
+  return {
+    leads: operational.slice(0, limit),
+    counts: {
+      technical_qualified: result.filter(lead => lead.qualification_band === 'qualified').length,
+      technical_review_candidates: result.filter(lead => lead.qualification_band === 'review_candidate').length,
+      actionable_qualified: operational.filter(lead => lead.qualification_band === 'qualified').length,
+      actionable_review_candidates: operational.filter(lead => lead.qualification_band === 'review_candidate').length,
+      email_ready: operational.filter(lead => lead.email_ready).length,
+      contact_form_only: operational.filter(lead => !lead.email_ready).length,
+      contact_unavailable: result.filter(lead => ['contact_unavailable', 'none_found'].includes(lead.contactability)).length,
+      contact_unknown: result.filter(lead => !isOperationalWorkerLead(lead)
+        && !['contact_unavailable', 'none_found'].includes(lead.contactability)).length,
+    },
+    limit,
+    as_of: new Date().toISOString(),
+  }
 }
 
 export const workerControlRepository = {
