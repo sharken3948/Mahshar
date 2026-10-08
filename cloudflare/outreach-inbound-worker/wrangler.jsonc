@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "mahshar-outreach-inbound",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-08",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    "OUTREACH_INBOUND_ENDPOINT": "https://mahshar.xyz/api/internal/outreach/inbound"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}
