@@ -7,6 +7,7 @@ const MAX_BODY_CHARS = 5000
 const MAX_SUBJECT_CHARS = 200
 const MAX_IDENTIFIER_CHARS = 512
 const MAX_REFERENCES = 12
+const MAX_ERROR_MESSAGE_CHARS = 160
 const MIN_SECRET_CHARS = 32
 const OUTREACH_EMAIL = /^[a-z0-9](?:[a-z0-9.!#$%&*+/?^_`{|}~-]{0,62}[a-z0-9])?@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i
 
@@ -180,6 +181,39 @@ async function parsePayload(message: ForwardableEmailMessage, now: Date): Promis
   return normalizeParsedEmail(parsed, now)
 }
 
+function safeWebhookErrorDetails(error: unknown): Record<string, string | number> {
+  const details: Record<string, string | number> = { status: 0 }
+  if (!error || (typeof error !== 'object' && typeof error !== 'function')) return details
+
+  const property = (key: string): unknown => {
+    try { return Reflect.get(error, key) } catch { return undefined }
+  }
+  const name = property('name')
+  if (typeof name === 'string' && /^[A-Za-z][A-Za-z0-9_.:-]{0,63}$/.test(name)) details.name = name
+
+  const rawMessage = property('message')
+  const rawCode = property('code')
+  const numericCode = typeof rawCode === 'number' && Number.isSafeInteger(rawCode) && rawCode >= 0 && rawCode <= 99_999
+    ? rawCode : typeof rawCode === 'string' && /^\d{1,5}$/.test(rawCode) ? Number(rawCode) : null
+  const messageCode = typeof rawMessage === 'string'
+    ? rawMessage.match(/\b(1019|1021|1022|1024|1027|1042|1101|1102|1103)\b/) : null
+  if (numericCode !== null) details.code = numericCode
+  else if (messageCode) details.code = Number(messageCode[1])
+
+  if (typeof rawMessage === 'string') {
+    let message = rawMessage.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
+    if (/(?:authorization|bearer|secret|token|payload|request body|email body|sender|recipient|mailbox|raw mime|message content)/i
+      .test(message)) message = '[redacted]'
+    else {
+      message = message.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
+        .replace(/[A-Za-z0-9_+/=-]{24,}/g, '[redacted-token]')
+      if (message.length > MAX_ERROR_MESSAGE_CHARS) message = `${message.slice(0, MAX_ERROR_MESSAGE_CHARS - 3)}...`
+    }
+    if (message) details.message = message
+  }
+  return details
+}
+
 async function postToMahshar(endpoint: string, payload: NormalizedInboundPayload, secret: string,
   dependencies: Dependencies): Promise<void> {
   try {
@@ -192,8 +226,8 @@ async function postToMahshar(endpoint: string, payload: NormalizedInboundPayload
       body: JSON.stringify(payload),
     })
     if (!response.ok) dependencies.logger.error('webhook_failed', { status: response.status })
-  } catch {
-    dependencies.logger.error('webhook_failed', { status: 0 })
+  } catch (error) {
+    dependencies.logger.error('webhook_failed', safeWebhookErrorDetails(error))
   }
 }
 

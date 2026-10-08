@@ -51,13 +51,17 @@ function message(raw: string, options: { forwardError?: boolean } = {}) {
   return { value, forwarded }
 }
 
-function harness(response = new Response('{}', { status: 202 })) {
+function harness(response: Response | Error = new Response('{}', { status: 202 })) {
   const requests: Array<{ url: string, init?: RequestInit }> = []
   const logs: Array<{ event: string, details?: Record<string, string | number> }> = []
   const waits: Promise<unknown>[] = []
   const worker = createWorker({
     now: () => new Date('2026-10-08T11:00:00.000Z'),
-    fetch: async (input, init) => { requests.push({ url: String(input), init }); return response },
+    fetch: async (input, init) => {
+      requests.push({ url: String(input), init })
+      if (response instanceof Error) throw response
+      return response
+    },
     logger: { error: (event, details) => logs.push({ event, details }) },
   })
   return { worker, requests, logs, waits, context: { waitUntil: (promise: Promise<unknown>) => waits.push(promise) } }
@@ -167,6 +171,52 @@ test('webhook failure does not suppress successful forwarding', async () => {
   await Promise.all(run.waits)
   assert.deepEqual(input.forwarded, ['human-mailbox@example.net'])
   assert.deepEqual(run.logs, [{ event: 'webhook_failed', details: { status: 503 } }])
+})
+
+test('thrown webhook errors log only bounded safe name and message metadata', async () => {
+  const input = message(rawMessage('Reply body'))
+  const run = harness(new TypeError('Network connection lost'))
+  await run.worker.email(input.value, env, run.context)
+  await Promise.all(run.waits)
+  assert.deepEqual(input.forwarded, ['human-mailbox@example.net'])
+  assert.deepEqual(run.logs, [{ event: 'webhook_failed', details: {
+    status: 0, name: 'TypeError', message: 'Network connection lost',
+  } }])
+})
+
+test('thrown webhook errors retain a bounded numeric runtime code', async () => {
+  const input = message(rawMessage('Reply body'))
+  const error = Object.assign(new Error('Worker subrequest failed'), { code: 1042 })
+  const run = harness(error)
+  await run.worker.email(input.value, env, run.context)
+  await Promise.all(run.waits)
+  assert.deepEqual(run.logs, [{ event: 'webhook_failed', details: {
+    status: 0, name: 'Error', code: 1042, message: 'Worker subrequest failed',
+  } }])
+})
+
+test('thrown webhook error messages are capped', async () => {
+  const input = message(rawMessage('Reply body'))
+  const run = harness(new Error('temporary network failure '.repeat(20)))
+  await run.worker.email(input.value, env, run.context)
+  await Promise.all(run.waits)
+  const logged = String(run.logs[0].details?.message)
+  assert.equal(logged.length, 160)
+  assert.match(logged, /\.\.\.$/)
+})
+
+test('thrown webhook diagnostics redact secrets, payloads, bodies, and addresses', async () => {
+  const input = message(rawMessage('PRIVATE BODY CONTENT'))
+  const sensitive = `Authorization: Bearer ${'s'.repeat(64)} payload PRIVATE BODY CONTENT sender@example.com`
+  const run = harness(new Error(sensitive))
+  await run.worker.email(input.value, env, run.context)
+  await Promise.all(run.waits)
+  assert.deepEqual(run.logs, [{ event: 'webhook_failed', details: {
+    status: 0, name: 'Error', message: '[redacted]',
+  } }])
+  const serialized = JSON.stringify(run.logs)
+  assert.doesNotMatch(serialized, /PRIVATE BODY CONTENT|sender@example\.com/)
+  assert.doesNotMatch(serialized, new RegExp('s{32}'))
 })
 
 test('forwards exactly once before starting the webhook', async () => {
