@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useAdminRequest } from '@/components/AdminAccess'
 import { outreachStatuses, type OutreachDashboardDto, type OutreachLeadDto, type OutreachStatus } from '@/lib/admin-outreach/types'
+import { ProviderMessageId } from './provider-message-id'
 import styles from './outreach.module.css'
 
 const labels: Record<OutreachStatus, string> = {
@@ -26,10 +27,12 @@ function timeLabel(value: string | null) {
 }
 
 function LeadDetails({ lead }: { lead: OutreachLeadDto }) {
+  const sentMessage = lead.history.find(message => message.status === 'sent' && message.provider_message_id)
   return <div className={styles.details}>
     <section><h3>Why it fits</h3><p>{lead.summary}</p><small>{lead.reason_codes.join(' · ') || 'No additional qualification codes.'}</small></section>
     <section><h3>Contact evidence</h3><p>{lead.preferred_email}</p>{lead.contact_evidence.map(item => <a key={`${item.type}:${item.value}`} href={item.source_url} target="_blank" rel="noopener noreferrer">{item.purpose} · {item.source_type}</a>)}</section>
     <section><h3>API information</h3>{lead.official_site && <a href={lead.official_site} target="_blank" rel="noopener noreferrer">Official site</a>}{lead.docs_url && <a href={lead.docs_url} target="_blank" rel="noopener noreferrer">Official docs</a>}{lead.github_url && <a href={lead.github_url} target="_blank" rel="noopener noreferrer">GitHub</a>}<p>{lead.traction_summary ?? 'No bounded activity summary available.'}</p></section>
+    <ProviderMessageId value={sentMessage?.provider_message_id ?? null} className={styles.deliveryMetadata}/>
   </div>
 }
 

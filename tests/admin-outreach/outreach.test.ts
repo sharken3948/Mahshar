@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { generateGroundedOutreachDraft, isEmailOutreachEligible } from '../../src/lib/admin-outreach/draft'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { ProviderMessageId } from '../../src/app/admin/outreach/provider-message-id'
+import { generateGroundedOutreachDraft, isEmailOutreachEligible, providerDisplayName } from '../../src/lib/admin-outreach/draft'
 import { sendOutreachEmail } from '../../src/lib/admin-outreach/transport'
 
 const migration = readFileSync('supabase/migrations/20261007000200_admin_outreach_v1.sql', 'utf8')
@@ -11,7 +14,7 @@ const approvalRoute = readFileSync('src/app/api/admin/outreach/drafts/[id]/appro
 const legacyOutreachRoute = readFileSync('src/app/api/discovery/outreach/route.ts', 'utf8')
 
 const lead = {
-  provider: 'Example Provider', product: 'Weather API', preferred_email: 'team@example.com',
+  provider: 'Example Provider', provider_domain: 'example.com', product: 'Weather API', preferred_email: 'team@example.com',
   email_ready: true, contactability: 'verified_email' as const,
 }
 
@@ -24,15 +27,46 @@ test('email outreach admits only verified preferred email leads', () => {
   assert.match(repository, /!lead\.email_ready && Boolean\(lead\.official_contact_url\)/)
 })
 
-test('grounded draft uses only supplied names and makes no performance promise', () => {
+test('grounded draft is deterministic, concise, and makes no unsupported promise', () => {
   const draft = generateGroundedOutreachDraft(lead)
-  assert.match(draft.subject, /Weather API/)
-  assert.match(draft.body, /Example Provider/)
-  assert.match(draft.body, /pay-per-call distribution channel/)
+  assert.deepEqual(draft, generateGroundedOutreachDraft(lead))
+  assert.equal(draft.subject, 'Weather API on Mahshar')
+  assert.match(draft.body, /^Hello Example Provider team,/)
+  assert.match(draft.body, /pay-per-call API marketplace on Arc/)
+  assert.match(draft.body, /users and autonomous agents/)
+  assert.match(draft.body, /USDC payments handled per request/)
+  assert.match(draft.body, /published information for Weather API/)
   assert.match(draft.body, /single endpoint/)
   assert.match(draft.body, /support@mahshar\.xyz/)
-  assert.doesNotMatch(draft.body, /guarantee|revenue|customers|traffic|we love|amazing/i)
+  assert.doesNotMatch(draft.body, /guarantee|revenue|customers|traffic|partnership|we love|amazing/i)
   assert.doesNotMatch(draft.body, /undefined|null/)
+})
+
+test('provider display name uses durable names and a strict API-title/domain match', () => {
+  assert.equal(providerDisplayName(lead), 'Example Provider')
+  const hostnameLead = { ...lead, provider: 'visualcrossing.com', provider_domain: 'visualcrossing.com',
+    product: 'Visual Crossing Weather API' }
+  assert.equal(providerDisplayName(hostnameLead), 'Visual Crossing')
+  assert.match(generateGroundedOutreachDraft(hostnameLead).body, /^Hello Visual Crossing team,/)
+})
+
+test('provider display name falls back to a neutral greeting instead of guessing from a hostname', () => {
+  const hostnameLead = { ...lead, provider: 'weather.example.com', provider_domain: 'example.com', product: 'Weather API' }
+  assert.equal(providerDisplayName(hostnameLead), null)
+  const draft = generateGroundedOutreachDraft(hostnameLead)
+  assert.match(draft.body, /^Hello,\n/)
+  assert.doesNotMatch(draft.body, /weather\.example\.com|Example team/)
+})
+
+test('sent Review details expose only the durable provider message ID when present', () => {
+  const rendered = renderToStaticMarkup(createElement(ProviderMessageId, { value: 'provider-message-1' }))
+  assert.match(rendered, /Provider message ID/)
+  assert.match(rendered, /provider-message-1/)
+  assert.equal(renderToStaticMarkup(createElement(ProviderMessageId, { value: null })), '')
+  assert.match(repository, /provider_message_id/)
+  assert.match(client, /message\.status === 'sent' && message\.provider_message_id/)
+  assert.match(client, /ProviderMessageId value=\{sentMessage\?\.provider_message_id \?\? null\}/)
+  assert.doesNotMatch(client, /rawBrevo|brevoResponse|responsePayload/)
 })
 
 test('manual approval is durable and the only first-send path is the approval action', () => {
