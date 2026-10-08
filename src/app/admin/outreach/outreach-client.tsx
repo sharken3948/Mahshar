@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useAdminRequest } from '@/components/AdminAccess'
-import { outreachStatuses, type OutreachDashboardDto, type OutreachLeadDto, type OutreachStatus } from '@/lib/admin-outreach/types'
+import { outreachStatuses, type OutreachClassification, type OutreachDashboardDto, type OutreachLeadDto, type OutreachStatus } from '@/lib/admin-outreach/types'
 import { ProviderMessageId } from './provider-message-id'
 import styles from './outreach.module.css'
 
@@ -20,6 +20,11 @@ const manualTransitions: Record<OutreachStatus, OutreachStatus[]> = {
   rejected: ['do_not_contact', 'closed'], do_not_contact: [], closed: [],
 }
 
+const classificationLabels: Record<OutreachClassification, string> = {
+  interested: 'Interested', payment_question: 'Payment question', technical_question: 'Technical question',
+  not_interested: 'Not interested', do_not_contact: 'Do not contact', other: 'Other',
+}
+
 function timeLabel(value: string | null) {
   if (!value) return '—'
   const time = Date.parse(value)
@@ -28,12 +33,22 @@ function timeLabel(value: string | null) {
 
 function LeadDetails({ lead }: { lead: OutreachLeadDto }) {
   const sentMessage = lead.history.find(message => message.status === 'sent' && message.provider_message_id)
-  return <div className={styles.details}>
-    <section><h3>Why it fits</h3><p>{lead.summary}</p><small>{lead.reason_codes.join(' · ') || 'No additional qualification codes.'}</small></section>
-    <section><h3>Contact evidence</h3><p>{lead.preferred_email}</p>{lead.contact_evidence.map(item => <a key={`${item.type}:${item.value}`} href={item.source_url} target="_blank" rel="noopener noreferrer">{item.purpose} · {item.source_type}</a>)}</section>
-    <section><h3>API information</h3>{lead.official_site && <a href={lead.official_site} target="_blank" rel="noopener noreferrer">Official site</a>}{lead.docs_url && <a href={lead.docs_url} target="_blank" rel="noopener noreferrer">Official docs</a>}{lead.github_url && <a href={lead.github_url} target="_blank" rel="noopener noreferrer">GitHub</a>}<p>{lead.traction_summary ?? 'No bounded activity summary available.'}</p></section>
-    <ProviderMessageId value={sentMessage?.provider_message_id ?? null} className={styles.deliveryMetadata}/>
-  </div>
+  const history = [...lead.history].sort((left, right) => {
+    const leftTime = Date.parse(left.received_at ?? left.sent_at ?? left.created_at)
+    const rightTime = Date.parse(right.received_at ?? right.sent_at ?? right.created_at)
+    return leftTime - rightTime || left.id.localeCompare(right.id)
+  })
+  const latestInbound = [...history].reverse().find(message => message.direction === 'inbound')
+  return <>
+    <div className={styles.details}>
+      <section><h3>Why it fits</h3><p>{lead.summary}</p><small>{lead.reason_codes.join(' · ') || 'No additional qualification codes.'}</small></section>
+      <section><h3>Contact evidence</h3><p>{lead.preferred_email}</p>{lead.contact_evidence.map(item => <a key={`${item.type}:${item.value}`} href={item.source_url} target="_blank" rel="noopener noreferrer">{item.purpose} · {item.source_type}</a>)}</section>
+      <section><h3>API information</h3>{lead.official_site && <a href={lead.official_site} target="_blank" rel="noopener noreferrer">Official site</a>}{lead.docs_url && <a href={lead.docs_url} target="_blank" rel="noopener noreferrer">Official docs</a>}{lead.github_url && <a href={lead.github_url} target="_blank" rel="noopener noreferrer">GitHub</a>}<p>{lead.traction_summary ?? 'No bounded activity summary available.'}</p></section>
+      <ProviderMessageId value={sentMessage?.provider_message_id ?? null} className={styles.deliveryMetadata}/>
+      {latestInbound && <section><h3>Latest inbound reply</h3><strong className={styles.classification}>{latestInbound.classification ? classificationLabels[latestInbound.classification] : 'Processing'}</strong><p>{latestInbound.body}</p>{latestInbound.classification_reason && <small>{latestInbound.classification_reason}</small>}</section>}
+    </div>
+    {history.length > 0 && <section className={styles.conversation}><h3>Conversation history</h3>{history.map(message => <article key={message.id}><header><strong>{message.direction === 'inbound' ? 'Provider' : 'Mahshar'}</strong><span>{timeLabel(message.received_at ?? message.sent_at ?? message.created_at)}</span>{message.classification && <small>{classificationLabels[message.classification]}</small>}</header><h4>{message.subject}</h4><p>{message.body}</p></article>)}</section>}
+  </>
 }
 
 export function OutreachClient() {
@@ -89,8 +104,8 @@ export function OutreachClient() {
   return <div className={styles.page}>
     <header className={styles.heading}><div><span>Manual outreach workflow</span><h1>Outreach</h1><p>Review verified leads, prepare a concise draft, and approve it manually. No email is sent automatically.</p></div><strong>Sender: support@mahshar.xyz</strong></header>
     <div className={styles.notice}>{data?.transport.outbound === 'configured'
-      ? <><strong>Manual send only.</strong> Every email requires an Admin to review and click Approve &amp; Send. Inbound reply ingestion is not configured.</>
-      : <><strong>Mail transport not configured.</strong> Approved messages stop at Ready to send. Inbound reply ingestion is not configured.</>}</div>
+      ? <><strong>Manual send only.</strong> Every initial email and reply requires Admin review and Approve &amp; Send. {data?.replies.inbound === 'mailbox_bridge_configured' ? 'The authenticated mailbox bridge is configured.' : 'Inbound mailbox bridging is not configured.'}</>
+      : <><strong>Mail transport not configured.</strong> Approved messages stop at Ready to send. {data?.replies.inbound === 'mailbox_bridge_configured' ? 'The authenticated mailbox bridge is configured.' : 'Inbound mailbox bridging is not configured.'}</>}</div>
     {error && <div className={styles.error} role="alert">{error}</div>}
     <nav className={styles.tabs} aria-label="Outreach status">
       {outreachStatuses.map(status => <button key={status} type="button" className={filter === status ? styles.activeTab : ''} onClick={() => { setFilter(status); setSelectedId(null) }}>{labels[status]} <small>{data?.counts[status] ?? '—'}</small></button>)}
@@ -101,7 +116,7 @@ export function OutreachClient() {
       {phase === 'loading' ? <div className={styles.empty}>Loading outreach leads…</div>
         : phase === 'failed' ? <div className={styles.empty} role="alert">Outreach data is temporarily unavailable.</div>
           : filter === 'contact_form_only' ? <div className={styles.tableViewport}><table><thead><tr><th>Provider</th><th>API</th><th>Fit</th><th>Official contact</th></tr></thead><tbody>{data?.contact_form_only.map(lead => <tr key={lead.id}><td>{lead.provider}</td><td>{lead.product}</td><td>{lead.fit_score}</td><td>{lead.official_contact_url ? <a href={lead.official_contact_url} target="_blank" rel="noopener noreferrer">Open form</a> : '—'}</td></tr>)}</tbody></table>{data?.contact_form_only.length === 0 && <div className={styles.empty}>No contact-form-only leads.</div>}</div>
-            : <div className={styles.tableViewport}><table><thead><tr><th>Provider</th><th>API</th><th>Fit</th><th>Email</th><th>Official contact</th><th>Status</th><th>Last outreach / reply</th><th>Actions</th></tr></thead><tbody>{visible.map(lead => <Fragment key={lead.id}><tr><td>{lead.provider}</td><td>{lead.product}</td><td>{lead.fit_score}</td><td>{lead.preferred_email}</td><td>{lead.official_contact_url ? <a href={lead.official_contact_url} target="_blank" rel="noopener noreferrer">Open</a> : '—'}</td><td><select aria-label={`Outreach status for ${lead.provider}`} value={lead.outreach_status} disabled={busy !== null || manualTransitions[lead.outreach_status].length === 0} onChange={event => void setStatus(lead, event.target.value as OutreachStatus)}><option value={lead.outreach_status}>{labels[lead.outreach_status]}</option>{manualTransitions[lead.outreach_status].map(status => <option key={status} value={status}>{labels[status]}</option>)}</select></td><td>{timeLabel(lead.last_reply_at ?? lead.last_outreach_at)}</td><td><div className={styles.actions}><button type="button" onClick={() => setSelectedId(selectedId === lead.id ? null : lead.id)}>{selectedId === lead.id ? 'Close' : 'Review'}</button>{lead.outreach_status === 'contact_ready' && <button type="button" disabled={busy !== null} onClick={() => void generate(lead)}>Generate Draft</button>}<button type="button" className={styles.danger} disabled={busy !== null} onClick={() => void setStatus(lead, 'do_not_contact')}>DNC</button></div></td></tr>{selectedId === lead.id && <tr className={styles.detailRow}><td colSpan={8}><LeadDetails lead={lead}/>{lead.draft && <div className={styles.editor}><label>Subject<input value={subject} maxLength={200} disabled={lead.draft.status !== 'draft'} onChange={event => setSubject(event.target.value)}/></label><label>Body<textarea value={body} maxLength={5000} rows={12} disabled={lead.draft.status !== 'draft'} onChange={event => setBody(event.target.value)}/></label><div className={styles.editorActions}>{lead.draft.status === 'draft' ? <><button type="button" disabled={busy !== null || !subject.trim() || !body.trim()} onClick={() => void save(lead)}>Save edits</button><button type="button" disabled={busy !== null || !subject.trim() || !body.trim()} onClick={() => void approve(lead)}>{data?.transport.outbound === 'configured' ? 'Approve & Send' : 'Approve — Ready to send'}</button></> : data?.transport.outbound === 'configured' ? <button type="button" disabled={busy !== null} onClick={() => void sendApproved(lead)}>Send approved email</button> : <strong>Approved and ready to send · transport required</strong>}<button type="button" className={styles.danger} disabled={busy !== null} onClick={() => void setStatus(lead, 'do_not_contact')}>Do Not Contact</button><button type="button" disabled={busy !== null} onClick={() => void setStatus(lead, 'closed')}>Close</button></div></div>}</td></tr>}</Fragment>)}</tbody></table>{visible.length === 0 && <div className={styles.empty}>No leads in this state.</div>}</div>}
+            : <div className={styles.tableViewport}><table><thead><tr><th>Provider</th><th>API</th><th>Fit</th><th>Email</th><th>Official contact</th><th>Status</th><th>Last outreach / reply</th><th>Actions</th></tr></thead><tbody>{visible.map(lead => { const hasInbound = lead.history.some(message => message.direction === 'inbound'); return <Fragment key={lead.id}><tr><td>{lead.provider}</td><td>{lead.product}</td><td>{lead.fit_score}</td><td>{lead.preferred_email}</td><td>{lead.official_contact_url ? <a href={lead.official_contact_url} target="_blank" rel="noopener noreferrer">Open</a> : '—'}</td><td><select aria-label={`Outreach status for ${lead.provider}`} value={lead.outreach_status} disabled={busy !== null || manualTransitions[lead.outreach_status].length === 0} onChange={event => void setStatus(lead, event.target.value as OutreachStatus)}><option value={lead.outreach_status}>{labels[lead.outreach_status]}</option>{manualTransitions[lead.outreach_status].map(status => <option key={status} value={status}>{labels[status]}</option>)}</select>{hasInbound && <span className={styles.replyIndicator}>Inbound reply</span>}</td><td>{timeLabel(lead.last_reply_at ?? lead.last_outreach_at)}</td><td><div className={styles.actions}><button type="button" onClick={() => setSelectedId(selectedId === lead.id ? null : lead.id)}>{selectedId === lead.id ? 'Close' : 'Review'}</button>{lead.outreach_status === 'contact_ready' && <button type="button" disabled={busy !== null} onClick={() => void generate(lead)}>Generate Draft</button>}<button type="button" className={styles.danger} disabled={busy !== null} onClick={() => void setStatus(lead, 'do_not_contact')}>DNC</button></div></td></tr>{selectedId === lead.id && <tr className={styles.detailRow}><td colSpan={8}><LeadDetails lead={lead}/>{lead.draft && <div className={styles.editor}><h3>{lead.draft.reply_to_message_id ? 'Suggested reply draft' : 'Outreach draft'}</h3><label>Subject<input value={subject} maxLength={200} disabled={lead.draft.status !== 'draft'} onChange={event => setSubject(event.target.value)}/></label><label>Body<textarea value={body} maxLength={5000} rows={12} disabled={lead.draft.status !== 'draft'} onChange={event => setBody(event.target.value)}/></label><div className={styles.editorActions}>{lead.draft.status === 'draft' ? <><button type="button" disabled={busy !== null || !subject.trim() || !body.trim()} onClick={() => void save(lead)}>Save edits</button><button type="button" disabled={busy !== null || !subject.trim() || !body.trim()} onClick={() => void approve(lead)}>{data?.transport.outbound === 'configured' ? 'Approve & Send' : 'Approve — Ready to send'}</button></> : data?.transport.outbound === 'configured' ? <button type="button" disabled={busy !== null} onClick={() => void sendApproved(lead)}>Send approved email</button> : <strong>Approved and ready to send · transport required</strong>}<button type="button" className={styles.danger} disabled={busy !== null} onClick={() => void setStatus(lead, 'do_not_contact')}>Do Not Contact</button><button type="button" disabled={busy !== null} onClick={() => void setStatus(lead, 'closed')}>Close</button></div></div>}</td></tr>}</Fragment>})}</tbody></table>{visible.length === 0 && <div className={styles.empty}>No leads in this state.</div>}</div>}
     </section>
   </div>
 }

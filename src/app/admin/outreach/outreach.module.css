@@ -27,10 +27,22 @@
 .details h3 { margin: 0; color: #dce6f5; font-size: 13px; text-transform: uppercase; }
 .details p, .details small, .details a { margin: 0; color: #9eacc0; font-size: 13px; line-height: 1.5; }
 .details a { color: #8db8ff; }
+.classification { color: #82d6b4; font-size: 13px; }
 .deliveryMetadata { display: grid; gap: 6px; margin: 0; }
 .deliveryMetadata dt { color: #7d8da7; font-size: 12px; text-transform: uppercase; }
 .deliveryMetadata dd { min-width: 0; margin: 0; color: #c4d2e8; }
 .deliveryMetadata code { overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.replyIndicator { display: block; width: fit-content; margin-top: 7px; padding: 3px 6px; border-radius: 999px; color: #82d6b4; background: rgba(70,190,142,.1); font-size: 11px; }
+.conversation { display: grid; gap: 10px; padding: 20px; background: #0d1624; }
+.conversation > h3, .editor > h3 { margin: 0; color: #dce6f5; font-size: 13px; text-transform: uppercase; }
+.conversation article { display: grid; gap: 7px; padding: 14px; border: 1px solid rgba(146,169,211,.14); border-radius: 9px; background: #0a111d; }
+.conversation header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.conversation header strong { color: #dce6f5; }
+.conversation header span, .conversation header small { color: #7f91ad; font-size: 12px; }
+.conversation header small { padding: 2px 6px; border-radius: 999px; background: rgba(76,141,255,.1); }
+.conversation h4, .conversation p { margin: 0; }
+.conversation h4 { color: #bfcce0; font-size: 13px; }
+.conversation p { color: #9eacc0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
 .editor { display: grid; gap: 13px; padding: 20px; background: #0b121f; }
 .editor label { display: grid; gap: 7px; color: #899ab5; font-size: 13px; }
 .editor input, .editor textarea { width: 100%; box-sizing: border-box; padding: 11px 12px; border: 1px solid rgba(146,169,211,.2); border-radius: 8px; color: #e3ebf8; background: #080e18; font: inherit; }

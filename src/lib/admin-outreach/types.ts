@@ -6,15 +6,30 @@ export const outreachStatuses = [
 
 export type OutreachStatus = typeof outreachStatuses[number]
 export type OutreachMessageStatus = 'draft' | 'ready_to_send' | 'sent' | 'failed' | 'received'
+export const outreachClassifications = [
+  'interested', 'payment_question', 'technical_question', 'not_interested', 'do_not_contact', 'other',
+] as const
+export type OutreachClassification = typeof outreachClassifications[number]
+export type OutreachProcessingState = 'not_applicable' | 'received' | 'unmatched' | 'classified' | 'suggested' | 'suggestion_failed'
 
 export type OutreachMessageDto = {
   id: string
+  direction: 'inbound' | 'outbound'
   status: OutreachMessageStatus
   recipient_email: string
   sender_email: string
   subject: string
   body: string
   provider_message_id: string | null
+  in_reply_to: string | null
+  reference_ids: string[]
+  received_at: string | null
+  classification: OutreachClassification | null
+  classification_confidence: number | null
+  classification_reason: string | null
+  processing_state: OutreachProcessingState
+  matched_by: 'in_reply_to' | 'reference' | 'subject_context' | 'sender_unambiguous' | null
+  reply_to_message_id: string | null
   approved_at: string | null
   sent_at: string | null
   created_at: string
@@ -38,6 +53,6 @@ export type OutreachDashboardDto = {
   contact_form_only: ContactFormLeadDto[]
   counts: Record<OutreachStatus, number> & { contact_form_only: number }
   transport: { outbound: 'configured' | 'not_configured'; sender: 'support@mahshar.xyz' }
-  replies: { inbound: 'not_configured' }
+  replies: { inbound: 'mailbox_bridge_configured' | 'not_configured' }
   as_of: string
 }

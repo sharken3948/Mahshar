@@ -18,6 +18,7 @@ RETRY_IDEMPOTENCY = ROOT / 'supabase/migrations/20261005000200_admin_worker_retr
 CONTACT_DISCOVERY = ROOT / 'supabase/migrations/20261005000300_admin_worker_contact_discovery.sql'
 CONTACT_REENRICHMENT = ROOT / 'supabase/migrations/20261007000100_admin_worker_contact_reenrichment.sql'
 ADMIN_OUTREACH = ROOT / 'supabase/migrations/20261007000200_admin_outreach_v1.sql'
+ADMIN_OUTREACH_V2 = ROOT / 'supabase/migrations/20261008000100_admin_outreach_v2_inbound.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -85,10 +86,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20260928000300', '20261001000000', '20261001000030',
             '20261001000100', '20261001000110',
             '20261002000100', '20261004000100', '20261005000100', '20261005000200', '20261005000300',
-            '20261007000100', '20261007000200',
+            '20261007000100', '20261007000200', '20261008000100',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -1568,22 +1569,22 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         outreach_lead = sql('SELECT gen_random_uuid();')
         sql(f"""
           INSERT INTO worker_providers(id,canonical_name,canonical_domain)
-            VALUES('{outreach_provider}','Outreach Fixture','outreach.example');
+            VALUES('{outreach_provider}','Visual Crossing','visualcrossing.com');
           INSERT INTO worker_products(id,provider_id,normalized_product_key,display_name)
-            VALUES('{outreach_product}','{outreach_provider}','outreach-api','Outreach API');
+            VALUES('{outreach_product}','{outreach_provider}','weather-api','Weather API');
           INSERT INTO worker_leads(id,provider_id,product_id,status,fit_score,fit_reason,qualification_status,
             contactability_status,email_ready,preferred_email,preferred_contact_url)
           VALUES('{outreach_lead}','{outreach_provider}','{outreach_product}','qualified',82,'Grounded fit','qualified',
-            'verified_email',true,'team@outreach.example','https://outreach.example/contact');
+            'verified_email',true,'support@visualcrossing.com','https://www.visualcrossing.com/contact');
           INSERT INTO worker_contacts(provider_id,lead_id,contact_type,value,purpose,source_url,source_type,
             verification_status,preferred,email_ready,discovered_at,verified_at,evidence_origin)
-          VALUES('{outreach_provider}','{outreach_lead}','email','team@outreach.example','business',
-            'https://outreach.example/contact','official_site','verified',true,true,clock_timestamp(),clock_timestamp(),'automatic');
+          VALUES('{outreach_provider}','{outreach_lead}','email','support@visualcrossing.com','business',
+            'https://www.visualcrossing.com/contact','official_site','verified',true,true,clock_timestamp(),clock_timestamp(),'automatic');
         """)
         technical_before = sql(f"SELECT fit_score||','||qualification_status||','||status FROM worker_leads WHERE id='{outreach_lead}';")
         draft = json.loads(sql(f"""SET ROLE service_role;
           SELECT mahshar_admin_outreach_save_draft('{outreach_provider}','{outreach_lead}',
-            'team@outreach.example','Outreach API on Mahshar','Hello Outreach team.');"""))
+            'support@visualcrossing.com','Weather API on Mahshar','Hello Visual Crossing team.');"""))
         message_id = draft['id']
         assert draft['status'] == 'draft'
         assert sql(f"SELECT status||','||(approved_at IS NULL)::text||','||(sent_at IS NULL)::text FROM admin_outreach_messages WHERE id='{message_id}';") == 'draft,true,true'
@@ -1594,7 +1595,7 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         # creating another message or thread.
         repeated = json.loads(sql(f"""SET ROLE service_role;
           SELECT mahshar_admin_outreach_save_draft('{outreach_provider}','{outreach_lead}',
-            'team@outreach.example','Edited subject','Edited body');"""))
+            'support@visualcrossing.com','Edited subject','Edited body');"""))
         assert repeated['id'] == message_id
         assert sql(f"SELECT count(*) FROM admin_outreach_messages WHERE thread_id='{draft['threadId']}';") == '1'
         expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_set_status('{outreach_provider}','{outreach_lead}','interested');", 'admin_outreach_transition_invalid')
@@ -1603,7 +1604,7 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         assert approved['status'] == 'ready_to_send'
         assert sql(f"SELECT status||','||(approved_at IS NOT NULL)::text||','||(sent_at IS NULL)::text FROM admin_outreach_messages WHERE id='{message_id}';") == 'ready_to_send,true,true'
         expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_edit_draft('{message_id}','Changed','Changed');", 'admin_outreach_draft_not_editable')
-        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_save_draft('{outreach_provider}','{outreach_lead}','team@outreach.example','Another','Another');", 'admin_outreach_thread_blocked')
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_save_draft('{outreach_provider}','{outreach_lead}','support@visualcrossing.com','Another','Another');", 'admin_outreach_thread_blocked')
 
         sent = json.loads(sql(f"""SET ROLE service_role;
           SELECT mahshar_admin_outreach_mark_sent('{message_id}','provider-message-1');"""))
@@ -1612,11 +1613,180 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         assert sql(f"SELECT status||','||(last_outreach_at IS NOT NULL)::text FROM admin_outreach_threads WHERE lead_id='{outreach_lead}';") == 'sent,true'
         assert json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_mark_sent('{message_id}','provider-message-1');")) == sent
 
+        # V2 upgrades existing V1 history in place, keeps private boundaries,
+        # and adds only compact inbound/reply state.
+        sent_before_v2 = sql(f"SELECT to_jsonb(m) FROM admin_outreach_messages m WHERE id='{message_id}';")
+        v1_message_identity = sql(f"""SELECT jsonb_build_object(
+          'status',status,'approvedAt',approved_at,'sentAt',sent_at,'providerMessageId',provider_message_id)
+          FROM admin_outreach_messages WHERE id='{message_id}';""")
+        v1_thread_identity = sql(f"SELECT jsonb_build_object('id',id,'status',status) FROM admin_outreach_threads WHERE id='{draft['threadId']}';")
+        v2_worker_leads_before = sql("SELECT coalesce(jsonb_agg(to_jsonb(l) ORDER BY id),'[]') FROM worker_leads l;")
+        v2_rollback = "BEGIN;\n" + ADMIN_OUTREACH_V2.read_text() + """
+          DO $rollback$ BEGIN RAISE EXCEPTION 'forced_admin_outreach_v2_rollback'; END $rollback$;
+          COMMIT;
+        """
+        expect_failure(v2_rollback, 'forced_admin_outreach_v2_rollback')
+        assert sql("SELECT to_regprocedure('public.mahshar_admin_outreach_ingest_inbound(text,text,text[],text,text,text,text,timestamptz)');") == ''
+        assert sql("SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='admin_outreach_messages' AND column_name='classification';") == '0'
+        assert sql(f"SELECT to_jsonb(m) FROM admin_outreach_messages m WHERE id='{message_id}';") == sent_before_v2
+        sql('BEGIN;\n' + ADMIN_OUTREACH_V2.read_text() + '\nCOMMIT;')
+        assert sql(f"SELECT status||','||direction||','||processing_state||','||provider_message_id FROM admin_outreach_messages WHERE id='{message_id}';") == 'sent,outbound,not_applicable,provider-message-1'
+        assert sql(f"""SELECT jsonb_build_object(
+          'status',status,'approvedAt',approved_at,'sentAt',sent_at,'providerMessageId',provider_message_id)
+          FROM admin_outreach_messages WHERE id='{message_id}';""") == v1_message_identity
+        assert sql(f"SELECT jsonb_build_object('id',id,'status',status) FROM admin_outreach_threads WHERE id='{draft['threadId']}';") == v1_thread_identity
+        assert sql(f"SELECT count(*) FROM admin_outreach_threads WHERE lead_id='{outreach_lead}';") == '1'
+        assert sql(f"SELECT count(*) FROM admin_outreach_messages WHERE thread_id='{draft['threadId']}';") == '1'
+        assert sql("SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY id),'[]') FROM worker_runs r;") == outreach_worker_before
+        assert sql("SELECT coalesce(jsonb_agg(to_jsonb(l) ORDER BY id),'[]') FROM worker_leads l;") == v2_worker_leads_before
+
+        v2_functions = [
+            'mahshar_admin_outreach_ingest_inbound(text,text,text[],text,text,text,text,timestamptz)',
+            'mahshar_admin_outreach_finalize_inbound(uuid,text,numeric,text,text,text,text)',
+            'mahshar_admin_outreach_edit_reply_draft(uuid,text,text)',
+            'mahshar_admin_outreach_approve_reply_draft(uuid,text)',
+            'mahshar_admin_outreach_mark_reply_sent(uuid,text)',
+            'mahshar_admin_outreach_assert_reply_sendable(uuid)',
+        ]
+        for function in v2_functions:
+            assert sql(f"SELECT coalesce(array_to_string(proconfig,'|'),'') FROM pg_proc WHERE oid='public.{function}'::regprocedure;") in {'search_path=', 'search_path=""'}
+            assert sql(f"SELECT has_function_privilege('anon','public.{function}','EXECUTE');") == 'f'
+            assert sql(f"SELECT has_function_privilege('authenticated','public.{function}','EXECUTE');") == 'f'
+            assert sql(f"SELECT has_function_privilege('service_role','public.{function}','EXECUTE');") == 't'
+
+        inbound = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_inbound(
+            '<reply-1@provider.example>','<provider-message-1>',ARRAY['<provider-message-1>'],
+            'support@visualcrossing.com','support@mahshar.xyz','Re: Edited subject',
+            'Could you explain the technical setup?','2026-10-08T10:00:00Z');"""))
+        assert inbound['threadId'] == draft['threadId'] and inbound['matchedBy'] == 'in_reply_to'
+        assert inbound['processingState'] == 'received' and not inbound['duplicate']
+        inbound_id = inbound['id']
+        duplicate = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_inbound(
+            '<reply-1@provider.example>','<provider-message-1>',ARRAY['<provider-message-1>'],
+            'support@visualcrossing.com','support@mahshar.xyz','Re: Edited subject',
+            'Could you explain the technical setup?','2026-10-08T10:00:00Z');"""))
+        assert duplicate['id'] == inbound_id and duplicate['duplicate']
+        assert sql("SELECT count(*) FROM admin_outreach_messages WHERE direction='inbound' AND provider_message_id='<reply-1@provider.example>';") == '1'
+
+        finalized = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_finalize_inbound('{inbound_id}','technical_question',0.900,
+            'The provider asks about technical setup.','suggested','Re: Edited subject','Thanks for the question. Here is a concise reply.');"""))
+        assert finalized['threadStatus'] == 'needs_reply' and finalized['processingState'] == 'suggested'
+        reply_draft_id = finalized['draftId']
+        assert sql(f"SELECT status||','||direction||','||(reply_to_message_id='{inbound_id}')::text FROM admin_outreach_messages WHERE id='{reply_draft_id}';") == 'draft,outbound,true'
+        finalized_again = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_finalize_inbound('{inbound_id}','technical_question',0.900,
+            'The provider asks about technical setup.','suggested','Re: Edited subject','Thanks for the question. Here is a concise reply.');"""))
+        assert finalized_again['draftId'] == reply_draft_id
+        assert sql(f"SELECT count(*) FROM admin_outreach_messages WHERE reply_to_message_id='{inbound_id}';") == '1'
+        assert sql(f"SELECT status FROM admin_outreach_threads WHERE id='{draft['threadId']}';") == 'needs_reply'
+
+        expect_failure(f"""BEGIN; SET ROLE service_role;
+          SELECT mahshar_admin_outreach_set_status('{outreach_provider}','{outreach_lead}','do_not_contact');
+          SELECT mahshar_admin_outreach_edit_reply_draft('{reply_draft_id}','Blocked','Blocked'); COMMIT;""",
+          'admin_outreach_lead_blocked')
+        edited_reply = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_edit_reply_draft('{reply_draft_id}','Re: Technical setup','Edited manual reply.');"))
+        assert edited_reply['status'] == 'draft'
+        expect_failure(f"""BEGIN; SET ROLE service_role;
+          SELECT mahshar_admin_outreach_set_status('{outreach_provider}','{outreach_lead}','closed');
+          SELECT mahshar_admin_outreach_approve_reply_draft('{reply_draft_id}','0x{'2' * 40}'); COMMIT;""",
+          'admin_outreach_lead_blocked')
+        approved_reply = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_approve_reply_draft('{reply_draft_id}','0x{'2' * 40}');"))
+        assert approved_reply['status'] == 'ready_to_send'
+        sendable_reply = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_assert_reply_sendable('{reply_draft_id}');"))
+        assert sendable_reply['status'] == 'ready_to_send'
+        expect_failure(f"""BEGIN; SET ROLE service_role;
+          SELECT mahshar_admin_outreach_set_status('{outreach_provider}','{outreach_lead}','rejected');
+          SELECT mahshar_admin_outreach_assert_reply_sendable('{reply_draft_id}'); COMMIT;""",
+          'admin_outreach_lead_blocked')
+        expect_failure(f"""BEGIN; SET ROLE service_role;
+          SELECT mahshar_admin_outreach_set_status('{outreach_provider}','{outreach_lead}','rejected');
+          SELECT mahshar_admin_outreach_mark_reply_sent('{reply_draft_id}','provider-message-2'); COMMIT;""",
+          'admin_outreach_lead_blocked')
+        sent_reply = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_mark_reply_sent('{reply_draft_id}','provider-message-2');"))
+        assert sent_reply['status'] == 'sent'
+        assert json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_mark_reply_sent('{reply_draft_id}','provider-message-2');")) == sent_reply
+        assert sql(f"SELECT status FROM admin_outreach_threads WHERE id='{draft['threadId']}';") == 'sent'
+
+        # Sender-only evidence spanning two threads is deliberately unresolved.
+        second_provider = sql('SELECT gen_random_uuid();')
+        second_product = sql('SELECT gen_random_uuid();')
+        second_lead = sql('SELECT gen_random_uuid();')
+        second_thread = sql('SELECT gen_random_uuid();')
+        second_message = sql('SELECT gen_random_uuid();')
+        second_duplicate_message = sql('SELECT gen_random_uuid();')
+        sql(f"""
+          INSERT INTO worker_providers(id,canonical_name,canonical_domain)
+            VALUES('{second_provider}','Second Outreach Fixture','second-outreach.example');
+          INSERT INTO worker_products(id,provider_id,normalized_product_key,display_name)
+            VALUES('{second_product}','{second_provider}','second-api','Second API');
+          INSERT INTO worker_leads(id,provider_id,product_id,status,fit_score,fit_reason,qualification_status,
+            contactability_status,email_ready,preferred_email)
+          VALUES('{second_lead}','{second_provider}','{second_product}','qualified',80,'Grounded fit','qualified',
+            'verified_email',true,'support@visualcrossing.com');
+          INSERT INTO admin_outreach_threads(id,lead_id,provider_id,status,last_outreach_at)
+            VALUES('{second_thread}','{second_lead}','{second_provider}','sent',clock_timestamp());
+          INSERT INTO admin_outreach_messages(id,thread_id,direction,status,recipient_email,sender_email,subject,body,
+            provider_message_id,approved_by,approved_at,sent_at)
+          VALUES('{second_message}','{second_thread}','outbound','sent','support@visualcrossing.com','support@mahshar.xyz',
+            'Second subject','Second body','provider-message-other','0x{'3' * 40}',clock_timestamp(),clock_timestamp());
+          INSERT INTO admin_outreach_messages(id,thread_id,direction,status,recipient_email,sender_email,subject,body,
+            provider_message_id,approved_by,approved_at,sent_at)
+          VALUES('{second_duplicate_message}','{second_thread}','outbound','sent','support@visualcrossing.com','support@mahshar.xyz',
+            'Identifier collision','Collision fixture','provider-message-1','0x{'3' * 40}',clock_timestamp(),clock_timestamp());
+        """)
+        ambiguous = json.loads(sql("""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_inbound(
+            '<ambiguous@provider.example>',NULL,'{}'::text[],'support@visualcrossing.com','support@mahshar.xyz',
+            'A new unrelated subject','Hello','2026-10-08T11:00:00Z');"""))
+        assert ambiguous['threadId'] is None and ambiguous['matchedBy'] is None and ambiguous['processingState'] == 'unmatched'
+
+        # Ambiguous high-priority evidence must not fall through to a unique
+        # lower-priority subject match.
+        ambiguous_identifier = json.loads(sql("""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_inbound(
+            '<ambiguous-id@provider.example>','provider-message-1','{}'::text[],
+            'support@visualcrossing.com','support@mahshar.xyz','Re: Edited subject','Hello',
+            '2026-10-08T11:05:00Z');"""))
+        assert ambiguous_identifier['threadId'] is None and ambiguous_identifier['processingState'] == 'unmatched'
+        ambiguous_references = json.loads(sql("""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_inbound(
+            '<ambiguous-refs@provider.example>',NULL,ARRAY['provider-message-1','provider-message-other'],
+            'support@visualcrossing.com','support@mahshar.xyz','Re: Edited subject','Hello',
+            '2026-10-08T11:10:00Z');"""))
+        assert ambiguous_references['threadId'] is None and ambiguous_references['processingState'] == 'unmatched'
+
+        # Closed is terminal even when explicit identifiers safely match.
+        sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_set_status('{second_provider}','{second_lead}','closed');")
+        closed_inbound = json.loads(sql("""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_inbound(
+            '<closed-reply@provider.example>','provider-message-other','{}'::text[],
+            'support@visualcrossing.com','support@mahshar.xyz','Re: Second subject','Interested','2026-10-08T11:30:00Z');"""))
+        assert closed_inbound['threadId'] == second_thread
+        closed_final = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_finalize_inbound('{closed_inbound['id']}','interested',0.95,
+            'Positive reply.','suggested','Re: Second subject','Suggested reply.');"""))
+        assert closed_final['threadStatus'] == 'closed' and closed_final['draftId'] is None
+
+        # Explicit unsubscribe wins and creates no reply draft.
+        dnc_inbound = json.loads(sql("""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_inbound(
+            '<dnc-reply@provider.example>','provider-message-2','{}'::text[],
+            'support@visualcrossing.com','support@mahshar.xyz','Re: Technical setup','Do not contact us again.',
+            '2026-10-08T12:00:00Z');"""))
+        dnc_final = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_finalize_inbound('{dnc_inbound['id']}','do_not_contact',1,
+            'Explicit stop request.','classified',NULL,NULL);"""))
+        assert dnc_final['threadStatus'] == 'do_not_contact' and dnc_final['draftId'] is None
+        assert sql(f"SELECT count(*) FROM admin_outreach_messages WHERE thread_id='{draft['threadId']}' AND status='draft';") == '0'
+
         # A human DNC state is terminal for drafting/approval and preserves
         # the already approved history.
         dnc = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_set_status('{outreach_provider}','{outreach_lead}','do_not_contact');"))
         assert dnc['status'] == 'do_not_contact'
-        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_save_draft('{outreach_provider}','{outreach_lead}','team@outreach.example','Blocked','Blocked');", 'admin_outreach_thread_blocked')
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_save_draft('{outreach_provider}','{outreach_lead}','support@visualcrossing.com','Blocked','Blocked');", 'admin_outreach_thread_blocked')
         assert sql(f"SELECT status FROM admin_outreach_messages WHERE id='{message_id}';") == 'sent'
         assert sql(f"SELECT fit_score||','||qualification_status||','||status FROM worker_leads WHERE id='{outreach_lead}';") == technical_before
         assert sql("SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY id),'[]') FROM worker_runs r;") == outreach_worker_before

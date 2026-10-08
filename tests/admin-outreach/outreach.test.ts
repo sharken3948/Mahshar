@@ -69,6 +69,11 @@ test('sent Review details expose only the durable provider message ID when prese
   assert.doesNotMatch(client, /rawBrevo|brevoResponse|responsePayload/)
 })
 
+test('conversation history uses event time with a deterministic message-id tie-breaker', () => {
+  assert.match(client, /received_at \?\? left\.sent_at \?\? left\.created_at/)
+  assert.match(client, /leftTime - rightTime \|\| left\.id\.localeCompare\(right\.id\)/)
+})
+
 test('manual approval is durable and the only first-send path is the approval action', () => {
   assert.match(migration, /status='ready_to_send'/)
   assert.match(migration, /approved_by=p_admin_wallet/)
