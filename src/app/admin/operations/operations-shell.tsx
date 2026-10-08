@@ -7,7 +7,7 @@ import { useAdminRequest } from '@/components/AdminAccess'
 import type { OperationsIssuesDto } from '@/lib/admin/operations-types'
 import styles from './operations.module.css'
 
-type IconName = 'overview' | 'listings' | 'payments' | 'purchases' | 'earnings' | 'infrastructure' | 'health' | 'issues' | 'logs' | 'analytics' | 'worker' | 'outreach'
+type IconName = 'overview' | 'listings' | 'payments' | 'purchases' | 'earnings' | 'infrastructure' | 'health' | 'issues' | 'maintenance' | 'logs' | 'analytics' | 'worker' | 'outreach'
 
 const navigation: Array<{ label: string; icon: IconName; href?: string }> = [
   { label: 'Overview', icon: 'overview', href: '/admin/operations' },
@@ -18,6 +18,7 @@ const navigation: Array<{ label: string; icon: IconName; href?: string }> = [
   { label: 'Infrastructure', icon: 'infrastructure', href: '/admin/operations/infrastructure' },
   { label: 'System Health', icon: 'health', href: '/admin/operations/system-health' },
   { label: 'Recent Issues', icon: 'issues', href: '/admin/operations/issues' },
+  { label: 'Maintenance', icon: 'maintenance', href: '/admin/maintenance' },
   { label: 'Logs & Events', icon: 'logs' },
   { label: 'Analytics', icon: 'analytics' },
 ]
@@ -32,6 +33,7 @@ function NavIcon({ name }: { name: IconName }) {
     infrastructure: <><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01M11 7h7M11 17h7"/></>,
     health: <><path d="M3 12h4l2-5 4 10 2-5h6"/></>,
     issues: <><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4M12 16h.01"/></>,
+    maintenance: <><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9 7 7M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1"/></>,
     logs: <><path d="M6 3h12v18H6zM9 8h6M9 12h6M9 16h4"/></>,
     analytics: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></>,
     worker: <><rect x="5" y="7" width="14" height="12" rx="3"/><path d="M9 3h6M12 3v4M9 12h.01M15 12h.01M9 16h6"/></>,
@@ -44,7 +46,9 @@ export function OperationsShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const workerPage = pathname.startsWith('/admin/worker')
   const outreachPage = pathname.startsWith('/admin/outreach')
+  const maintenancePage = pathname.startsWith('/admin/maintenance')
   const automationPage = workerPage || outreachPage
+  const adminOnlyPage = automationPage || maintenancePage
   const request = useAdminRequest()
   const [collapsed, setCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -90,7 +94,7 @@ export function OperationsShell({ children }: { children: React.ReactNode }) {
       <aside className={`${styles.sidebar} ${drawerOpen ? styles.sidebarOpen : ''}`} aria-label="Admin navigation">
         <div className={styles.identity}>
           <div className={styles.mark} aria-hidden="true">M</div>
-          <div className={styles.identityText}><strong>Mahshar</strong><span>{workerPage ? 'Admin / Worker' : outreachPage ? 'Admin / Outreach' : 'Admin / Operations'}</span></div>
+          <div className={styles.identityText}><strong>Mahshar</strong><span>{workerPage ? 'Admin / Worker' : outreachPage ? 'Admin / Outreach' : maintenancePage ? 'Admin / Maintenance' : 'Admin / Operations'}</span></div>
           <button type="button" className={styles.collapseButton} onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg>
           </button>
@@ -119,13 +123,13 @@ export function OperationsShell({ children }: { children: React.ReactNode }) {
           </Link>
         </nav>
         <div className={styles.sidebarFooter}>
-          <span className={styles.readOnlyDot}/><div><strong>{workerPage ? 'Bounded control' : outreachPage ? 'Manual approval' : 'Read-only'}</strong><small>{workerPage ? 'One batch at a time' : outreachPage ? 'No automatic sending' : 'No control-plane actions'}</small></div>
+          <span className={styles.readOnlyDot}/><div><strong>{workerPage ? 'Bounded control' : outreachPage ? 'Manual approval' : 'Read-only'}</strong><small>{workerPage ? 'One batch at a time' : outreachPage ? 'No automatic sending' : maintenancePage ? 'Manual checks only' : 'No control-plane actions'}</small></div>
         </div>
       </aside>
       <div className={styles.workspace}>
         <header className={styles.topbar}>
-          <div><span className={styles.environmentDot}/><strong>Arc Mainnet</strong><span className={styles.topbarDivider}/><span>{workerPage ? 'Worker foundation' : outreachPage ? 'Outreach workspace' : 'Operations visibility'}</span></div>
-          <div className={styles.topbarReadOnly}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>{automationPage ? 'Admin only' : 'Read-only'}</div>
+          <div><span className={styles.environmentDot}/><strong>Arc Mainnet</strong><span className={styles.topbarDivider}/><span>{workerPage ? 'Worker foundation' : outreachPage ? 'Outreach workspace' : maintenancePage ? 'Maintenance watch' : 'Operations visibility'}</span></div>
+          <div className={styles.topbarReadOnly}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>{adminOnlyPage ? 'Admin only' : 'Read-only'}</div>
         </header>
         <main className={styles.main}>{children}</main>
       </div>
