@@ -51,7 +51,7 @@ type Dependencies = {
 }
 
 const defaultDependencies: Dependencies = {
-  fetch,
+  fetch: (input, init) => globalThis.fetch(input, init),
   now: () => new Date(),
   logger: {
     error: (event, details) => console.error(`[outreach-inbound-worker] ${event}`, details ?? {}),

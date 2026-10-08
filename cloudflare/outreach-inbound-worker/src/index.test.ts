@@ -72,6 +72,25 @@ async function payloadFrom(requests: Array<{ init?: RequestInit }>): Promise<Nor
   return JSON.parse(String(requests[0].init?.body)) as NormalizedInboundPayload
 }
 
+test('default runtime fetch keeps the global receiver required by Cloudflare', async () => {
+  const originalFetch = globalThis.fetch
+  const input = message(rawMessage('Reply body'))
+  const waits: Promise<unknown>[] = []
+  let receiver: unknown
+  try {
+    globalThis.fetch = async function (this: typeof globalThis) {
+      receiver = this
+      return new Response('{}', { status: 202 })
+    }
+    await createWorker().email(input.value, env, { waitUntil: promise => waits.push(promise) })
+    await Promise.all(waits)
+    assert.equal(receiver, globalThis)
+    assert.deepEqual(input.forwarded, ['human-mailbox@example.net'])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('forwards and posts the exact normalized plain-text payload', async () => {
   const input = message(rawMessage('Thanks, we are interested.\r\n\r\nOn Wed, someone wrote:\r\n> Old text'))
   const run = harness()
