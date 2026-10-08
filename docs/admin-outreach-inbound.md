@@ -37,4 +37,4 @@ No bridge is created or activated by the code migration. A minimal production se
 
 Brevo inbound parsing is an alternative only after a separate receiving subdomain is delegated to Brevo and outbound messages deliberately use that address as their reply target. That is not the current `support@mahshar.xyz` routing model and is not enabled by Outreach V2.
 
-Delivery-event webhooks are not included. They require a separately authenticated Brevo transactional webhook and their own bounded event-state policy.
+Brevo transactional delivery events use a separate authenticated endpoint and secret. See `docs/admin-outreach-brevo-events.md`; the inbound mailbox bridge secret is never shared with Brevo.

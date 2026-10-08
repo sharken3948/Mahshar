@@ -19,6 +19,7 @@ CONTACT_DISCOVERY = ROOT / 'supabase/migrations/20261005000300_admin_worker_cont
 CONTACT_REENRICHMENT = ROOT / 'supabase/migrations/20261007000100_admin_worker_contact_reenrichment.sql'
 ADMIN_OUTREACH = ROOT / 'supabase/migrations/20261007000200_admin_outreach_v1.sql'
 ADMIN_OUTREACH_V2 = ROOT / 'supabase/migrations/20261008000100_admin_outreach_v2_inbound.sql'
+ADMIN_OUTREACH_DELIVERY = ROOT / 'supabase/migrations/20261008000200_admin_outreach_delivery_events.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -86,10 +87,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20260928000300', '20261001000000', '20261001000030',
             '20261001000100', '20261001000110',
             '20261002000100', '20261004000100', '20261005000100', '20261005000200', '20261005000300',
-            '20261007000100', '20261007000200', '20261008000100',
+            '20261007000100', '20261007000200', '20261008000100', '20261008000200',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2, ADMIN_OUTREACH_DELIVERY):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -1654,6 +1655,86 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             assert sql(f"SELECT has_function_privilege('authenticated','public.{function}','EXECUTE');") == 'f'
             assert sql(f"SELECT has_function_privilege('service_role','public.{function}','EXECUTE');") == 't'
 
+        # Delivery events add one private, bounded transport-history table and
+        # leave the durable V1 message/thread state unchanged.
+        delivery_message_before = sql(f"SELECT to_jsonb(m) FROM admin_outreach_messages m WHERE id='{message_id}';")
+        delivery_thread_before = sql(f"SELECT to_jsonb(t) FROM admin_outreach_threads t WHERE id='{draft['threadId']}';")
+        delivery_rollback = "BEGIN;\n" + ADMIN_OUTREACH_DELIVERY.read_text() + """
+          DO $rollback$ BEGIN RAISE EXCEPTION 'forced_admin_outreach_delivery_rollback'; END $rollback$;
+          COMMIT;
+        """
+        expect_failure(delivery_rollback, 'forced_admin_outreach_delivery_rollback')
+        assert sql("SELECT to_regclass('public.admin_outreach_delivery_events');") == ''
+        assert sql(f"SELECT to_jsonb(m) FROM admin_outreach_messages m WHERE id='{message_id}';") == delivery_message_before
+        sql('BEGIN;\n' + ADMIN_OUTREACH_DELIVERY.read_text() + '\nCOMMIT;')
+        assert sql("SELECT relrowsecurity FROM pg_class WHERE oid='public.admin_outreach_delivery_events'::regclass;") == 't'
+        assert sql("SELECT count(*) FROM pg_policy WHERE polrelid='public.admin_outreach_delivery_events'::regclass;") == '0'
+        assert sql("SELECT count(*) FROM admin_outreach_delivery_events;") == '0'
+        delivery_match_index = sql("""
+          SELECT indexdef FROM pg_indexes
+          WHERE schemaname='public' AND indexname='admin_outreach_messages_delivery_provider_match';
+        """)
+        assert 'lower(btrim(provider_message_id' in delivery_match_index
+        assert 'recipient_email' in delivery_match_index
+        assert "direction = 'outbound'" in delivery_match_index
+        assert "status = 'sent'" in delivery_match_index
+        assert 'provider_message_id IS NOT NULL' in delivery_match_index
+        for role in ['anon', 'authenticated']:
+            for privilege in all_table_privileges:
+                assert sql(f"SELECT has_table_privilege('{role}','public.admin_outreach_delivery_events','{privilege}');") == 'f'
+        for privilege in all_table_privileges:
+            expected = 't' if privilege == 'SELECT' else 'f'
+            assert sql(f"SELECT has_table_privilege('service_role','public.admin_outreach_delivery_events','{privilege}');") == expected
+        delivery_function = 'mahshar_admin_outreach_ingest_delivery_event(text,text,text,text,timestamptz)'
+        assert sql(f"SELECT coalesce(array_to_string(proconfig,'|'),'') FROM pg_proc WHERE oid='public.{delivery_function}'::regprocedure;") in {'search_path=', 'search_path=""'}
+        assert sql(f"SELECT has_function_privilege('anon','public.{delivery_function}','EXECUTE');") == 'f'
+        assert sql(f"SELECT has_function_privilege('authenticated','public.{delivery_function}','EXECUTE');") == 'f'
+        assert sql(f"SELECT has_function_privilege('service_role','public.{delivery_function}','EXECUTE');") == 't'
+
+        delivered = json.loads(sql(f"""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_delivery_event(
+            '<PROVIDER-MESSAGE-1>','support@visualcrossing.com','delivered','4127','2026-10-08T10:00:00Z');"""))
+        assert delivered['matched'] and not delivered['duplicate'] and delivered['messageId'] == message_id
+        duplicate_delivery = json.loads(sql("""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_delivery_event(
+            'provider-message-1','support@visualcrossing.com','delivered','4127','2026-10-08T10:00:00Z');"""))
+        assert duplicate_delivery['matched'] and duplicate_delivery['duplicate']
+        older_delivery = json.loads(sql("""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_delivery_event(
+            'provider-message-1','support@visualcrossing.com','delivered','4127','2026-10-08T09:59:00Z');"""))
+        assert older_delivery['matched'] and older_delivery['duplicate']
+        opened = json.loads(sql("""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_delivery_event(
+            'provider-message-1','support@visualcrossing.com','opened','4127','2026-10-08T10:05:00Z');"""))
+        assert opened['matched'] and not opened['duplicate']
+        def ingest_concurrent_sent():
+            return json.loads(sql("""SET ROLE service_role;
+              SELECT mahshar_admin_outreach_ingest_delivery_event(
+                'provider-message-1','support@visualcrossing.com','sent','4127','2026-10-08T10:01:00Z');"""))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            concurrent_sent = list(pool.map(lambda _: ingest_concurrent_sent(), range(2)))
+        assert all(result['matched'] for result in concurrent_sent)
+        assert sorted(result['duplicate'] for result in concurrent_sent) == [False, True]
+        assert len({result['eventId'] for result in concurrent_sent}) == 1
+        for event_type, minute in [('soft_bounce', 2), ('hard_bounce', 3), ('blocked', 4)]:
+            stored_event = json.loads(sql(f"""SET ROLE service_role;
+              SELECT mahshar_admin_outreach_ingest_delivery_event(
+                'provider-message-1','support@visualcrossing.com','{event_type}','4127','2026-10-08T10:0{minute}:00Z');"""))
+            assert stored_event['matched'] and not stored_event['duplicate']
+        assert sql(f"SELECT count(*) FROM admin_outreach_delivery_events WHERE message_id='{message_id}';") == '6'
+        later_open = json.loads(sql("""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_delivery_event(
+            'provider-message-1','support@visualcrossing.com','opened','4127','2026-10-08T10:06:00Z');"""))
+        assert later_open['matched'] and not later_open['duplicate']
+        assert sql(f"SELECT count(*) FROM admin_outreach_delivery_events WHERE message_id='{message_id}' AND event_type='opened';") == '1'
+        unmatched_delivery = json.loads(sql("""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_delivery_event(
+            'unknown-provider-message','support@visualcrossing.com','delivered','4127','2026-10-08T10:00:00Z');"""))
+        assert not unmatched_delivery['matched'] and not unmatched_delivery['duplicate']
+        assert sql(f"SELECT to_jsonb(m) FROM admin_outreach_messages m WHERE id='{message_id}';") == delivery_message_before
+        assert sql(f"SELECT to_jsonb(t) FROM admin_outreach_threads t WHERE id='{draft['threadId']}';") == delivery_thread_before
+        assert sql("SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY id),'[]') FROM worker_runs r;") == outreach_worker_before
+
         inbound = json.loads(sql(f"""SET ROLE service_role;
           SELECT mahshar_admin_outreach_ingest_inbound(
             '<reply-1@provider.example>','<provider-message-1>',ARRAY['<provider-message-1>'],
@@ -1737,6 +1818,11 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
           VALUES('{second_duplicate_message}','{second_thread}','outbound','sent','support@visualcrossing.com','support@mahshar.xyz',
             'Identifier collision','Collision fixture','provider-message-1','0x{'3' * 40}',clock_timestamp(),clock_timestamp());
         """)
+        ambiguous_delivery = json.loads(sql("""SET ROLE service_role;
+          SELECT mahshar_admin_outreach_ingest_delivery_event(
+            'provider-message-1','support@visualcrossing.com','delivered','4127','2026-10-08T10:10:00Z');"""))
+        assert not ambiguous_delivery['matched'] and not ambiguous_delivery['duplicate']
+        assert sql(f"SELECT count(*) FROM admin_outreach_delivery_events WHERE message_id='{second_duplicate_message}';") == '0'
         ambiguous = json.loads(sql("""SET ROLE service_role;
           SELECT mahshar_admin_outreach_ingest_inbound(
             '<ambiguous@provider.example>',NULL,'{}'::text[],'support@visualcrossing.com','support@mahshar.xyz',

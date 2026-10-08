@@ -4,10 +4,12 @@ import { getQualifiedWorkerLeads } from '@/lib/admin-worker/repository'
 import { isVerifiedOutreachEmail } from '@/lib/admin-worker/contact-readiness'
 import { generateGroundedOutreachDraft, isEmailOutreachEligible } from './draft'
 import { outreachTransportConfigured } from './transport'
-import { outreachStatuses, type OutreachDashboardDto, type OutreachLeadDto,
+import { currentOutreachDeliveryEvent, outreachStatuses, type OutreachDashboardDto, type OutreachLeadDto,
   type OutreachClassification, type OutreachInboxItemDto, type OutreachMessageDto,
-  type OutreachProcessingState, type OutreachStatus } from './types'
+  type OutreachDeliveryEventDto, type OutreachDeliveryEventType, type OutreachProcessingState,
+  type OutreachStatus } from './types'
 import type { NormalizedInboundReply } from './inbound'
+import type { NormalizedBrevoDeliveryEvent } from './delivery-events'
 import type { ReplyClassification, SuggestedReply } from './intelligence'
 
 type DbError = { message?: string; code?: string } | null
@@ -29,7 +31,16 @@ function timestamp(value: unknown): string | null {
   return typeof value === 'string' && value.length <= 64 && Number.isFinite(Date.parse(value)) ? value : null
 }
 
-function messageDto(row: Record<string, unknown>): OutreachMessageDto {
+function deliveryEventDto(row: Record<string, unknown>): OutreachDeliveryEventDto | null {
+  const eventType = String(row.event_type)
+  const occurredAt = timestamp(row.provider_occurred_at)
+  const receivedAt = timestamp(row.received_at)
+  if (typeof row.id !== 'string' || !['sent','delivered','opened','soft_bounce','hard_bounce','blocked'].includes(eventType)
+    || !occurredAt || !receivedAt) return null
+  return { id: row.id, event_type: eventType as OutreachDeliveryEventType, occurred_at: occurredAt, received_at: receivedAt }
+}
+
+function messageDto(row: Record<string, unknown>, deliveryRows: Record<string, unknown>[] = []): OutreachMessageDto {
   const status = String(row.status)
   const direction = String(row.direction)
   const processingState = String(row.processing_state)
@@ -42,6 +53,10 @@ function messageDto(row: Record<string, unknown>): OutreachMessageDto {
     .filter((value): value is string => typeof value === 'string').slice(0, 12).map(value => value.slice(0, 512)) : []
   const classification = ['interested','payment_question','technical_question','not_interested','do_not_contact','other']
     .includes(String(row.classification)) ? row.classification as OutreachClassification : null
+  const deliveryEvents = deliveryRows.map(deliveryEventDto).filter((event): event is OutreachDeliveryEventDto => Boolean(event))
+    .sort((left, right) => Date.parse(left.occurred_at) - Date.parse(right.occurred_at) || left.id.localeCompare(right.id))
+    .slice(-6)
+  const latestDelivery = currentOutreachDeliveryEvent(deliveryEvents)
   return {
     id: row.id, thread_id: typeof row.thread_id === 'string' ? row.thread_id : null,
     direction: direction as OutreachMessageDto['direction'], status: status as OutreachMessageDto['status'], recipient_email: row.recipient_email,
@@ -58,6 +73,9 @@ function messageDto(row: Record<string, unknown>): OutreachMessageDto {
     approved_at: timestamp(row.approved_at), sent_at: timestamp(row.sent_at),
     created_at: timestamp(row.created_at) ?? (() => { throw new Error('admin_outreach_message_invalid') })(),
     updated_at: timestamp(row.updated_at) ?? (() => { throw new Error('admin_outreach_message_invalid') })(),
+    delivery_state: latestDelivery?.event_type ?? null,
+    delivery_event_at: latestDelivery?.occurred_at ?? null,
+    delivery_events: deliveryEvents,
   }
 }
 
@@ -112,6 +130,15 @@ export async function getOutreachDashboard(): Promise<OutreachDashboardDto> {
     : { data: [], error: null }
   if (messagesResult.error) dbFailure('messages', messagesResult.error)
   const messages = rows(messagesResult.data)
+  const outboundMessageIds = messages.flatMap(message => message.direction === 'outbound' && typeof message.id === 'string'
+    ? [message.id] : [])
+  const deliveryEventsResult = outboundMessageIds.length
+    ? await db.from('admin_outreach_delivery_events')
+      .select('id,message_id,event_type,provider_occurred_at,received_at')
+      .in('message_id', outboundMessageIds).order('provider_occurred_at', { ascending: true }) as DbResult
+    : { data: [], error: null }
+  if (deliveryEventsResult.error) dbFailure('delivery events', deliveryEventsResult.error)
+  const deliveryEvents = rows(deliveryEventsResult.data)
   const identityByLead = new Map(identities.map(row => [row.id, row.provider_id]))
   const threadByLead = new Map(threads.map(row => [row.lead_id, row]))
   const allowed = contactReady.leads.filter(lead => {
@@ -126,7 +153,8 @@ export async function getOutreachDashboard(): Promise<OutreachDashboardDto> {
     const thread = threadByLead.get(lead.id)
     const status = thread && outreachStatuses.includes(thread.status as OutreachStatus)
       ? thread.status as OutreachStatus : 'contact_ready'
-    const history = thread ? messages.filter(message => message.thread_id === thread.id).map(messageDto) : []
+    const history = thread ? messages.filter(message => message.thread_id === thread.id)
+      .map(message => messageDto(message, deliveryEvents.filter(event => event.message_id === message.id))) : []
     return { ...lead, provider_id: providerId, outreach_status: status,
       last_outreach_at: timestamp(thread?.last_outreach_at), last_reply_at: timestamp(thread?.last_reply_at),
       draft: history.find(message => ['draft','ready_to_send'].includes(message.status)) ?? null,
@@ -230,6 +258,34 @@ export async function markOutreachSent(messageId: string, providerMessageId: str
   }) as DbResult
   if (result.error) rpcFailure(result.error)
   return result.data
+}
+
+export type DeliveryEventIngestResult = {
+  matched: boolean
+  duplicate: boolean
+  messageId: string | null
+  eventId: string | null
+}
+
+function deliveryEventResult(value: unknown): DeliveryEventIngestResult {
+  if (!value || typeof value !== 'object') throw new Error('admin_outreach_delivery_event_result_invalid')
+  const row = value as Record<string, unknown>
+  if (typeof row.matched !== 'boolean' || typeof row.duplicate !== 'boolean') {
+    throw new Error('admin_outreach_delivery_event_result_invalid')
+  }
+  return { matched: row.matched, duplicate: row.duplicate,
+    messageId: typeof row.messageId === 'string' ? row.messageId : null,
+    eventId: typeof row.eventId === 'string' ? row.eventId : null }
+}
+
+export async function ingestOutreachDeliveryEvent(event: NormalizedBrevoDeliveryEvent): Promise<DeliveryEventIngestResult> {
+  const result = await createServiceClient().rpc('mahshar_admin_outreach_ingest_delivery_event', {
+    p_provider_message_id: event.providerMessageId, p_recipient_email: event.recipientEmail,
+    p_event_type: event.eventType, p_provider_event_id: event.providerEventId,
+    p_provider_occurred_at: event.occurredAt,
+  }) as DbResult
+  if (result.error) rpcFailure(result.error)
+  return deliveryEventResult(result.data)
 }
 
 async function isReplyDraft(db: ReturnType<typeof createServiceClient>, messageId: string): Promise<boolean> {

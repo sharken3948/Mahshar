@@ -2,7 +2,8 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useAdminRequest } from '@/components/AdminAccess'
-import { type OutreachClassification, type OutreachDashboardDto, type OutreachInboxItemDto, type OutreachLeadDto, type OutreachStatus } from '@/lib/admin-outreach/types'
+import { type OutreachClassification, type OutreachDashboardDto, type OutreachDeliveryEventType,
+  type OutreachInboxItemDto, type OutreachLeadDto, type OutreachMessageDto, type OutreachStatus } from '@/lib/admin-outreach/types'
 import { ProviderMessageId } from './provider-message-id'
 import styles from './outreach.module.css'
 
@@ -25,6 +26,11 @@ const classificationLabels: Record<OutreachClassification, string> = {
   not_interested: 'Not interested', do_not_contact: 'Do not contact', other: 'Other',
 }
 
+const deliveryLabels: Record<OutreachDeliveryEventType, string> = {
+  sent: 'Sent', delivered: 'Delivered', opened: 'Opened', soft_bounce: 'Soft bounce',
+  hard_bounce: 'Hard bounce', blocked: 'Blocked',
+}
+
 type OutreachView = 'inbox' | OutreachStatus | 'contact_form_only'
 
 const viewOrder: OutreachView[] = [
@@ -43,6 +49,15 @@ function timeLabel(value: string | null) {
   return Number.isFinite(time) ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(time) : '—'
 }
 
+function DeliveryStatus({ message, detailed = false }: { message: OutreachMessageDto; detailed?: boolean }) {
+  if (message.direction !== 'outbound' || !message.delivery_state) return null
+  return <section className={styles.deliveryStatus}>
+    <div><strong>{deliveryLabels[message.delivery_state]}</strong><span>{timeLabel(message.delivery_event_at)}</span></div>
+    {detailed && message.delivery_events.length > 0 && <ol>{message.delivery_events.map(event =>
+      <li key={event.id}><span>{deliveryLabels[event.event_type]}</span><time>{timeLabel(event.occurred_at)}</time></li>)}</ol>}
+  </section>
+}
+
 function LeadDetails({ lead }: { lead: OutreachLeadDto }) {
   const sentMessage = lead.history.find(message => message.status === 'sent' && message.provider_message_id)
   const history = [...lead.history].sort((left, right) => {
@@ -57,9 +72,10 @@ function LeadDetails({ lead }: { lead: OutreachLeadDto }) {
       <section><h3>Contact evidence</h3><p>{lead.preferred_email}</p>{lead.contact_evidence.map(item => <a key={`${item.type}:${item.value}`} href={item.source_url} target="_blank" rel="noopener noreferrer">{item.purpose} · {item.source_type}</a>)}</section>
       <section><h3>API information</h3>{lead.official_site && <a href={lead.official_site} target="_blank" rel="noopener noreferrer">Official site</a>}{lead.docs_url && <a href={lead.docs_url} target="_blank" rel="noopener noreferrer">Official docs</a>}{lead.github_url && <a href={lead.github_url} target="_blank" rel="noopener noreferrer">GitHub</a>}<p>{lead.traction_summary ?? 'No bounded activity summary available.'}</p></section>
       <ProviderMessageId value={sentMessage?.provider_message_id ?? null} className={styles.deliveryMetadata}/>
+      {sentMessage && <DeliveryStatus message={sentMessage} detailed/>}
       {latestInbound && <section><h3>Latest inbound reply</h3><strong className={styles.classification}>{latestInbound.classification ? classificationLabels[latestInbound.classification] : 'Processing'}</strong><p>{latestInbound.body}</p>{latestInbound.classification_reason && <small>{latestInbound.classification_reason}</small>}</section>}
     </div>
-    {history.length > 0 && <section className={styles.conversation}><h3>Conversation history</h3>{history.map(message => <article key={message.id} className={message.direction === 'inbound' ? styles.incoming : styles.outgoing}><header><strong>{message.direction === 'inbound' ? 'Incoming · Provider' : 'Outgoing · Mahshar'}</strong><span>{timeLabel(message.received_at ?? message.sent_at ?? message.created_at)}</span>{message.classification && <small>{classificationLabels[message.classification]}</small>}</header><h4>{message.subject}</h4><p>{message.body}</p><ProviderMessageId value={message.provider_message_id} className={styles.messageId}/></article>)}</section>}
+    {history.length > 0 && <section className={styles.conversation}><h3>Conversation history</h3>{history.map(message => <article key={message.id} className={message.direction === 'inbound' ? styles.incoming : styles.outgoing}><header><strong>{message.direction === 'inbound' ? 'Incoming · Provider' : 'Outgoing · Mahshar'}</strong><span>{timeLabel(message.received_at ?? message.sent_at ?? message.created_at)}</span>{message.classification && <small>{classificationLabels[message.classification]}</small>}{message.delivery_state && <small className={styles.deliveryChip}>{deliveryLabels[message.delivery_state]}</small>}</header><h4>{message.subject}</h4><p>{message.body}</p><ProviderMessageId value={message.provider_message_id} className={styles.messageId}/><DeliveryStatus message={message}/></article>)}</section>}
   </>
 }
 

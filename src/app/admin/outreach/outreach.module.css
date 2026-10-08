@@ -40,6 +40,13 @@
 .deliveryMetadata dt { color: #7d8da7; font-size: 12px; text-transform: uppercase; }
 .deliveryMetadata dd { min-width: 0; margin: 0; color: #c4d2e8; }
 .deliveryMetadata code { overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.deliveryStatus { display: grid; gap: 8px; min-width: 0; }
+.deliveryStatus > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.deliveryStatus strong, .deliveryChip { color: #9ed9c2; }
+.deliveryStatus span, .deliveryStatus time { color: #7f91ad; font-size: 12px; }
+.deliveryStatus ol { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.deliveryStatus li { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+.deliveryChip { background: rgba(70,190,142,.12) !important; }
 .replyIndicator { display: block; width: fit-content; margin-top: 7px; padding: 3px 6px; border-radius: 999px; color: #82d6b4; background: rgba(70,190,142,.1); font-size: 11px; }
 .conversation { display: grid; gap: 10px; padding: 20px; background: #0d1624; }
 .conversation > h3, .editor > h3 { margin: 0; color: #dce6f5; font-size: 13px; text-transform: uppercase; }

@@ -9,6 +9,7 @@ import * as edit from '../../src/app/api/admin/outreach/drafts/[id]/route'
 import * as approve from '../../src/app/api/admin/outreach/drafts/[id]/approve/route'
 import * as send from '../../src/app/api/admin/outreach/drafts/[id]/send/route'
 import * as status from '../../src/app/api/admin/outreach/status/route'
+import * as brevoEvents from '../../src/app/api/internal/outreach/brevo-events/route'
 
 function request(path: string, method: 'GET' | 'POST' | 'PATCH', account?: typeof alice) {
   return new NextRequest(origin + path, { method, headers: account ? sessionHeaders(account) : undefined })
@@ -42,4 +43,19 @@ test('Outreach routes expose only intended methods', () => {
   assert.deepEqual(['POST'].filter(method => method in approve), ['POST'])
   assert.deepEqual(['POST'].filter(method => method in send), ['POST'])
   assert.deepEqual(['PATCH'].filter(method => method in status), ['PATCH'])
+  assert.deepEqual(['POST'].filter(method => method in brevoEvents), ['POST'])
+})
+
+test('Brevo provider webhook uses dedicated provider authentication rather than an Admin wallet session', async () => {
+  const previous = process.env.BREVO_OUTREACH_WEBHOOK_SECRET
+  try {
+    delete process.env.BREVO_OUTREACH_WEBHOOK_SECRET
+    const response = await brevoEvents.POST(new Request(origin + '/api/internal/outreach/brevo-events', { method: 'POST' }))
+    assert.equal(response.status, 503)
+    assert.equal(boundary.actions, 0)
+    assert.equal(boundary.external, 0)
+  } finally {
+    if (previous === undefined) delete process.env.BREVO_OUTREACH_WEBHOOK_SECRET
+    else process.env.BREVO_OUTREACH_WEBHOOK_SECRET = previous
+  }
 })

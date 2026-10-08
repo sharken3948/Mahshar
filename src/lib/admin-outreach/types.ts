@@ -11,6 +11,30 @@ export const outreachClassifications = [
 ] as const
 export type OutreachClassification = typeof outreachClassifications[number]
 export type OutreachProcessingState = 'not_applicable' | 'received' | 'unmatched' | 'classified' | 'suggested' | 'suggestion_failed'
+export const outreachDeliveryEventTypes = [
+  'sent', 'delivered', 'opened', 'soft_bounce', 'hard_bounce', 'blocked',
+] as const
+export type OutreachDeliveryEventType = typeof outreachDeliveryEventTypes[number]
+
+export type OutreachDeliveryEventDto = {
+  id: string
+  event_type: OutreachDeliveryEventType
+  occurred_at: string
+  received_at: string
+}
+
+const outreachDeliveryPrecedence: Record<OutreachDeliveryEventType, number> = {
+  sent: 1, soft_bounce: 2, delivered: 3, opened: 4, blocked: 5, hard_bounce: 6,
+}
+
+export function currentOutreachDeliveryEvent(events: OutreachDeliveryEventDto[]): OutreachDeliveryEventDto | null {
+  return events.reduce<OutreachDeliveryEventDto | null>((current, event) => {
+    if (!current || outreachDeliveryPrecedence[event.event_type] > outreachDeliveryPrecedence[current.event_type]) return event
+    if (outreachDeliveryPrecedence[event.event_type] === outreachDeliveryPrecedence[current.event_type]
+      && Date.parse(event.occurred_at) > Date.parse(current.occurred_at)) return event
+    return current
+  }, null)
+}
 
 export type OutreachMessageDto = {
   id: string
@@ -35,6 +59,9 @@ export type OutreachMessageDto = {
   sent_at: string | null
   created_at: string
   updated_at: string
+  delivery_state: OutreachDeliveryEventType | null
+  delivery_event_at: string | null
+  delivery_events: OutreachDeliveryEventDto[]
 }
 
 export type OutreachInboxItemDto = {
