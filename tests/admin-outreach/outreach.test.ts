@@ -10,6 +10,7 @@ import { sendOutreachEmail } from '../../src/lib/admin-outreach/transport'
 const migration = readFileSync('supabase/migrations/20261007000200_admin_outreach_v1.sql', 'utf8')
 const client = readFileSync('src/app/admin/outreach/outreach-client.tsx', 'utf8')
 const repository = readFileSync('src/lib/admin-outreach/repository.ts', 'utf8')
+const styles = readFileSync('src/app/admin/outreach/outreach.module.css', 'utf8')
 const approvalRoute = readFileSync('src/app/api/admin/outreach/drafts/[id]/approve/route.ts', 'utf8')
 const legacyOutreachRoute = readFileSync('src/app/api/discovery/outreach/route.ts', 'utf8')
 
@@ -72,6 +73,75 @@ test('sent Review details expose only the durable provider message ID when prese
 test('conversation history uses event time with a deterministic message-id tie-breaker', () => {
   assert.match(client, /received_at \?\? left\.sent_at \?\? left\.created_at/)
   assert.match(client, /leftTime - rightTime \|\| left\.id\.localeCompare\(right\.id\)/)
+})
+
+test('Inbox projects matched and unmatched inbound messages through the Admin service boundary', () => {
+  assert.match(repository, /admin_outreach_messages'\)\.select\(MESSAGE_SELECT\)\.eq\('direction', 'inbound'\)/)
+  assert.match(repository, /\.is\('thread_id', null\)\.eq\('processing_state', 'unmatched'\)/)
+  assert.match(repository, /\.limit\(100\)/)
+  assert.match(repository, /body: row\.body\.slice\(0, 5000\)/)
+  assert.match(repository, /subject: row\.subject\.slice\(0, 200\)/)
+  assert.match(repository, /slice\(0, 12\)\.map\(value => value\.slice\(0, 512\)\)/)
+  assert.match(client, /useState<OutreachView>\('inbox'\)/)
+  assert.match(client, /data\?\.inbox\.map/)
+  assert.match(client, /item\.match_state === 'matched' \? 'Matched' : 'Unmatched'/)
+})
+
+test('unmatched Inbox mail is read-only and never exposes the send workflow', () => {
+  assert.match(client, /Unmatched · read-only/)
+  assert.match(client, /Reply and send actions are unavailable/)
+  assert.match(client, /matchedLead && <><LeadDetails lead=\{matchedLead\}/) // matched rows alone receive conversation controls
+  const unmatchedDetails = client.slice(client.indexOf('function InboxMessageDetails'), client.indexOf('export function OutreachClient'))
+  assert.doesNotMatch(unmatchedDetails, /Approve|sendApproved|draftEditor/)
+})
+
+test('matched Inbox and Sent views share conversation and manual reply controls', () => {
+  assert.match(client, /Open conversation/)
+  assert.match(client, /Suggested reply draft/)
+  assert.match(client, /Save edits/)
+  assert.match(client, /Approve &amp; Send|Approve & Send/)
+  assert.match(client, /'sent'/)
+  assert.match(client, /Incoming · Provider/)
+  assert.match(client, /Outgoing · Mahshar/)
+  assert.match(client, /ProviderMessageId value=\{message\.provider_message_id\}/)
+})
+
+test('Inbox counts are exact database counts rather than client-page inference', () => {
+  assert.match(repository, /select\('id', \{ count: 'exact', head: true \}\)\.eq\('direction', 'inbound'\)/)
+  assert.match(repository, /\['inbox', inboxCountResult\.count/)
+  assert.match(repository, /\['unmatched_inbound', unmatchedCountResult\.count/)
+  assert.match(repository, /\.eq\('status', 'needs_reply'\)/)
+  assert.match(repository, /\.eq\('status', 'draft'\)/)
+  assert.match(repository, /\.eq\('status', 'sent'\)/)
+  assert.match(client, /counts\.unmatched_inbound/)
+})
+
+test('the synthetic final canary shape remains visible as an unmatched read-only Inbox item', () => {
+  const syntheticCanary = {
+    direction: 'inbound', thread_id: null, processing_state: 'unmatched', classification: null,
+    subject: 'Synthetic Mahshar Outreach Canary — Final',
+  }
+  assert.equal(syntheticCanary.direction, 'inbound')
+  assert.equal(syntheticCanary.thread_id, null)
+  assert.equal(syntheticCanary.processing_state, 'unmatched')
+  assert.equal(syntheticCanary.classification, null)
+  assert.match(repository, /message\.thread_id === null && message\.processing_state === 'unmatched'/)
+  assert.match(repository, /match_state: matched \? 'matched' : 'unmatched'/)
+  assert.match(client, /item\.message\.subject/)
+})
+
+test('terminal threads do not render draft approval or send controls', () => {
+  assert.match(client, /threadAllowsDraft = reply/)
+  assert.match(client, /lead\.outreach_status === 'needs_reply' \|\| lead\.outreach_status === 'interested'/)
+  assert.match(client, /: lead\.outreach_status === 'draft'/)
+  assert.match(client, /if \(!lead\.draft \|\| !threadAllowsDraft\) return null/)
+})
+
+test('Inbox renders bounded plain text and wraps long unbroken content', () => {
+  assert.doesNotMatch(client, /dangerouslySetInnerHTML/)
+  assert.match(client, /<p>\{item\.message\.body\}<\/p>/)
+  assert.match(styles, /\.inboxDetails > p[^}]+overflow-wrap: anywhere/)
+  assert.match(styles, /\.conversation p[^}]+overflow-wrap: anywhere/)
 })
 
 test('manual approval is durable and the only first-send path is the approval action', () => {

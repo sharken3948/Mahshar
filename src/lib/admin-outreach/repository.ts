@@ -5,12 +5,16 @@ import { isVerifiedOutreachEmail } from '@/lib/admin-worker/contact-readiness'
 import { generateGroundedOutreachDraft, isEmailOutreachEligible } from './draft'
 import { outreachTransportConfigured } from './transport'
 import { outreachStatuses, type OutreachDashboardDto, type OutreachLeadDto,
-  type OutreachClassification, type OutreachMessageDto, type OutreachProcessingState, type OutreachStatus } from './types'
+  type OutreachClassification, type OutreachInboxItemDto, type OutreachMessageDto,
+  type OutreachProcessingState, type OutreachStatus } from './types'
 import type { NormalizedInboundReply } from './inbound'
 import type { ReplyClassification, SuggestedReply } from './intelligence'
 
 type DbError = { message?: string; code?: string } | null
 type DbResult = { data: unknown; error: DbError }
+type DbCountResult = DbResult & { count: number | null }
+
+const MESSAGE_SELECT = 'id,thread_id,direction,status,recipient_email,sender_email,subject,body,provider_message_id,in_reply_to,reference_ids,received_at,classification,classification_confidence,classification_reason,processing_state,matched_by,reply_to_message_id,approved_at,sent_at,created_at,updated_at'
 
 function dbFailure(scope: string, error: DbError): never {
   console.error(`[admin-outreach] ${scope} unavailable`, error?.code ?? error?.message ?? 'unknown database error')
@@ -34,17 +38,19 @@ function messageDto(row: Record<string, unknown>): OutreachMessageDto {
     || !['not_applicable','received','unmatched','classified','suggested','suggestion_failed'].includes(processingState)
     || !isVerifiedOutreachEmail(row.recipient_email) || !isVerifiedOutreachEmail(row.sender_email)
     || typeof row.subject !== 'string' || typeof row.body !== 'string') throw new Error('admin_outreach_message_invalid')
-  const references = Array.isArray(row.reference_ids) ? row.reference_ids.filter(value => typeof value === 'string').slice(0, 12) as string[] : []
+  const references = Array.isArray(row.reference_ids) ? row.reference_ids
+    .filter((value): value is string => typeof value === 'string').slice(0, 12).map(value => value.slice(0, 512)) : []
   const classification = ['interested','payment_question','technical_question','not_interested','do_not_contact','other']
     .includes(String(row.classification)) ? row.classification as OutreachClassification : null
   return {
-    id: row.id, direction: direction as OutreachMessageDto['direction'], status: status as OutreachMessageDto['status'], recipient_email: row.recipient_email,
-    sender_email: row.sender_email, subject: row.subject, body: row.body,
+    id: row.id, thread_id: typeof row.thread_id === 'string' ? row.thread_id : null,
+    direction: direction as OutreachMessageDto['direction'], status: status as OutreachMessageDto['status'], recipient_email: row.recipient_email,
+    sender_email: row.sender_email, subject: row.subject.slice(0, 200), body: row.body.slice(0, 5000),
     provider_message_id: typeof row.provider_message_id === 'string' ? row.provider_message_id : null,
     in_reply_to: typeof row.in_reply_to === 'string' ? row.in_reply_to : null, reference_ids: references,
     received_at: timestamp(row.received_at), classification,
     classification_confidence: typeof row.classification_confidence === 'number' ? row.classification_confidence : null,
-    classification_reason: typeof row.classification_reason === 'string' ? row.classification_reason : null,
+    classification_reason: typeof row.classification_reason === 'string' ? row.classification_reason.slice(0, 240) : null,
     processing_state: processingState as OutreachProcessingState,
     matched_by: ['in_reply_to','reference','subject_context','sender_unambiguous'].includes(String(row.matched_by))
       ? row.matched_by as OutreachMessageDto['matched_by'] : null,
@@ -57,33 +63,51 @@ function messageDto(row: Record<string, unknown>): OutreachMessageDto {
 
 export async function getOutreachDashboard(): Promise<OutreachDashboardDto> {
   const db = createServiceClient()
-  const contactReady = await getQualifiedWorkerLeads(50)
+  const [contactReady, inboxResult, inboxCountResult, unmatchedCountResult, needsReplyCountResult, draftCountResult, sentCountResult] = await Promise.all([
+    getQualifiedWorkerLeads(50),
+    db.from('admin_outreach_messages').select(MESSAGE_SELECT).eq('direction', 'inbound')
+      .order('received_at', { ascending: false }).order('created_at', { ascending: false }).order('id', { ascending: true }).limit(100),
+    db.from('admin_outreach_messages').select('id', { count: 'exact', head: true }).eq('direction', 'inbound'),
+    db.from('admin_outreach_messages').select('id', { count: 'exact', head: true }).eq('direction', 'inbound')
+      .is('thread_id', null).eq('processing_state', 'unmatched'),
+    db.from('admin_outreach_threads').select('id', { count: 'exact', head: true }).eq('status', 'needs_reply'),
+    db.from('admin_outreach_threads').select('id', { count: 'exact', head: true }).eq('status', 'draft'),
+    db.from('admin_outreach_threads').select('id', { count: 'exact', head: true }).eq('status', 'sent'),
+  ]) as [Awaited<ReturnType<typeof getQualifiedWorkerLeads>>, DbResult, DbCountResult, DbCountResult,
+    DbCountResult, DbCountResult, DbCountResult]
+  if (inboxResult.error) dbFailure('inbox', inboxResult.error)
+  if (inboxCountResult.error) dbFailure('inbox count', inboxCountResult.error)
+  if (unmatchedCountResult.error) dbFailure('unmatched inbox count', unmatchedCountResult.error)
+  if (needsReplyCountResult.error) dbFailure('needs reply count', needsReplyCountResult.error)
+  if (draftCountResult.error) dbFailure('draft count', draftCountResult.error)
+  if (sentCountResult.error) dbFailure('sent count', sentCountResult.error)
+  const inboxMessages = rows(inboxResult.data)
   const leadIds = contactReady.leads.map(lead => lead.id)
-  if (leadIds.length === 0) return {
-    leads: [], contact_form_only: [],
-    counts: Object.fromEntries([...outreachStatuses.map(status => [status, 0]), ['contact_form_only', 0]]) as OutreachDashboardDto['counts'],
-    transport: { outbound: outreachTransportConfigured() ? 'configured' : 'not_configured', sender: 'support@mahshar.xyz' },
-    replies: { inbound: (process.env.OUTREACH_INBOUND_WEBHOOK_SECRET?.trim().length ?? 0) >= 32 ? 'mailbox_bridge_configured' : 'not_configured' },
-    as_of: new Date().toISOString(),
-  }
-  const identityResult = await db.from('worker_leads').select('id,provider_id').in('id', leadIds) as DbResult
+  const identityResult = leadIds.length
+    ? await db.from('worker_leads').select('id,provider_id').in('id', leadIds) as DbResult
+    : { data: [], error: null }
   if (identityResult.error) dbFailure('lead identities', identityResult.error)
   const identities = rows(identityResult.data)
   const providerIds = [...new Set(identities.flatMap(row => typeof row.provider_id === 'string' ? [row.provider_id] : []))]
-  const [providersResult, decisionsResult, threadsResult] = await Promise.all([
-    db.from('worker_providers').select('id,status').in('id', providerIds),
-    db.from('worker_decisions').select('provider_id,lead_id,decision').in('provider_id', providerIds),
-    db.from('admin_outreach_threads').select('id,lead_id,provider_id,status,last_outreach_at,last_reply_at,updated_at').in('lead_id', leadIds),
-  ]) as [DbResult, DbResult, DbResult]
+  const inboxThreadIds = [...new Set(inboxMessages.flatMap(row => typeof row.thread_id === 'string' ? [row.thread_id] : []))]
+  const emptyResult: DbResult = { data: [], error: null }
+  const [providersResult, decisionsResult, threadsResult, inboxThreadsResult] = await Promise.all([
+    providerIds.length ? db.from('worker_providers').select('id,status').in('id', providerIds) : emptyResult,
+    providerIds.length ? db.from('worker_decisions').select('provider_id,lead_id,decision').in('provider_id', providerIds) : emptyResult,
+    leadIds.length ? db.from('admin_outreach_threads').select('id,lead_id,provider_id,status,last_outreach_at,last_reply_at,updated_at').in('lead_id', leadIds) : emptyResult,
+    inboxThreadIds.length ? db.from('admin_outreach_threads').select('id,lead_id,provider_id,status,last_outreach_at,last_reply_at,updated_at').in('id', inboxThreadIds) : emptyResult,
+  ]) as [DbResult, DbResult, DbResult, DbResult]
   if (providersResult.error) dbFailure('providers', providersResult.error)
   if (decisionsResult.error) dbFailure('decisions', decisionsResult.error)
   if (threadsResult.error) dbFailure('threads', threadsResult.error)
+  if (inboxThreadsResult.error) dbFailure('inbox threads', inboxThreadsResult.error)
   const providers = new Map(rows(providersResult.data).map(row => [row.id, row.status]))
   const decisions = rows(decisionsResult.data)
-  const threads = rows(threadsResult.data)
+  const threads = [...new Map([...rows(threadsResult.data), ...rows(inboxThreadsResult.data)]
+    .flatMap(row => typeof row.id === 'string' ? [[row.id, row] as const] : [])).values()]
   const threadIds = threads.flatMap(row => typeof row.id === 'string' ? [row.id] : [])
   const messagesResult = threadIds.length
-    ? await db.from('admin_outreach_messages').select('id,thread_id,direction,status,recipient_email,sender_email,subject,body,provider_message_id,in_reply_to,reference_ids,received_at,classification,classification_confidence,classification_reason,processing_state,matched_by,reply_to_message_id,approved_at,sent_at,created_at,updated_at')
+    ? await db.from('admin_outreach_messages').select(MESSAGE_SELECT)
       .in('thread_id', threadIds).order('created_at', { ascending: false }) as DbResult
     : { data: [], error: null }
   if (messagesResult.error) dbFailure('messages', messagesResult.error)
@@ -109,11 +133,31 @@ export async function getOutreachDashboard(): Promise<OutreachDashboardDto> {
       history: history.filter(message => ['sent','received','failed'].includes(message.status)).slice(0, 20) }
   })
   const counts = Object.fromEntries([
-    ...outreachStatuses.map(status => [status, emailLeads.filter(lead => lead.outreach_status === status).length]),
+    ...outreachStatuses.map(status => [status, status === 'needs_reply' ? needsReplyCountResult.count ?? 0
+      : status === 'draft' ? draftCountResult.count ?? 0
+        : status === 'sent' ? sentCountResult.count ?? 0
+          : emailLeads.filter(lead => lead.outreach_status === status).length]),
+    ['inbox', inboxCountResult.count ?? inboxMessages.length],
+    ['unmatched_inbound', unmatchedCountResult.count ?? inboxMessages.filter(message => message.thread_id === null && message.processing_state === 'unmatched').length],
     ['contact_form_only', allowed.filter(lead => !lead.email_ready && Boolean(lead.official_contact_url)).length],
   ]) as OutreachDashboardDto['counts']
+  const leadById = new Map(emailLeads.map(lead => [lead.id, lead]))
+  const threadById = new Map(threads.flatMap(thread => typeof thread.id === 'string' ? [[thread.id, thread] as const] : []))
+  const inbox: OutreachInboxItemDto[] = inboxMessages.map(row => {
+    const message = messageDto(row)
+    const matched = message.thread_id !== null && message.processing_state !== 'unmatched'
+    const unmatched = message.thread_id === null && message.processing_state === 'unmatched'
+    if (!matched && !unmatched) throw new Error('admin_outreach_inbox_match_invalid')
+    const thread = message.thread_id ? threadById.get(message.thread_id) : undefined
+    const leadId = typeof thread?.lead_id === 'string' ? thread.lead_id : null
+    const lead = leadId ? leadById.get(leadId) : undefined
+    const threadStatus = outreachStatuses.includes(thread?.status as OutreachStatus) ? thread?.status as OutreachStatus : null
+    return { message, match_state: matched ? 'matched' : 'unmatched', lead_id: leadId,
+      provider: lead?.provider ?? null, product: lead?.product ?? null, thread_status: threadStatus }
+  })
   return {
     leads: emailLeads,
+    inbox,
     contact_form_only: allowed.filter(lead => !lead.email_ready && Boolean(lead.official_contact_url)).map(lead => ({
       id: lead.id, provider: lead.provider, product: lead.product, fit_score: lead.fit_score,
       official_contact_url: lead.official_contact_url,

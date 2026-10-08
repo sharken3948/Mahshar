@@ -14,6 +14,7 @@ export type OutreachProcessingState = 'not_applicable' | 'received' | 'unmatched
 
 export type OutreachMessageDto = {
   id: string
+  thread_id: string | null
   direction: 'inbound' | 'outbound'
   status: OutreachMessageStatus
   recipient_email: string
@@ -36,6 +37,15 @@ export type OutreachMessageDto = {
   updated_at: string
 }
 
+export type OutreachInboxItemDto = {
+  message: OutreachMessageDto
+  match_state: 'matched' | 'unmatched'
+  lead_id: string | null
+  provider: string | null
+  product: string | null
+  thread_status: OutreachStatus | null
+}
+
 export type OutreachLeadDto = WorkerQualifiedLeadDto & {
   provider_id: string
   outreach_status: OutreachStatus
@@ -50,8 +60,9 @@ export type ContactFormLeadDto = Pick<WorkerQualifiedLeadDto,
 
 export type OutreachDashboardDto = {
   leads: OutreachLeadDto[]
+  inbox: OutreachInboxItemDto[]
   contact_form_only: ContactFormLeadDto[]
-  counts: Record<OutreachStatus, number> & { contact_form_only: number }
+  counts: Record<OutreachStatus, number> & { inbox: number; unmatched_inbound: number; contact_form_only: number }
   transport: { outbound: 'configured' | 'not_configured'; sender: 'support@mahshar.xyz' }
   replies: { inbound: 'mailbox_bridge_configured' | 'not_configured' }
   as_of: string

@@ -10,6 +10,7 @@
 .tabs { display: flex; flex-wrap: wrap; gap: 8px; }
 .tabs button, .actions button, .editorActions button { padding: 9px 12px; border: 1px solid rgba(76,141,255,.25); border-radius: 8px; color: #aebed8; background: rgba(76,141,255,.06); font: inherit; cursor: pointer; }
 .tabs button small { margin-left: 5px; color: #7894be; }
+.tabs .unmatchedCount { margin-left: 7px; padding: 2px 6px; border-radius: 999px; color: #efc17f; background: rgba(239,178,94,.1); font-size: 10px; }
 .tabs .activeTab { border-color: rgba(91,156,255,.65); color: #e5eeff; background: rgba(76,141,255,.18); }
 .panel { overflow: hidden; border: 1px solid rgba(146,169,211,.14); border-radius: 15px; background: #0d1422; }
 .tableViewport { overflow-x: auto; }
@@ -17,6 +18,13 @@
 .tableViewport th, .tableViewport td { padding: 13px 15px; border-bottom: 1px solid rgba(146,169,211,.1); color: #b4c1d5; text-align: left; font-size: 13px; vertical-align: top; }
 .tableViewport th { color: #7d8da7; background: #0a111d; letter-spacing: .07em; text-transform: uppercase; }
 .tableViewport a { color: #8db8ff; }
+.tableViewport td > button { padding: 7px 9px; border: 1px solid rgba(76,141,255,.25); border-radius: 8px; color: #aebed8; background: rgba(76,141,255,.06); font: inherit; cursor: pointer; }
+.inboxTable { min-width: 1180px; }
+.secondary { display: block; margin-top: 4px; color: #788aa5; }
+.matchedChip, .unmatchedChip, .classificationChip, .statusChip, .incomingLabel { display: inline-flex; width: fit-content; padding: 3px 7px; border-radius: 999px; font-size: 11px; }
+.matchedChip, .classificationChip { color: #82d6b4; background: rgba(70,190,142,.1); }
+.unmatchedChip { color: #efc17f; background: rgba(239,178,94,.1); }
+.statusChip { color: #9ebeff; background: rgba(76,141,255,.12); }
 .tableViewport select { max-width: 160px; padding: 7px 8px; border: 1px solid rgba(76,141,255,.25); border-radius: 7px; color: #b9c9e2; background: #0a111d; font: inherit; }
 .actions, .editorActions { display: flex; flex-wrap: wrap; gap: 7px; }
 .actions button, .editorActions button { padding: 7px 9px; font-size: 12.5px; }
@@ -36,13 +44,30 @@
 .conversation { display: grid; gap: 10px; padding: 20px; background: #0d1624; }
 .conversation > h3, .editor > h3 { margin: 0; color: #dce6f5; font-size: 13px; text-transform: uppercase; }
 .conversation article { display: grid; gap: 7px; padding: 14px; border: 1px solid rgba(146,169,211,.14); border-radius: 9px; background: #0a111d; }
+.conversation .incoming { margin-right: 8%; border-left: 3px solid rgba(70,190,142,.55); }
+.conversation .outgoing { margin-left: 8%; border-right: 3px solid rgba(76,141,255,.55); }
 .conversation header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .conversation header strong { color: #dce6f5; }
 .conversation header span, .conversation header small { color: #7f91ad; font-size: 12px; }
 .conversation header small { padding: 2px 6px; border-radius: 999px; background: rgba(76,141,255,.1); }
 .conversation h4, .conversation p { margin: 0; }
 .conversation h4 { color: #bfcce0; font-size: 13px; }
-.conversation p { color: #9eacc0; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
+.conversation p { color: #9eacc0; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; white-space: pre-wrap; }
+.messageId { display: grid; grid-template-columns: max-content minmax(0,1fr); gap: 8px; margin: 3px 0 0; color: #70819c; font-size: 11px; }
+.messageId dt, .messageId dd { margin: 0; }
+.messageId code { overflow-wrap: anywhere; }
+.inboxDetails { display: grid; gap: 15px; padding: 20px; border-bottom: 1px solid rgba(146,169,211,.12); background: #0b1522; }
+.inboxDetails > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.inboxDetails h3 { margin: 7px 0 0; color: #e2ebf8; font-size: 18px; }
+.inboxDetails header > span { color: #7f91ad; font-size: 12px; }
+.incomingLabel { color: #82d6b4; background: rgba(70,190,142,.1); text-transform: uppercase; }
+.inboxDetails dl { display: flex; flex-wrap: wrap; gap: 12px 28px; margin: 0; }
+.inboxDetails dl div { display: grid; gap: 3px; }
+.inboxDetails dt { color: #71829d; font-size: 11px; text-transform: uppercase; }
+.inboxDetails dd { margin: 0; color: #bdc9db; font-size: 13px; }
+.inboxDetails > p { max-width: 850px; margin: 0; color: #aab8cc; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-wrap; }
+.readOnlyNotice { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid rgba(239,178,94,.2); border-radius: 9px; color: #d5ad73; background: rgba(239,178,94,.06); }
+.readOnlyNotice span { color: #9f8b6f; font-size: 12px; }
 .editor { display: grid; gap: 13px; padding: 20px; background: #0b121f; }
 .editor label { display: grid; gap: 7px; color: #899ab5; font-size: 13px; }
 .editor input, .editor textarea { width: 100%; box-sizing: border-box; padding: 11px 12px; border: 1px solid rgba(146,169,211,.2); border-radius: 8px; color: #e3ebf8; background: #080e18; font: inherit; }
