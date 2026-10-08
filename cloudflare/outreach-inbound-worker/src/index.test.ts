@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { createWorker, extractIdentifiers, htmlToPlainText, normalizeParsedEmail, type ForwardableEmailMessage,
   type NormalizedInboundPayload, type WorkerEnv } from './index.js'
@@ -8,6 +9,16 @@ const env: WorkerEnv = {
   OUTREACH_INBOUND_ENDPOINT: 'https://mahshar.xyz/api/internal/outreach/inbound',
   OUTREACH_INBOUND_WEBHOOK_SECRET: 's'.repeat(64),
 }
+
+test('routes the same-zone webhook through the public Internet without exposing an HTTP Worker route', () => {
+  const config = JSON.parse(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8')) as Record<string, unknown>
+  assert.deepEqual(config.compatibility_flags, ['global_fetch_strictly_public'])
+  assert.equal(config.workers_dev, false)
+  assert.equal(config.preview_urls, false)
+  assert.equal('routes' in config, false)
+  assert.equal((config.vars as Record<string, unknown>).OUTREACH_INBOUND_ENDPOINT,
+    'https://mahshar.xyz/api/internal/outreach/inbound')
+})
 
 function rawMessage(body: string, headers: string[] = []): string {
   return [
