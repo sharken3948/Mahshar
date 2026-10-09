@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { test } from 'node:test'
 import { compareVersions, checkMaintenanceUpdates, evaluateArcNotice, evaluateArcRelease, evaluateGroqModel, groqDeprecationForModel, maintenanceInventoryDashboard, maintenanceSummary, validGroqDeprecationDocument } from '../../src/lib/admin-maintenance/checks'
 import { getMaintenanceInventory } from '../../src/lib/admin-maintenance/inventory'
+import { OFFICIAL_ARC_MAINNET_RPC_URL } from '../../src/lib/arc-network'
 import type { MaintenanceCheckResult, MaintenanceInventoryItem, MaintenanceSeverity, MaintenanceStatus } from '../../src/lib/admin-maintenance/types'
 
 const fixedTime = '2026-10-09T10:00:00.000Z'
@@ -49,6 +50,18 @@ test('inventory is build-time bundled and does not require repository files at r
   const source = readFileSync('src/lib/admin-maintenance/inventory.ts', 'utf8')
   assert.match(source, /import lockfileJson from '\.\.\/\.\.\/\.\.\/package-lock\.json'/)
   assert.doesNotMatch(source, /readFileSync|process\.cwd|node:fs|node:path/)
+})
+
+test('server inventory imports the official Arc RPC from a boundary-neutral module', () => {
+  const inventorySource = readFileSync('src/lib/admin-maintenance/inventory.ts', 'utf8')
+  const networkSource = readFileSync('src/lib/arc-network.ts', 'utf8')
+  const clientSource = readFileSync('src/lib/arc-balance-client.ts', 'utf8')
+  assert.equal(typeof OFFICIAL_ARC_MAINNET_RPC_URL, 'string')
+  assert.equal(OFFICIAL_ARC_MAINNET_RPC_URL, 'https://rpc.mainnet.arc.io/')
+  assert.match(inventorySource, /from '@\/lib\/arc-network'/)
+  assert.doesNotMatch(inventorySource, /from '@\/lib\/arc-balance-client'/)
+  assert.doesNotMatch(networkSource, /^['"]use client['"]/m)
+  assert.match(clientSource, /from '@\/lib\/arc-network'/)
 })
 
 test('one broken package inventory entry does not erase unrelated components', () => {

@@ -1,6 +1,6 @@
 import 'server-only'
 import lockfileJson from '../../../package-lock.json'
-import { OFFICIAL_ARC_MAINNET_RPC_URL } from '@/lib/arc-balance-client'
+import { OFFICIAL_ARC_MAINNET_RPC_URL } from '@/lib/arc-network'
 import { GROQ_MODEL } from '@/lib/groq-neutral'
 import type { MaintenanceInventoryItem } from './types'
 

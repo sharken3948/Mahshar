@@ -2,10 +2,10 @@
 
 import { createPublicClient, custom, erc20Abi, getAddress, http, type Address, type EIP1193Provider } from 'viem'
 import { ARC } from '@/lib/arc'
+import { OFFICIAL_ARC_MAINNET_RPC_URL } from '@/lib/arc-network'
 import { arcMainnet } from '@/lib/chains'
 import { arcBalanceReader, type ArcBalanceReader, type ArcBalanceSnapshot, type ArcBalanceSource } from '@/lib/arc-balance-read'
 
-export const OFFICIAL_ARC_MAINNET_RPC_URL = 'https://rpc.mainnet.arc.io/'
 const BROWSER_RPC_TIMEOUT_MS = 5_000
 const SERVER_FALLBACK_TIMEOUT_MS = 7_000
 
