@@ -145,6 +145,7 @@ If submission or mint execution becomes ambiguous, the reservation remains locke
 
 Autonomous clients should start with the public discovery endpoint and its current machine contract:
 
+- MCP Phase 1 endpoint: `https://mahshar.xyz/api/mcp` (stateless public discovery through `search_apis` and `get_api`; paid execution is not yet exposed through MCP)
 - [OpenAPI document](openapi.yaml)
 - [Agent integration guide](docs/agent-integration.md)
 

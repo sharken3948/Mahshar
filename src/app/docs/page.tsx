@@ -24,6 +24,7 @@ export const metadata: Metadata = {
 
 const topics = [
   { icon: 'book' as const, title: 'Getting started', copy: 'Choose the implemented buyer, provider, or agent path.', href: '#getting-started' },
+  { icon: 'agent' as const, title: 'MCP discovery', copy: 'Stateless API search and safe listing inspection.', href: '#mcp' },
   { icon: 'agent' as const, title: 'Agent integration', copy: 'Discovery, proxy styles, payment, and delivery states.', href: '#agent-integration' },
   { icon: 'provider' as const, title: 'API providers', copy: 'List an endpoint and complete the existing review flow.', href: '#providers' },
   { icon: 'payment' as const, title: 'Payments and x402', copy: 'Read the Arc Mainnet x402 v2 request sequence.', href: '#payments' },
@@ -83,6 +84,15 @@ export default function DocsPage() {
             <div className={styles.contractPanel}>
               <div><p className={styles.eyebrow}>AGENT INTEGRATION</p><h2>Discover first, then follow the selected listing.</h2><p>The discovery response includes the listing method, proxy URL and style, request metadata, optional schemas and examples, auth type, listed price, payment contract, and response wrapper. Seller upstream URLs and credentials are not part of that public contract.</p><div className={styles.actions}><Link href="/api/agent/discover" className={styles.primaryButton}>Open discovery <PublicIcon name="arrow" /></Link><Link href="/agents" className={styles.secondaryButton}>Agent overview</Link></div></div>
               <div className={styles.codePanel}><code>{`GET /api/agent/discover\n  → active listings\n  → proxy_url + proxy_style\n  → request + response metadata\n  → Arc Mainnet payment contract\n  → OpenAPI URL\n\nGET /api/openapi\n  → application/yaml`}</code></div>
+            </div>
+          </div>
+        </section>
+
+        <section className={styles.sectionTint} id="mcp">
+          <div className={styles.container}>
+            <div className={styles.contractPanel}>
+              <div><p className={styles.eyebrow}>MCP PHASE 1</p><h2>Public discovery through a stateless MCP endpoint.</h2><p>Connect an MCP client to <code>https://mahshar.xyz/api/mcp</code>. The endpoint is public and sessionless and exposes only <code>search_apis</code> and <code>get_api</code>, both backed by the same safe public discovery contract as <code>/api/agent/discover</code>. Paid execution and purchase-response recovery are not yet exposed through MCP.</p></div>
+              <div className={styles.codePanel}><code>{`endpoint  POST https://mahshar.xyz/api/mcp\ntransport stateless Streamable HTTP\ntools     search_apis, get_api\nauth      none\nphase     discovery only\npaid MCP execution  not available`}</code></div>
             </div>
           </div>
         </section>
