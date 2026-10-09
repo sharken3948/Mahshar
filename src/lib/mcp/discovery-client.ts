@@ -104,7 +104,7 @@ export class DiscoverySourceError extends Error {
   }
 }
 
-type DiscoveryClientOptions = {
+export type DiscoveryClientOptions = {
   fetcher?: typeof fetch
   origin?: string
   timeoutMs?: number

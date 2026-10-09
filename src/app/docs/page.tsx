@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 
 const topics = [
   { icon: 'book' as const, title: 'Getting started', copy: 'Choose the implemented buyer, provider, or agent path.', href: '#getting-started' },
-  { icon: 'agent' as const, title: 'MCP discovery', copy: 'Stateless API search and safe listing inspection.', href: '#mcp' },
+  { icon: 'agent' as const, title: 'MCP V1', copy: 'Stateless discovery, x402 preparation, signed execution, and recovery.', href: '#mcp' },
   { icon: 'agent' as const, title: 'Agent integration', copy: 'Discovery, proxy styles, payment, and delivery states.', href: '#agent-integration' },
   { icon: 'provider' as const, title: 'API providers', copy: 'List an endpoint and complete the existing review flow.', href: '#providers' },
   { icon: 'payment' as const, title: 'Payments and x402', copy: 'Read the Arc Mainnet x402 v2 request sequence.', href: '#payments' },
@@ -91,8 +91,8 @@ export default function DocsPage() {
         <section className={styles.sectionTint} id="mcp">
           <div className={styles.container}>
             <div className={styles.contractPanel}>
-              <div><p className={styles.eyebrow}>MCP PHASE 1</p><h2>Public discovery through a stateless MCP endpoint.</h2><p>Connect an MCP client to <code>https://mahshar.xyz/api/mcp</code>. The endpoint is public and sessionless and exposes only <code>search_apis</code> and <code>get_api</code>, both backed by the same safe public discovery contract as <code>/api/agent/discover</code>. Paid execution and purchase-response recovery are not yet exposed through MCP.</p></div>
-              <div className={styles.codePanel}><code>{`endpoint  POST https://mahshar.xyz/api/mcp\ntransport stateless Streamable HTTP\ntools     search_apis, get_api\nauth      none\nphase     discovery only\npaid MCP execution  not available`}</code></div>
+              <div><p className={styles.eyebrow}>MCP V1 PHASE 2</p><h2>Discovery and externally signed x402 execution through one stateless endpoint.</h2><p>Connect an MCP client to <code>https://mahshar.xyz/api/mcp</code>. <code>search_apis</code> and <code>get_api</code> use the safe public discovery contract. An unsigned <code>execute_api_call</code> returns the real 402 challenge and a short-lived prepared-call token; the MCP host must validate the challenge and sign it with its own wallet before replaying the exact prepared arguments. Mahshar never accepts private keys, signs automatically, or takes custody. <code>get_purchase_response</code> retrieves one exact paid response using the returned bearer purchase capability. Live paid MCP execution has not yet been production-verified.</p></div>
+              <div className={styles.codePanel}><code>{`endpoint  POST https://mahshar.xyz/api/mcp\ntransport stateless Streamable HTTP\ntools     search_apis, get_api\n          execute_api_call\n          get_purchase_response\nsigning   external wallet required\ncustody   none\nrecovery  returned purchase capability`}</code></div>
             </div>
           </div>
         </section>

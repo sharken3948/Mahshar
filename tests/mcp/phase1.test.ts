@@ -167,17 +167,58 @@ test('MCP request bodies are bounded before protocol parsing', async () => {
   const response = await mcpPost(new Request('https://mahshar.xyz/api/mcp', {
     method: 'POST',
     headers: { accept: 'application/json', 'content-type': 'application/json' },
-    body: 'x'.repeat((16 * 1024) + 1),
+    body: 'x'.repeat((384 * 1024) + 1),
   }))
   assert.equal(response.status, 413)
   assert.match(response.headers.get('content-type') ?? '', /^application\/json/)
 })
 
-test('tool discovery exposes only Phase 1 discovery tools', async () => {
+test('tool discovery exposes exactly the four MCP V1 tools', async () => {
   const { body } = await modernRequest(handlerWith(), 'tools/list')
-  assert.deepEqual(body.result.tools.map((tool: { name: string }) => tool.name), ['search_apis', 'get_api'])
+  assert.deepEqual(body.result.tools.map((tool: { name: string }) => tool.name), [
+    'search_apis', 'get_api', 'execute_api_call', 'get_purchase_response',
+  ])
   assert.equal(body.result.tools.every((tool: { inputSchema: { additionalProperties: boolean } }) =>
     tool.inputSchema.additionalProperties === false), true)
+  const execute = body.result.tools.find((tool: { name: string }) => tool.name === 'execute_api_call')
+  const recovery = body.result.tools.find((tool: { name: string }) => tool.name === 'get_purchase_response')
+  assert.deepEqual(execute.annotations, { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true })
+  assert.deepEqual(recovery.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true })
+})
+
+test('paid tool metadata independently explains the external signing and recovery flow', async () => {
+  const { body } = await modernRequest(handlerWith(), 'tools/list')
+  const execute = body.result.tools.find((tool: { name: string }) => tool.name === 'execute_api_call')
+  const recovery = body.result.tools.find((tool: { name: string }) => tool.name === 'get_purchase_response')
+  const executeDescription = String(execute.description)
+  const recoveryDescription = String(recovery.description)
+  const executeProperties = execute.inputSchema.properties as Record<string, { description?: string }>
+  const recoveryProperties = recovery.inputSchema.properties as Record<string, { description?: string }>
+
+  assert.match(executeDescription, /first call without payment_signature and without prepared_call_token/i)
+  for (const expected of ['payment_required', 'live payment challenge', 'prepared_call_token', 'normalized prepared-call arguments']) {
+    assert.match(executeDescription, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'))
+  }
+  assert.match(executeDescription, /sign only that returned challenge externally with the caller's own wallet/i)
+  assert.match(executeDescription, /call this same tool again with identical API\/call arguments/i)
+  assert.match(executeDescription, /exact returned prepared_call_token/i)
+  assert.match(executeDescription, /externally generated payment_signature/i)
+  assert.match(executeDescription, /do not change any call argument between calls/i)
+  assert.match(executeDescription, /never accepts private keys/i)
+  assert.match(executeDescription, /never signs on behalf of the caller/i)
+  assert.match(executeDescription, /never custodies buyer funds/i)
+  assert.match(executeDescription, /transport_outcome_unknown, do not create a fresh authorization/i)
+  assert.match(executeDescription, /get_purchase_response with the returned purchase capability/i)
+
+  assert.match(executeProperties.prepared_call_token.description ?? '', /sensitive bearer value/i)
+  assert.match(executeProperties.prepared_call_token.description ?? '', /exact value.*identical API\/call arguments/i)
+  assert.match(executeProperties.payment_signature.description ?? '', /generated externally by the caller wallet/i)
+  assert.match(executeProperties.payment_signature.description ?? '', /never provide a private key/i)
+  assert.match(recoveryProperties.purchase_access_token.description ?? '', /bearer-sensitive purchase capability returned by paid execution/i)
+  assert.match(recoveryDescription, /exact durable response/i)
+  assert.match(recoveryDescription, /purchase capability returned by paid execution/i)
+  assert.match(recoveryDescription, /never falls back to a browser session/i)
+  assert.match(recoveryDescription, /do not log or share/i)
 })
 
 test('search_apis pages safe active discovery summaries', async () => {

@@ -145,7 +145,7 @@ If submission or mint execution becomes ambiguous, the reservation remains locke
 
 Autonomous clients should start with the public discovery endpoint and its current machine contract:
 
-- MCP Phase 1 endpoint: `https://mahshar.xyz/api/mcp` (stateless public discovery through `search_apis` and `get_api`; paid execution is not yet exposed through MCP)
+- MCP V1 endpoint: `https://mahshar.xyz/api/mcp` (stateless discovery through `search_apis` and `get_api`, real x402 challenge preparation and externally signed replay through `execute_api_call`, and purchase-capability recovery through `get_purchase_response`). Mahshar never accepts buyer private keys, signs automatically, or takes custody. Live paid MCP execution has not yet been production-verified.
 - [OpenAPI document](openapi.yaml)
 - [Agent integration guide](docs/agent-integration.md)
 

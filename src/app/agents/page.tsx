@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 
 const features = [
   { icon: 'discover' as const, title: 'Machine-readable discovery', copy: 'The discovery endpoint returns active listings with methods, proxy URLs, request metadata, prices, and response contracts.' },
-  { icon: 'agent' as const, title: 'MCP Phase 1', copy: 'A stateless MCP endpoint exposes public API search and safe listing inspection. Paid execution is not yet available through MCP.' },
+  { icon: 'agent' as const, title: 'MCP V1', copy: 'The stateless MCP endpoint supports discovery, x402 challenge preparation, externally signed paid execution, and purchase-scoped recovery.' },
   { icon: 'api' as const, title: 'Two proxy styles', copy: 'Listings declare either a direct path route for matching GET or POST calls, or the envelope route for GET, POST, PUT, and DELETE.' },
   { icon: 'payment' as const, title: 'Arc Mainnet x402', copy: 'Paid calls use x402 v2 payment requirements for Arc Mainnet and settle against the payment terms returned by the 402 challenge.' },
   { icon: 'auth' as const, title: 'Purchase access', copy: 'Paid responses include a purchase capability that can retrieve only the private response for that exact purchase.' },
@@ -32,7 +32,7 @@ const features = [
 
 const resources = [
   { icon: 'api' as const, title: 'Public API marketplace', copy: 'Browse crawlable pages for active APIs before using the machine contract to execute a call.', href: '/marketplace', label: 'Browse APIs' },
-  { icon: 'agent' as const, title: 'MCP discovery endpoint', copy: 'Connect an MCP client to the stateless Phase 1 endpoint for search_apis and get_api. Paid execution is not exposed through MCP.', path: 'https://mahshar.xyz/api/mcp' },
+  { icon: 'agent' as const, title: 'MCP endpoint', copy: 'Connect a capable MCP client for discovery, x402 challenge preparation, signed execution, and purchase recovery. Live paid MCP execution has not yet been production-verified.', path: 'https://mahshar.xyz/api/mcp' },
   { icon: 'discover' as const, title: 'Raw machine discovery', copy: 'View the public JSON catalog consumed by agents. This is machine data, not a product page.', href: '/api/agent/discover', label: 'View raw discovery JSON' },
   { icon: 'docs' as const, title: 'OpenAPI 3.1 specification', copy: 'Inspect the public discovery, execution, access, and recovery contract.', href: '/api/openapi', label: 'Open OpenAPI specification' },
   { icon: 'book' as const, title: 'Integration guide', copy: 'Follow the documented discovery, payment, delivery-state, and recovery sequence.', href: '/docs#agent-integration', label: 'Read guide' },
@@ -96,8 +96,8 @@ export default function AgentsPage() {
         <section className={styles.sectionTint} id="recovery">
           <div className={styles.container}>
             <div className={styles.contractPanel}>
-              <div><p className={styles.eyebrow}>DELIVERY &amp; RECOVERY</p><h2>Retry behavior is declared, not guessed.</h2><p>A paid response reports its delivery state and retryability. The integration guide permits replay of the exact proof and request only when the response marks it retryable. The reconciliation route finalizes durable accounting only; it does not settle again or execute the upstream API.</p></div>
-              <div className={styles.codePanel}><code>{`mcp        POST /api/mcp (discovery only)\ndiscovery  GET  /api/agent/discover\nspec       GET  /api/openapi\npath       GET|POST /api/proxy/{api_id}\nenvelope   POST /api/proxy\nretrieve   GET  /api/calls/last-response\nreconcile  POST /api/payments/reconcile`}</code></div>
+              <div><p className={styles.eyebrow}>DELIVERY &amp; RECOVERY</p><h2>Retry behavior is declared, not guessed.</h2><p>The MCP client first calls <code className={styles.inlineCode}>execute_api_call</code> without a signature, validates the real x402 challenge, and signs externally. Mahshar never accepts private keys, signs automatically, or takes custody. The client then resubmits the exact arguments with the prepared-call token and signature. A paid response reports its delivery state and retryability; <code className={styles.inlineCode}>get_purchase_response</code> uses the returned purchase capability for exact-purchase recovery.</p></div>
+              <div className={styles.codePanel}><code>{`mcp        POST /api/mcp (stateless)\ntools      search_apis, get_api\n           execute_api_call\n           get_purchase_response\npath       GET|POST /api/proxy/{api_id}\nenvelope   POST /api/proxy\nretrieve   GET /api/calls/last-response\nsigning    external wallet only`}</code></div>
             </div>
           </div>
         </section>
