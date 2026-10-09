@@ -1,6 +1,5 @@
 import 'server-only'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import lockfileJson from '../../../package-lock.json'
 import { OFFICIAL_ARC_MAINNET_RPC_URL } from '@/lib/arc-balance-client'
 import { GROQ_MODEL } from '@/lib/groq-neutral'
 import type { MaintenanceInventoryItem } from './types'
@@ -25,16 +24,13 @@ const PACKAGE_ITEMS = [
   ['groq-sdk', 'Groq SDK', 'AI', 'groq-sdk', 'Centralized Groq API client used for bounded AI tasks.'],
 ] as const
 
-let cachedLockfile: Lockfile | null = null
+const bundledLockfile = lockfileJson as unknown as Lockfile
 
-function lockfile(): Lockfile {
-  if (!cachedLockfile) cachedLockfile = JSON.parse(readFileSync(join(process.cwd(), 'package-lock.json'), 'utf8')) as Lockfile
-  return cachedLockfile
-}
-
-function installedVersion(packageName: string): string {
-  const value = lockfile().packages?.[`node_modules/${packageName}`]?.version
-  return typeof value === 'string' && value.length <= 64 ? value : 'Unknown'
+function installedVersion(packageName: string, lockfile: Lockfile): string {
+  try {
+    const value = lockfile.packages?.[`node_modules/${packageName}`]?.version
+    return typeof value === 'string' && value.length <= 64 ? value : 'Unknown'
+  } catch { return 'Unknown' }
 }
 
 export function configuredGroqModel(): string {
@@ -69,12 +65,12 @@ export function configuredArcRpc(): { values: string[]; display: string } {
   }
 }
 
-export function getMaintenanceInventory(): MaintenanceInventoryItem[] {
+export function getMaintenanceInventory(lockfile: Lockfile = bundledLockfile): MaintenanceInventoryItem[] {
   const packages = PACKAGE_ITEMS.map(([id, component, category, packageName, usage]) => ({
     id,
     component,
     category,
-    current: installedVersion(packageName),
+    current: installedVersion(packageName, lockfile),
     package_name: packageName,
     usage,
     source_url: `https://www.npmjs.com/package/${packageName}`,

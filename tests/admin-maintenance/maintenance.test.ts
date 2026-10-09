@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { chdir, cwd } from 'node:process'
+import { tmpdir } from 'node:os'
 import { test } from 'node:test'
 import { compareVersions, checkMaintenanceUpdates, evaluateArcNotice, evaluateArcRelease, evaluateGroqModel, groqDeprecationForModel, maintenanceInventoryDashboard, maintenanceSummary, validGroqDeprecationDocument } from '../../src/lib/admin-maintenance/checks'
 import { getMaintenanceInventory } from '../../src/lib/admin-maintenance/inventory'
@@ -30,6 +32,38 @@ test('installed inventory is derived from the lockfile and current runtime confi
   assert.equal(inventory.find(item => item.id === 'circle-onramp')?.current, '1.0.3')
   assert.ok(inventory.some(item => item.id === 'circle-unified-balance'))
   assert.ok(inventory.some(item => item.id === 'circle-x402'))
+})
+
+test('inventory is build-time bundled and does not require repository files at runtime', () => {
+  const originalCwd = cwd()
+  const expectedNext = (JSON.parse(readFileSync('package-lock.json', 'utf8')) as { packages: Record<string, { version?: string }> })
+    .packages['node_modules/next']?.version
+  try {
+    chdir(tmpdir())
+    const inventory = getMaintenanceInventory()
+    assert.equal(inventory.find(item => item.id === 'next')?.current, expectedNext)
+    assert.ok(inventory.some(item => item.id === 'groq-model'))
+    assert.ok(inventory.some(item => item.id === 'arc-rpc'))
+  } finally { chdir(originalCwd) }
+
+  const source = readFileSync('src/lib/admin-maintenance/inventory.ts', 'utf8')
+  assert.match(source, /import lockfileJson from '\.\.\/\.\.\/\.\.\/package-lock\.json'/)
+  assert.doesNotMatch(source, /readFileSync|process\.cwd|node:fs|node:path/)
+})
+
+test('one broken package inventory entry does not erase unrelated components', () => {
+  const packages = new Proxy({} as Record<string, { version?: string }>, {
+    get: (_target, key) => {
+      if (key === 'node_modules/next') throw new Error('synthetic package metadata failure')
+      if (key === 'node_modules/react') return { version: '9.9.9-test' }
+      return undefined
+    },
+  })
+  const inventory = getMaintenanceInventory({ packages })
+  assert.equal(inventory.find(item => item.id === 'next')?.current, 'Unknown')
+  assert.equal(inventory.find(item => item.id === 'react')?.current, '9.9.9-test')
+  assert.ok(inventory.some(item => item.id === 'groq-model'))
+  assert.ok(inventory.some(item => item.id === 'arc-rpc'))
 })
 
 test('newer and current semantic versions are detected deterministically', () => {
