@@ -108,6 +108,22 @@ test('publish saves an inactive listing, rechecks stored configuration, then act
   assert.match(form, /review\?\.endpoint_verified/)
 })
 
+test('successful Seller publish opens the existing Seller listings page, never Buyer', () => {
+  const form = read('src/components/OnboardingForm.tsx')
+  const publishStart = form.indexOf('async function publish(')
+  const publishEnd = form.indexOf('\n  return (', publishStart)
+  const publish = form.slice(publishStart, publishEnd)
+  const activate = publish.indexOf('is_active: true')
+  const sellerListingsNavigation = publish.indexOf("router.push('/dashboard/apis')")
+  assert.ok(activate > -1 && sellerListingsNavigation > activate)
+  assert.doesNotMatch(publish, /router\.push\(['"]\/buyer['"]\)/)
+
+  const sellerPage = read('src/app/seller/page.tsx')
+  const listingsPage = read('src/app/dashboard/apis/page.tsx')
+  assert.match(sellerPage, /href="\/dashboard\/apis"[^>]*>View your listed APIs/)
+  assert.match(listingsPage, /myApis\.map\(api =>/)
+})
+
 test('analysis persists deterministic verification before the optional model call', () => {
   const route = read('src/app/api/ai/score/route.ts')
   const verification = route.indexOf("update({ verified_at:")

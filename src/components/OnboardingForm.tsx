@@ -333,7 +333,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
       })
       const activation = await activateResponse.json().catch(() => ({})) as { error?: string }
       if (!activateResponse.ok) throw new Error(activation.error ?? 'The listing could not be published.')
-      router.push('/buyer')
+      router.push('/dashboard/apis')
     } catch (publishError) {
       setError(publishError instanceof Error ? publishError.message : 'The listing could not be published.')
     } finally {
