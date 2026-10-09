@@ -127,7 +127,7 @@ test('all official adapters fail independently for network, malformed, timeout, 
     baseItem({ id: 'arc-node', category: 'Arc', package_name: null }),
     baseItem({ id: 'arc-rpc', category: 'Arc', package_name: null }),
     baseItem({ id: 'groq-model', category: 'AI', current: 'model', package_name: null }),
-    baseItem({ id: 'groq-deprecations', category: 'AI', current: 'model', package_name: null, source_url: 'https://console.groq.com/docs/deprecations' }),
+    baseItem({ id: 'groq-deprecations', category: 'AI', current: 'model', package_name: null, source_url: 'https://console.groq.com/docs/deprecations.md' }),
   ]
   const officialHosts = new Set(['registry.npmjs.org', 'api.github.com', 'status.arc.io', 'api.groq.com', 'console.groq.com'])
   const previous = process.env.GROQ_API_KEY
@@ -167,7 +167,7 @@ test('empty Groq model metadata and malformed deprecation documents fail as chec
   try {
     const inventory = [
       baseItem({ id: 'groq-model', category: 'AI', current: 'configured/model', package_name: null }),
-      baseItem({ id: 'groq-deprecations', category: 'AI', current: 'configured/model', package_name: null, source_url: 'https://console.groq.com/docs/deprecations' }),
+      baseItem({ id: 'groq-deprecations', category: 'AI', current: 'configured/model', package_name: null, source_url: 'https://console.groq.com/docs/deprecations.md' }),
     ]
     const fetcher = (async (input: string | URL | Request) => String(input).includes('/models') ? response({ data: [] }) : new Response('<html>temporary error page</html>')) as typeof fetch
     const results = (await checkMaintenanceUpdates({ inventory, fetch: fetcher, now: () => new Date(fixedTime) })).results
@@ -189,6 +189,49 @@ test('Groq deprecation parsing checks only the deprecated-model column', () => {
   assert.deepEqual(groqDeprecationForModel('`old/model` | secret-shaped arbitrary text | replacement', 'old/model'), { deprecated: true, shutdown: null })
   assert.equal(validGroqDeprecationDocument(markdown), true)
   assert.equal(validGroqDeprecationDocument('<html>temporary error page</html>'), false)
+})
+
+test('Arc releases retry the official public API when an optional GitHub token is rejected', async () => {
+  const previous = process.env.GITHUB_TOKEN
+  process.env.GITHUB_TOKEN = 'stale-synthetic-token'
+  try {
+    const item = baseItem({ id: 'arc-node', component: 'Arc node releases', category: 'Arc', current: 'RPC consumer (no Mahshar node)', package_name: null })
+    const requests: Array<{ url: string; authorization: string | null }> = []
+    const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers)
+      requests.push({ url: String(input), authorization: headers.get('authorization') })
+      if (headers.has('authorization')) return response({ message: 'Bad credentials' }, 401)
+      return response({ tag_name: 'v0.8.1', body: 'Node-only consensus release.' })
+    }) as typeof fetch
+    const result = (await checkMaintenanceUpdates({ inventory: [item], fetch: fetcher, now: () => new Date(fixedTime) })).results[0]
+    assert.equal(result.status, 'current')
+    assert.equal(result.latest, 'v0.8.1')
+    assert.deepEqual(requests, [
+      { url: 'https://api.github.com/repos/circlefin/arc-node/releases/latest', authorization: 'Bearer stale-synthetic-token' },
+      { url: 'https://api.github.com/repos/circlefin/arc-node/releases/latest', authorization: null },
+    ])
+  } finally {
+    if (previous === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = previous
+  }
+})
+
+test('Groq deprecations use the bounded official Markdown source', async () => {
+  const item = baseItem({
+    id: 'groq-deprecations', category: 'AI', current: 'openai/gpt-oss-120b', package_name: null,
+    source_url: 'https://console.groq.com/docs/deprecations.md',
+  })
+  const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
+    assert.equal(String(input), 'https://console.groq.com/docs/deprecations.md')
+    assert.equal(new Headers(init?.headers).get('accept'), 'text/markdown')
+    return new Response([
+      '| Deprecated Model | Shutdown Date | Recommended Replacement Model ID |',
+      '| --- | --- | --- |',
+      '| llama-3.3-70b-versatile | 08/16/26 | openai/gpt-oss-120b |',
+    ].join('\n'), { headers: { 'content-type': 'text/markdown; charset=utf-8' } })
+  }) as typeof fetch
+  const result = (await checkMaintenanceUpdates({ inventory: [item], fetch: fetcher, now: () => new Date(fixedTime) })).results[0]
+  assert.equal(result.status, 'current')
+  assert.equal(result.latest, 'No matching notice')
 })
 
 test('summary counts derive from normalized statuses and severities', () => {

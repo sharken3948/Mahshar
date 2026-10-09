@@ -91,7 +91,7 @@ export function getMaintenanceInventory(lockfile: Lockfile = bundledLockfile): M
     },
     {
       id: 'groq-deprecations', component: 'Groq model deprecations', category: 'AI', current: configuredGroqModel(), package_name: null,
-      usage: 'Official retirement notices for the model used by Mahshar’s centralized Groq integration.', source_url: 'https://console.groq.com/docs/deprecations',
+      usage: 'Official retirement notices for the model used by Mahshar’s centralized Groq integration.', source_url: 'https://console.groq.com/docs/deprecations.md',
     },
     ...packages,
   ]

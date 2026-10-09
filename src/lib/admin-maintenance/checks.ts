@@ -17,7 +17,7 @@ function bounded(value: unknown, maximum: number, fallback = ''): string {
   return typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maximum) : fallback
 }
 
-async function officialText(fetcher: MaintenanceFetch, url: string, init?: RequestInit): Promise<string> {
+async function officialText(fetcher: MaintenanceFetch, url: string, init?: RequestInit, expectedContentTypes: string[] = []): Promise<string> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS)
   try {
@@ -25,6 +25,8 @@ async function officialText(fetcher: MaintenanceFetch, url: string, init?: Reque
     if (!headers.has('accept')) headers.set('accept', 'application/json')
     const response = await fetcher(url, { ...init, redirect: 'error', cache: 'no-store', signal: controller.signal, headers })
     if (!response.ok) throw new Error(`upstream_${response.status}`)
+    const contentType = response.headers.get('content-type')?.toLowerCase() || ''
+    if (expectedContentTypes.length && !expectedContentTypes.some(expected => contentType.startsWith(expected))) throw new Error('upstream_content_type_invalid')
     const declared = Number(response.headers.get('content-length') || 0)
     if (declared > MAX_JSON_BYTES) throw new Error('upstream_too_large')
     if (!response.body) throw new Error('upstream_empty')
@@ -47,7 +49,7 @@ async function officialText(fetcher: MaintenanceFetch, url: string, init?: Reque
 }
 
 async function officialJson(fetcher: MaintenanceFetch, url: string, init?: RequestInit): Promise<unknown> {
-  return JSON.parse(await officialText(fetcher, url, init)) as unknown
+  return JSON.parse(await officialText(fetcher, url, init, ['application/json'])) as unknown
 }
 
 type Version = { major: number; minor: number; patch: number; prerelease: string[] | null }
@@ -115,9 +117,16 @@ export function evaluateArcRelease(item: MaintenanceInventoryItem, latest: strin
 }
 
 async function checkArcRelease(item: MaintenanceInventoryItem, fetcher: MaintenanceFetch, checkedAt: string): Promise<MaintenanceCheckResult> {
-  const headers: Record<string, string> = { 'x-github-api-version': '2022-11-28' }
-  if (process.env.GITHUB_TOKEN?.trim()) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN.trim()}`
-  const data = await officialJson(fetcher, 'https://api.github.com/repos/circlefin/arc-node/releases/latest', { headers }) as { tag_name?: unknown; body?: unknown }
+  const url = 'https://api.github.com/repos/circlefin/arc-node/releases/latest'
+  const headers: Record<string, string> = { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' }
+  const token = process.env.GITHUB_TOKEN?.trim()
+  let data: { tag_name?: unknown; body?: unknown }
+  try {
+    data = await officialJson(fetcher, url, { headers: token ? { ...headers, authorization: `Bearer ${token}` } : headers }) as typeof data
+  } catch (error) {
+    if (!token || !(error instanceof Error) || error.message !== 'upstream_401') throw error
+    data = await officialJson(fetcher, url, { headers }) as typeof data
+  }
   const latest = bounded(data.tag_name, 64)
   if (!latest || !parseVersion(latest)) throw new Error('arc_release_invalid')
   return evaluateArcRelease(item, latest, bounded(data.body, 10_000), checkedAt)
@@ -199,7 +208,7 @@ export function validGroqDeprecationDocument(document: string): boolean {
 }
 
 async function checkGroqDeprecations(item: MaintenanceInventoryItem, fetcher: MaintenanceFetch, checkedAt: string): Promise<MaintenanceCheckResult> {
-  const document = await officialText(fetcher, item.source_url, { headers: { accept: 'text/markdown, text/html;q=0.8' } })
+  const document = await officialText(fetcher, item.source_url, { headers: { accept: 'text/markdown' } }, ['text/markdown'])
   if (!validGroqDeprecationDocument(document)) throw new Error('groq_deprecations_invalid')
   const notice = groqDeprecationForModel(document, item.current)
   if (!notice.deprecated) return { ...item, latest: 'No matching notice', status: 'current', severity: 'Info', impact: 'The configured model is not listed in the deprecated-model column of Groq’s official notice table.', details: 'Availability is checked separately against the Groq Models API.', recommended_action: 'No action required.', checked_at: checkedAt }
