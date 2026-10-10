@@ -64,10 +64,12 @@ Next.js route handlers, and PostgreSQL/Supabase functions.
 
 **Reuse status:** reference pattern only.
 
-**Production verification.** Arc Mainnet requirements and live unsigned 402
-challenge generation have been verified. The state machine has focused local
-and synthetic integration coverage. This repository does not present the public
-Memo transaction as proof of an end-to-end x402 purchase.
+**Production verification.** Arc Mainnet requirements, live unsigned 402
+challenge generation, and a real externally signed MCP x402 purchase have been
+verified. Production evidence confirmed settlement, accounting, paid API
+delivery, and same-authorization replay without duplicate payment. The state
+machine also has focused local and synthetic integration coverage. The public
+Memo transaction is not presented as proof of the x402 purchase.
 
 **Known limitations.** The installed batching SDK does not provide a read-only
 settlement-status lookup for resolving a lost successful acknowledgement. Such
@@ -184,10 +186,12 @@ public discovery format, and the existing proxy and recovery endpoints.
 
 **Reuse status:** reusable with adaptation.
 
-**Production verification.** Public MCP discovery is live; MCP paid execution
-is implemented and audited, but has not yet been production-verified end to
-end. Local tests cover the adapter, bounded inputs/responses, challenge parsing,
-request integrity, and synthetic proxy boundaries.
+**Production verification.** Public MCP discovery and end-to-end paid execution
+have been verified in Production with an external client, including external
+wallet signing, Arc Mainnet settlement, paid API delivery, persistent recovery,
+same-authorization replay without duplicate payment, and buyer, seller, and
+platform accounting. Local tests cover the adapter, bounded inputs/responses,
+challenge parsing, request integrity, and synthetic proxy boundaries.
 
 **Known limitations.** The adapter assumes Mahshar's discovery and response
 contracts. Internal self-fetches may share infrastructure rate-limit identity.
@@ -220,9 +224,9 @@ server-side session state or accepting a buyer private key.
 **Reuse status:** reusable with adaptation. The algorithm is self-contained,
 but configuration and public types are not yet package-neutral.
 
-**Production verification.** Used by the live MCP endpoint and covered by local
-tamper, expiry, canonical-ordering, API-binding, and listing-drift tests. Paid
-MCP execution has not been production-verified end to end.
+**Production verification.** Used by the live MCP endpoint and exercised in the
+verified end-to-end Production paid flow. Local tests cover tamper, expiry,
+canonical ordering, API binding, and listing drift.
 
 **Known limitations.** The token expires after ten minutes and currently derives
 its purpose-separated signing key from Mahshar's existing encryption secret.
@@ -258,8 +262,9 @@ responses, and the response-retention job.
 **Reuse status:** reusable with adaptation.
 
 **Production verification.** Implemented in the HTTP proxy and MCP recovery
-paths with focused local capability and isolation tests. This document does not
-claim independently verified external-user recovery traffic.
+paths. Production recovery has been verified both during a paid flow and across
+separate external-client invocations with matching response identity. Focused
+local capability and isolation tests provide additional coverage.
 
 **Known limitations.** The capability has no embedded expiry; practical response
 availability is bounded by the seven-day response-retention policy. It is a
@@ -312,10 +317,10 @@ add `Payment-Signature` unless deliberately performing a real payment. See
 | --- | --- |
 | Arc Mainnet site | Live at `https://mahshar.xyz`. |
 | Public discovery | Live at `/api/agent/discover`; advertises `eip155:5042`. |
-| Browser/HTTP paid flow | Arc Mainnet x402 flow is implemented and locally/synthetically tested. A live unsigned 402 challenge has been verified. The public Memo transaction is not claimed as independent proof of an x402 purchase. |
+| Browser/HTTP paid flow | The underlying Arc Mainnet x402 settlement and delivery path has been Production-verified end to end through MCP. The browser UI itself was not independently exercised by that verification. The public Memo transaction remains separate evidence. |
 | MCP discovery | Live through `search_apis` and `get_api` at `/api/mcp`. |
-| MCP paid execution | Implemented and audited locally; not yet production-verified end to end. |
-| Purchase response recovery | Implemented in HTTP and MCP paths with local capability/isolation coverage; no external-user recovery traffic is claimed. |
+| MCP paid execution | Production-verified end to end with external signing, real Arc Mainnet settlement, paid API delivery, same-authorization replay without duplicate payment, and verified buyer/seller/platform accounting. |
+| Purchase response recovery | Production-verified through MCP during the paid flow and across a separate client invocation, with matching response identity. |
 | Seller credential isolation | Implemented in the production proxy path; credentials remain server-side and are injected after target authorization. |
 | Bridge | Mainnet Bridge Kit routes and UI are implemented. No independent end-to-end production bridge transaction is claimed by this document. |
 | Onramp | Circle Onramp integration is implemented but configuration- and provider-onboarding-dependent; availability is not claimed for every deployment or user. |
@@ -370,8 +375,10 @@ purchase-scoped capability. It composes existing x402, MCP, Gateway, USDC, Arc
 wallet, CCTP, and bridge infrastructure rather than claiming to have invented
 those technologies.
 
-Public MCP discovery is live; MCP paid execution is implemented and audited,
-but has not yet been production-verified end to end.
+Public MCP discovery, externally signed paid execution, Arc Mainnet settlement,
+paid API delivery, persistent response recovery, same-authorization replay
+without duplicate payment, and buyer/seller/platform accounting have been
+verified in Production with an external client.
 
 ## Traction evidence boundary
 
