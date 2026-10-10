@@ -270,6 +270,29 @@ test('existing delivery finality and retryability states pass through without ne
   }
 })
 
+test('a terminal credential-reflection block exposes only the generic paid delivery result', async () => {
+  const credential = 'synthetic-seller-secret'
+  const prepared = normalizePreparedCall({ api_id: API_ID, buyer_wallet: WALLET,
+    query_values: { city: 'Istanbul' } }, false)
+  const settlement = { success: true, payer: WALLET, transaction: 'synthetic-tx', network: 'eip155:5042' }
+  const handler = handlerWith(() => new Response(JSON.stringify({
+    response: { error: 'Upstream response blocked' }, payment: 'ACCOUNTING_COMPLETE',
+    delivery_state: 'FAILED_FINAL', retryable: false, attemptId: 'attempt-1',
+    purchase_access_token: PURCHASE_TOKEN,
+  }), {
+    status: 502,
+    headers: { 'PAYMENT-RESPONSE': Buffer.from(JSON.stringify(settlement)).toString('base64') },
+  }))
+  const response = await call(handler, 'execute_api_call', {
+    api_id: API_ID, buyer_wallet: WALLET, query_values: { city: 'Istanbul' },
+    prepared_call_token: issuePreparedCallToken(prepared, listing), payment_signature: PAYMENT_SIGNATURE,
+  })
+  assert.equal(response.result.structuredContent.status, 'paid_result')
+  assert.equal(response.result.structuredContent.delivery_state, 'FAILED_FINAL')
+  assert.deepEqual(response.result.structuredContent.proxy_result.response, { error: 'Upstream response blocked' })
+  assert.equal(JSON.stringify(response).includes(credential), false)
+})
+
 test('buyer wallet remains a normalized hint while PAYMENT-RESPONSE payer stays authoritative', async () => {
   const mixedCaseWallet = `0x${'Aa'.repeat(20)}`
   const prepared = normalizePreparedCall({ api_id: API_ID, buyer_wallet: mixedCaseWallet, query_values: { city: 'Istanbul' } }, false)

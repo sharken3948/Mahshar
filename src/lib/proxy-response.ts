@@ -30,6 +30,56 @@ export function buildUpstreamFailureDiagnostic(status: number, contentType: stri
   };
 }
 
+type SupportedCredentialAuth = 'apikey' | 'bearer' | 'queryparam';
+
+function encodedCredentialVariants(credential: string) {
+  const variants = new Set([credential]);
+  try {
+    variants.add(encodeURIComponent(credential));
+  } catch {
+    // A malformed Unicode credential cannot be encoded this way by the request builder either.
+  }
+  const formEncoded = new URLSearchParams([['credential', credential]]).toString().slice('credential='.length);
+  variants.add(formEncoded);
+  for (const value of [...variants]) variants.add(value.replace(/%[0-9A-F]{2}/g, match => match.toLowerCase()));
+  return [...variants].filter(Boolean);
+}
+
+function parsedJsonContainsCredential(value: unknown, variants: readonly string[]) {
+  const pending: unknown[] = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (typeof current === 'string') {
+      if (variants.some(variant => current.includes(variant))) return true;
+      continue;
+    }
+    if (!current || typeof current !== 'object') continue;
+    if (Array.isArray(current)) pending.push(...current);
+    else {
+      for (const [key, nested] of Object.entries(current)) {
+        if (variants.some(variant => key.includes(variant))) return true;
+        pending.push(nested);
+      }
+    }
+  }
+  return false;
+}
+
+export function containsReflectedUpstreamCredential(input: {
+  authType: SupportedCredentialAuth;
+  credential: string;
+  rawBody: string;
+  parsedBody: unknown;
+}) {
+  if (!input.credential) return false;
+  const variants = input.authType === 'queryparam'
+    ? encodedCredentialVariants(input.credential)
+    : [input.credential];
+  if (input.authType === 'bearer') variants.push(`Bearer ${input.credential}`);
+  return variants.some(variant => input.rawBody.includes(variant)) ||
+    parsedJsonContainsCredential(input.parsedBody, variants);
+}
+
 export class ResponseTooLargeError extends Error {
   constructor() {
     super('Upstream response exceeds the configured size limit');

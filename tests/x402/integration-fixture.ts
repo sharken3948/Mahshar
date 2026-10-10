@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server.js'
 import { MemoryStore, payer, seller, apiId } from './fixture'
-export const state = { store: new MemoryStore(), storageReady: true, settled: 0, proxied: 0, upstreamStatus: 200, deliveryOutcome: undefined as undefined | 'succeeded' | 'failed_final' | 'failed_retryable' | 'unknown', verified: 0, listingMethod: 'POST', listingPrice: 0.001, listingBodyRequired: false, listingRequestSchema: null as Record<string, unknown> | null, listingDynamicPath: false, listingPathParameters: null as unknown[] | null, listingQueryParameters: null as unknown[] | null, lastProxyInput: null as Record<string, unknown> | null, configs: [] as Record<string, unknown>[] }
+export const state = { store: new MemoryStore(), storageReady: true, settled: 0, proxied: 0, upstreamStatus: 200, deliveryOutcome: undefined as undefined | 'succeeded' | 'failed_final' | 'failed_retryable' | 'unknown', proxyBody: { fixture: true } as unknown, proxyErrorCode: undefined as string | undefined, verified: 0, listingMethod: 'POST', listingPrice: 0.001, listingBodyRequired: false, listingRequestSchema: null as Record<string, unknown> | null, listingDynamicPath: false, listingPathParameters: null as unknown[] | null, listingQueryParameters: null as unknown[] | null, lastProxyInput: null as Record<string, unknown> | null, configs: [] as Record<string, unknown>[] }
 export const settlementStore = () => state.store
 export async function settlementStorageReady() { if (!state.storageReady) throw new Error('storage unavailable') }
 export class AppKit { constructor() { throw new Error('Unrelated payout API forbidden in settlement tests') } }
@@ -37,11 +37,11 @@ export async function proxyRequest(input: Record<string, unknown>) {
   state.lastProxyInput = structuredClone(input)
   return {
     status: state.upstreamStatus,
-    body: { fixture: true },
+    body: state.proxyBody,
     latencyMs: 1,
     deliveryOutcome: state.deliveryOutcome ?? (state.upstreamStatus >= 200 && state.upstreamStatus < 300 ? 'succeeded' : 'failed_final'),
     responsePersisted: state.upstreamStatus >= 200 && state.upstreamStatus < 300,
-    ...(state.upstreamStatus >= 300 ? { errorCode: 'upstream_http_error' } : {}),
+    ...(state.upstreamStatus >= 300 ? { errorCode: state.proxyErrorCode ?? 'upstream_http_error' } : {}),
   }
 }
 export function proxyResponseEnvelope(input: { body: unknown; latencyMs: number; deliveryState: string; retryable: boolean; attemptId: string; purchaseAccessToken: string }) {

@@ -4,7 +4,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { decryptKey } from '@/lib/crypto'
 import type { ApiListing, PaymentModel } from '@/types'
 import { buildUpstreamFailureDiagnostic, fetchUpstreamWithoutRedirects, readResponseBytes, ResponseTooLargeError,
-  serializedJsonByteLength, MAX_SAFE_SERIALIZED_RESPONSE_BYTES } from '@/lib/proxy-response'
+  serializedJsonByteLength, MAX_SAFE_SERIALIZED_RESPONSE_BYTES, containsReflectedUpstreamCredential } from '@/lib/proxy-response'
 import { buildUpstreamAuthentication } from '@/lib/marketplace/upstream-auth'
 import { OutboundPolicyError } from '@/lib/outbound-fetch'
 
@@ -132,10 +132,14 @@ export async function proxyRequest(params: {
 
   const start = Date.now()
   let upstreamResponse: Response
+  let upstreamCredential: { authType: 'apikey' | 'bearer' | 'queryparam'; value: string } | undefined
   try {
     upstreamResponse = await fetchUpstreamWithoutRedirects(targetUrl, (validatedUrl: URL) => {
       const credential = listing.encrypted_key && ['apikey', 'bearer', 'queryparam'].includes(listing.auth_type)
         ? decryptKey(listing.encrypted_key) : undefined
+      if (credential && (listing.auth_type === 'apikey' || listing.auth_type === 'bearer' || listing.auth_type === 'queryparam')) {
+        upstreamCredential = { authType: listing.auth_type, value: credential }
+      }
       const { requestUrl, headers } = buildUpstreamAuthentication(validatedUrl, listing.auth_type, credential, listing.auth_param_name)
       return { url: requestUrl, outboundInit: {
         method: params.method,
@@ -181,6 +185,21 @@ export async function proxyRequest(params: {
   if (contentType.includes('application/json')) {
     try { responseBody = JSON.parse(rawText) } catch { responseBody = rawText }
   } else responseBody = rawText
+
+  let inspectionBody = responseBody
+  if (responseBody === rawText) {
+    try { inspectionBody = JSON.parse(rawText) } catch { /* Inspect malformed JSON as raw text. */ }
+  }
+
+  if (upstreamCredential && containsReflectedUpstreamCredential({
+    authType: upstreamCredential.authType,
+    credential: upstreamCredential.value,
+    rawBody: rawText,
+    parsedBody: inspectionBody,
+  })) {
+    return logFailure({ status: 502, body: { error: 'Upstream response blocked' }, latencyMs,
+      deliveryOutcome: 'failed_final', errorCode: 'upstream_credential_reflection' }, { isClientError: false })
+  }
 
   const success = upstreamResponse.status >= 200 && upstreamResponse.status < 300
   const declaredCodes = listing.expected_status_codes ?? []

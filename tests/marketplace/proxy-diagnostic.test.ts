@@ -5,6 +5,8 @@ import { alice, reset, state } from './fixtures'
 import { proxyState, resetProxyState } from './proxy-diagnostic-register.mjs'
 import { authorizeProxyTarget, ProxyTargetError } from '../../src/lib/marketplace/proxy-target'
 import { encryptKey } from '../../src/lib/crypto'
+import { GET as getLastResponse } from '../../src/app/api/calls/last-response/route'
+import { issuePurchaseAccess, PURCHASE_ACCESS_HEADER } from '../../src/lib/marketplace/purchase-access'
 
 beforeEach(() => {
   reset()
@@ -145,4 +147,147 @@ test('public, API-key, bearer, and query-parameter authentication retain the aut
       }
     }
   }
+})
+
+test('reflected seller credentials are blocked before buyer delivery, diagnostics, or recovery storage', async () => {
+  const credential = 'synthetic seller secret/+?&'
+  const unicodeEscapedReflection = '{"reflected":"\\u0073ynthetic seller secret/+?&"}'
+  const cases = [
+    { auth_type: 'apikey', auth_param_name: null, response: Response.json({ reflected: credential }) },
+    { auth_type: 'apikey', auth_param_name: null,
+      response: new Response(`credential=${credential}`, { headers: { 'content-type': 'text/plain' } }) },
+    { auth_type: 'bearer', auth_param_name: null,
+      response: new Response(`Authorization: Bearer ${credential}`, { headers: { 'content-type': 'text/plain' } }) },
+    { auth_type: 'queryparam', auth_param_name: 'seller_token',
+      response: new Response(`seller_token=${credential}`, { headers: { 'content-type': 'text/plain' } }) },
+    { auth_type: 'queryparam', auth_param_name: 'seller_token',
+      response: new Response(`seller_token=${encodeURIComponent(credential)}`, { headers: { 'content-type': 'text/plain' } }) },
+    { auth_type: 'queryparam', auth_param_name: 'seller_token', response: new Response(
+      `seller_token=${new URLSearchParams([['seller_token', credential]]).toString().slice('seller_token='.length)}`,
+      { status: 500, headers: { 'content-type': 'text/plain' } }) },
+    { auth_type: 'apikey', auth_param_name: null,
+      response: new Response(unicodeEscapedReflection, {
+        headers: { 'content-type': 'application/json' },
+      }) },
+    { auth_type: 'apikey', auth_param_name: null,
+      response: new Response(unicodeEscapedReflection, { headers: { 'content-type': 'Application/JSON' } }) },
+    { auth_type: 'apikey', auth_param_name: null,
+      response: new Response(unicodeEscapedReflection, { headers: { 'content-type': 'application/problem+json' } }) },
+    { auth_type: 'apikey', auth_param_name: null,
+      response: new Response(new TextEncoder().encode(unicodeEscapedReflection)) },
+    { auth_type: 'apikey', auth_param_name: null,
+      response: new Response(unicodeEscapedReflection, { headers: { 'content-type': 'text/plain' } }) },
+  ] as const
+
+  for (const [index, item] of cases.entries()) {
+    reset(); resetProxyState()
+    const listing = {
+      id: `reflection-${index}`, name: item.auth_type, endpoint_url: 'https://api.example/v1', method: 'GET',
+      is_active: true, verified_at: '2026-09-28T00:00:00Z', dynamic_path_supported: false,
+      path_parameters: null, query_parameters: null, encrypted_key: encryptKey(credential),
+      auth_type: item.auth_type, auth_param_name: item.auth_param_name,
+    }
+    state.tables.api_listings.push(listing)
+    proxyState.response = item.response
+    const result = await proxyRequest({
+      apiId: listing.id, buyerWallet: alice.address, paymentType: 'pay-per-call', method: 'GET', dynamicPath: '',
+      canonicalTarget: listing.endpoint_url, incomingHeaders: {}, purchaseId: `purchase-${index}`,
+      deliveryAttemptId: `attempt-${index}`, purchaseAccessToken: `token-${index}`,
+    })
+    const serializedResult = JSON.stringify(result)
+    const storedCall = state.tables.api_calls[0]
+    assert.equal(result.status, 502, item.auth_type)
+    assert.equal(result.deliveryOutcome, 'failed_final', item.auth_type)
+    assert.equal(result.errorCode, 'upstream_credential_reflection', item.auth_type)
+    assert.deepEqual(result.body, { error: 'Upstream response blocked' }, item.auth_type)
+    assert.equal(result.responsePersisted, false, item.auth_type)
+    assert.equal(serializedResult.includes(credential), false, item.auth_type)
+    assert.equal(storedCall.success, false, item.auth_type)
+    assert.equal(storedCall.response_body, undefined, item.auth_type)
+    assert.equal(JSON.stringify(storedCall).includes(credential), false, item.auth_type)
+
+    state.tables.purchases.push({ id: `purchase-${index}`, api_id: listing.id,
+      buyer_wallet: alice.address.toLowerCase(), created_at: new Date().toISOString() })
+    const purchaseAccessToken = issuePurchaseAccess({ purchaseId: `purchase-${index}`, apiId: listing.id,
+      buyerWallet: alice.address.toLowerCase() })
+    const recovery = await getLastResponse(new Request(
+      `https://mahshar.xyz/api/calls/last-response?api_id=${listing.id}&buyer_wallet=${alice.address}`,
+      { headers: { [PURCHASE_ACCESS_HEADER]: purchaseAccessToken } },
+    ) as never)
+    const recoveryBody = await recovery.json()
+    assert.equal(recovery.status, 200, item.auth_type)
+    assert.equal(recoveryBody.response_body, null, item.auth_type)
+    assert.equal(JSON.stringify(recoveryBody).includes(credential), false, item.auth_type)
+  }
+})
+
+test('normal credential-authenticated provider responses remain byte-for-byte unchanged', async () => {
+  const credential = 'synthetic-seller-secret'
+  const body = { result: 'ordinary response', nested: ['unchanged', 7] }
+  state.tables.api_listings.push({
+    id: 'normal-auth-response', name: 'normal', endpoint_url: 'https://api.example/v1', method: 'GET',
+    is_active: true, verified_at: '2026-09-28T00:00:00Z', dynamic_path_supported: false,
+    path_parameters: null, query_parameters: null, encrypted_key: encryptKey(credential),
+    auth_type: 'apikey', auth_param_name: null,
+  })
+  proxyState.response = Response.json(body)
+  const result = await proxyRequest({
+    apiId: 'normal-auth-response', buyerWallet: alice.address, paymentType: 'pay-per-call', method: 'GET',
+    dynamicPath: '', canonicalTarget: 'https://api.example/v1', incomingHeaders: {}, purchaseId: 'purchase-normal',
+    deliveryAttemptId: 'attempt-normal', purchaseAccessToken: 'token-normal',
+  })
+  assert.equal(result.deliveryOutcome, 'succeeded')
+  assert.deepEqual(result.body, body)
+  assert.deepEqual(state.tables.api_calls[0].response_body, body)
+})
+
+test('inspection-only JSON parsing preserves safe raw response types and exact content', async () => {
+  const credential = 'synthetic-seller-secret'
+  const rawBody = '{"result":"ordinary response","nested":["unchanged",7]}'
+  const responses = [
+    new Response(rawBody, { headers: { 'content-type': 'Application/JSON' } }),
+    new Response(rawBody, { headers: { 'content-type': 'application/problem+json' } }),
+    new Response(new TextEncoder().encode(rawBody)),
+    new Response(rawBody, { headers: { 'content-type': 'text/plain' } }),
+  ]
+
+  for (const [index, response] of responses.entries()) {
+    reset(); resetProxyState()
+    const listing = {
+      id: `safe-inspection-${index}`, name: 'safe inspection', endpoint_url: 'https://api.example/v1', method: 'GET',
+      is_active: true, verified_at: '2026-09-28T00:00:00Z', dynamic_path_supported: false,
+      path_parameters: null, query_parameters: null, encrypted_key: encryptKey(credential),
+      auth_type: 'apikey' as const, auth_param_name: null,
+    }
+    state.tables.api_listings.push(listing)
+    proxyState.response = response
+    const result = await proxyRequest({
+      apiId: listing.id, buyerWallet: alice.address, paymentType: 'pay-per-call', method: 'GET', dynamicPath: '',
+      canonicalTarget: listing.endpoint_url, incomingHeaders: {}, purchaseId: `purchase-safe-${index}`,
+      deliveryAttemptId: `attempt-safe-${index}`, purchaseAccessToken: `token-safe-${index}`,
+    })
+    assert.equal(result.deliveryOutcome, 'succeeded')
+    assert.equal(result.body, rawBody)
+    assert.equal(state.tables.api_calls[0].response_body, rawBody)
+  }
+})
+
+test('malformed inspection-only JSON without a credential retains existing successful response behavior', async () => {
+  const credential = 'synthetic-seller-secret'
+  const rawBody = '{"result":"ordinary response"'
+  state.tables.api_listings.push({
+    id: 'malformed-safe-inspection', name: 'malformed safe inspection', endpoint_url: 'https://api.example/v1',
+    method: 'GET', is_active: true, verified_at: '2026-09-28T00:00:00Z', dynamic_path_supported: false,
+    path_parameters: null, query_parameters: null, encrypted_key: encryptKey(credential),
+    auth_type: 'apikey', auth_param_name: null,
+  })
+  proxyState.response = new Response(rawBody, { headers: { 'content-type': 'Application/JSON' } })
+  const result = await proxyRequest({
+    apiId: 'malformed-safe-inspection', buyerWallet: alice.address, paymentType: 'pay-per-call', method: 'GET',
+    dynamicPath: '', canonicalTarget: 'https://api.example/v1', incomingHeaders: {}, purchaseId: 'purchase-malformed',
+    deliveryAttemptId: 'attempt-malformed', purchaseAccessToken: 'token-malformed',
+  })
+  assert.equal(result.deliveryOutcome, 'succeeded')
+  assert.equal(result.body, rawBody)
+  assert.equal(state.tables.api_calls[0].response_body, rawBody)
 })

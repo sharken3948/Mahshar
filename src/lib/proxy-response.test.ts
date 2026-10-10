@@ -7,6 +7,7 @@ import {
   MAX_SAFE_SERIALIZED_RESPONSE_BYTES,
   VERIFICATION_RESPONSE_WARNING_BYTES,
   assessRepresentativeResponseSize,
+  containsReflectedUpstreamCredential,
   readResponseBytes,
   ResponseTooLargeError,
 } from './proxy-response';
@@ -74,4 +75,29 @@ test('upstream failure diagnostics retain an unparsed short response body', () =
     upstream_body: rawBody,
     upstream_body_truncated: false,
   });
+});
+
+test('credential reflection detection covers supported exact and deterministic encoded forms', () => {
+  const credential = 'seller secret/+?&';
+  const cases = [
+    { authType: 'apikey' as const, rawBody: `{"key":"${credential}"}`, parsedBody: { key: credential } },
+    { authType: 'bearer' as const, rawBody: `Authorization: Bearer ${credential}`, parsedBody: `Authorization: Bearer ${credential}` },
+    { authType: 'queryparam' as const, rawBody: `token=${encodeURIComponent(credential)}`, parsedBody: null },
+    { authType: 'queryparam' as const, rawBody: `token=${new URLSearchParams([['token', credential]]).toString().slice('token='.length)}`, parsedBody: null },
+    { authType: 'queryparam' as const, rawBody: `token=${encodeURIComponent(credential).replace(/%[0-9A-F]{2}/g, value => value.toLowerCase())}`, parsedBody: null },
+  ];
+  for (const item of cases) {
+    assert.equal(containsReflectedUpstreamCredential({ credential, ...item }), true, item.rawBody);
+  }
+});
+
+test('credential reflection detection observes parsed JSON Unicode escapes but leaves normal bodies unchanged', () => {
+  const credential = 'seller-secret';
+  const rawBody = '{"message":"\\u0073eller-secret"}';
+  assert.equal(containsReflectedUpstreamCredential({
+    authType: 'apikey', credential, rawBody, parsedBody: JSON.parse(rawBody),
+  }), true);
+  assert.equal(containsReflectedUpstreamCredential({
+    authType: 'apikey', credential, rawBody: '{"message":"ordinary result"}', parsedBody: { message: 'ordinary result' },
+  }), false);
 });

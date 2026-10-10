@@ -9,7 +9,7 @@ import { POST as reconcile } from '../../src/app/api/payments/reconcile/route'
 import { POST as retiredLegacy } from '../../src/app/api/payments/x402/route'
 import { GET as pathProxyGet, POST as pathProxyPost } from '../../src/app/api/proxy/[api_id]/route'
 
-function reset() { state.store = new MemoryStore(); state.storageReady = true; state.settled = 0; state.proxied = 0; state.verified = 0; state.upstreamStatus = 200; state.deliveryOutcome = undefined; state.listingMethod = 'POST'; state.listingPrice = 0.001; state.listingBodyRequired = false; state.listingRequestSchema = null; state.listingDynamicPath = false; state.listingPathParameters = null; state.listingQueryParameters = null; state.lastProxyInput = null }
+function reset() { state.store = new MemoryStore(); state.storageReady = true; state.settled = 0; state.proxied = 0; state.verified = 0; state.upstreamStatus = 200; state.deliveryOutcome = undefined; state.proxyBody = { fixture: true }; state.proxyErrorCode = undefined; state.listingMethod = 'POST'; state.listingPrice = 0.001; state.listingBodyRequired = false; state.listingRequestSchema = null; state.listingDynamicPath = false; state.listingPathParameters = null; state.listingQueryParameters = null; state.lastProxyInput = null }
 const ioscopeSchema = {
   type: 'object', required: ['address', 'chain'], properties: {
     address: { type: 'string', minLength: 1 },
@@ -155,6 +155,25 @@ test('real proxy upstream 500 keeps durable purchase and never executes the paid
   assert.equal((await POST(paid())).status, 500); assert.equal(state.store.purchases.size, 1)
   const replay = await POST(paid()); assert.equal(replay.status, 409); assert.equal(state.proxied, 1); assert.equal(state.settled, 1)
   assert.equal((await replay.json()).error, 'delivery_failed_final')
+})
+test('credential-reflection blocking preserves accounted payment and prevents replayed provider execution', async () => {
+  reset(); state.upstreamStatus = 502; state.deliveryOutcome = 'failed_final'
+  state.proxyErrorCode = 'upstream_credential_reflection'; state.proxyBody = { error: 'Upstream response blocked' }
+  const first = await POST(paid())
+  assert.equal(first.status, 502)
+  const body = await first.json()
+  assert.deepEqual(body.response, { error: 'Upstream response blocked' })
+  assert.equal(body.payment, 'ACCOUNTING_COMPLETE')
+  assert.equal(body.delivery_state, 'FAILED_FINAL')
+  assert.equal(body.retryable, false)
+  assert.equal(body.attemptId, [...state.store.rows.values()][0].id)
+  assert.equal(typeof body.purchase_access_token, 'string')
+  const replay = await POST(paid())
+  assert.equal(replay.status, 409)
+  assert.equal((await replay.json()).error, 'delivery_failed_final')
+  assert.equal(state.settled, 1)
+  assert.equal(state.proxied, 1)
+  assert.equal(state.store.purchases.size, 1)
 })
 test('upstream 4xx is a completed final delivery and is not executed again', async () => {
   reset(); state.upstreamStatus = 400
