@@ -30,7 +30,15 @@ const activeListing = {
   method: 'POST',
   example_request: '{"wallet":"0xabc","api_key":"source-only-request-secret"}',
   example_response: '{"authorization":"Bearer source-only-response-secret"}',
-  request_schema: { privateExample: 'source-only-request-schema-secret' },
+  request_schema: {
+    type: 'object',
+    properties: {
+      wallet: { type: 'string' },
+      api_key: { type: 'string', description: 'source-only-request-schema-secret' },
+    },
+    required: ['wallet', 'api_key'],
+    additionalProperties: false,
+  },
   response_schema: { privateExample: 'source-only-response-schema-secret' },
   body_required: true,
   dynamic_path_supported: false,

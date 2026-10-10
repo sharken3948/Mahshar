@@ -45,6 +45,11 @@ export function apiListingCanonicalUrl(listing: Pick<PublicSeoListing, 'id' | 'n
   return `${SITE_ORIGIN}${apiListingPath(listing)}`
 }
 
+export function listingMetadataTitle(listing: Pick<PublicSeoListing, 'name'>): string {
+  const suffix = /\bapi$/i.test(listing.name) ? '' : ' API'
+  return `${listing.name}${suffix} — Pay per Call with USDC | Mahshar`
+}
+
 export function listingRouteDecision(
   listing: Pick<PublicSeoListing, 'id' | 'name'> | null,
   requestedSlug: string,

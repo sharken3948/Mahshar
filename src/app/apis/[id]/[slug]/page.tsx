@@ -7,6 +7,7 @@ import { getPublicSeoListing } from '@/lib/seo/public-catalog'
 import {
   apiListingPath,
   listingMetadataDescription,
+  listingMetadataTitle,
   listingRouteDecision,
   type PublicSeoListing,
 } from '@/lib/seo/listing'
@@ -21,7 +22,7 @@ export async function generateMetadata({ params }: ApiPageProps): Promise<Metada
   const listing = await listingById(id)
   if (!listing) return { title: 'API not found | Mahshar', robots: { index: false, follow: false } }
 
-  const title = `${listing.name} API — Pay per Call with USDC | Mahshar`
+  const title = listingMetadataTitle(listing)
   const description = listingMetadataDescription(listing)
   const canonical = apiListingPath(listing)
   return {
