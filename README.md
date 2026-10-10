@@ -68,16 +68,37 @@ Buyer / Agent
 
 Settlement, delivery, and response recovery have distinct durable identities. A recovery capability can retrieve only the response associated with its exact purchase.
 
+## Beyond the Arc Reference Apps
+
+[`circlefin/arc-commerce`](https://github.com/circlefin/arc-commerce) demonstrates purchasing application credits with USDC, while [`circlefin/arc-p2p-payments`](https://github.com/circlefin/arc-p2p-payments) demonstrates wallet-based peer-to-peer payments.
+
+Mahshar adds application-layer primitives for machine-readable paid API discovery, MCP-native discovery and externally signed execution, x402 pay-per-call API monetization, canonical upstream authorization before credential injection, server-side seller credential isolation, prepared-call integrity, purchase-scoped response recovery, and durable payment, settlement, accounting, and delivery state handling.
+
+Mahshar composes existing x402, MCP, Circle Gateway, USDC, Arc wallet, CCTP, and bridge infrastructure; it does not claim to have invented those technologies. See [Reusable Arc primitives](PRIMITIVES.md) for implementation boundaries, verification status, and extraction requirements.
+
 ## Arc Mainnet
 
 Mahshar's production network is Arc Mainnet, chain ID `5042` (`eip155:5042`). Marketplace prices, buyer payments, platform accounting, and seller earnings are denominated in USDC.
 
 ### Public Arc Mainnet Verification
 
-- **Platform wallet:** `0x052650D1764406d702252B20B2294346A594A1ef`
-- **Verified Arc Mainnet transaction:** [`0xa3efb83ad9ac4f2164d36b2579104cb7fb19c986cd623206b27387330e33fa33`](https://explorer.arc.io/tx/0xa3efb83ad9ac4f2164d36b2579104cb7fb19c986cd623206b27387330e33fa33)
+Mahshar-owned:
 
-The public address above is Mahshar's platform wallet on Arc Mainnet. The linked transaction is a successful Arc Mainnet transaction from that wallet and can be independently verified in the Arc explorer. Private signing material is never committed to the repository.
+- **Platform EOA:** `0x052650D1764406d702252B20B2294346A594A1ef`
+- **Successful Arc Mainnet transaction:** [`0xa3efb83ad9ac4f2164d36b2579104cb7fb19c986cd623206b27387330e33fa33`](https://explorer.arc.io/tx/0xa3efb83ad9ac4f2164d36b2579104cb7fb19c986cd623206b27387330e33fa33)
+
+The public address above is Mahshar's platform wallet on Arc Mainnet. The linked transaction is a successful call from that wallet to the official Arc Memo contract and can be independently verified in the Arc explorer. It is evidence of Mainnet operation and is not presented as independent proof of an x402 buyer purchase. Private signing material is never committed to the repository.
+
+Official Arc/Circle contracts used by Mahshar:
+
+| Contract | Address |
+| --- | --- |
+| Arc USDC | `0x3600000000000000000000000000000000000000` |
+| Gateway Wallet | `0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE` |
+| Gateway Minter | `0x2222222d7164433c4C09B0b0D809a9b52C04C205` |
+| Memo | `0x5294E9927c3306DcBaDb03fe70b92e01cCede505` |
+
+These are official system contracts, not Mahshar contracts. **Mahshar currently deploys no custom smart contract.**
 
 The installed Circle x402 runtime requires explicit Arc Mainnet RPC configuration and its current Mainnet compatibility settings. See [.env.example](.env.example) and [agent integration](docs/agent-integration.md) for the repository's operational contract.
 
@@ -145,7 +166,7 @@ If submission or mint execution becomes ambiguous, the reservation remains locke
 
 Autonomous clients should start with the public discovery endpoint and its current machine contract:
 
-- MCP V1 endpoint: `https://mahshar.xyz/api/mcp` (stateless discovery through `search_apis` and `get_api`, real x402 challenge preparation and externally signed replay through `execute_api_call`, and purchase-capability recovery through `get_purchase_response`). Mahshar never accepts buyer private keys, signs automatically, or takes custody. Live paid MCP execution has not yet been production-verified.
+- MCP V1 endpoint: `https://mahshar.xyz/api/mcp` (stateless discovery through `search_apis` and `get_api`, real x402 challenge preparation and externally signed replay through `execute_api_call`, and purchase-capability recovery through `get_purchase_response`). Mahshar never accepts buyer private keys, signs automatically, or takes custody. MCP paid execution is implemented and audited, but has not yet been production-verified end to end.
 - [OpenAPI document](openapi.yaml)
 - [Agent integration guide](docs/agent-integration.md)
 
@@ -172,6 +193,8 @@ See [dynamic Circle routes](docs/dynamic-circle-routes.md) for implementation de
 | `tests/` | Marketplace, payment, database, dashboard, and integration regressions. |
 | `docs/` | Detailed architecture, operations, and security documentation. |
 | `scripts/` | Read-only audits, local verification, and explicitly gated utilities. |
+
+The reviewer-oriented [primitive inventory](PRIMITIVES.md) maps the reusable payment, proxy, discovery, MCP, integrity, and recovery patterns to their implementation files.
 
 ## Database Setup
 
@@ -223,4 +246,4 @@ Never commit production secrets. Server-only private keys, service-role credenti
 
 ## License
 
-MIT.
+[MIT](LICENSE).
