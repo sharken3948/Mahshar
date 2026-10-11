@@ -3,6 +3,12 @@ import { resolve, dirname } from 'path'
 import { existsSync, readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 
+const LIVE = process.argv.includes('--live')
+if (LIVE) {
+  console.error('legacy_discovery_disabled')
+  process.exit(1)
+}
+
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const candidates = [
   resolve(process.cwd(), '.env.local'),
@@ -133,7 +139,6 @@ for (const v of activatable) {
   console.log(`  ${v.name ?? '—'}  →  ${v.tested_url}`)
 }
 
-const LIVE = process.argv.includes('--live')
 if (!LIVE) {
   console.log('\nDry run (default) — no updates written. Pass --live to activate the reviewed rows.')
   process.exit(0)

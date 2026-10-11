@@ -182,11 +182,12 @@ test('Brevo transport sends one plain-text message with a stable idempotency key
   }
 })
 
-test('legacy discovery outreach no longer contains a Resend transport path', () => {
-  assert.match(legacyOutreachRoute, /https:\/\/api\.brevo\.com\/v3\/smtp\/email/)
-  assert.match(legacyOutreachRoute, /process\.env\.BREVO_API_KEY/)
-  assert.match(legacyOutreachRoute, /support@mahshar\.xyz/)
-  assert.doesNotMatch(legacyOutreachRoute, /api\.resend\.com|RESEND_API_KEY/)
+test('legacy discovery bulk outreach is retired before transport or database access', () => {
+  assert.match(legacyOutreachRoute, /withAdmin/)
+  assert.match(legacyOutreachRoute, /legacy_discovery_disabled/)
+  assert.match(legacyOutreachRoute, /status: 410/)
+  assert.doesNotMatch(legacyOutreachRoute, /BREVO_API_KEY|api\.brevo\.com|api\.resend\.com|RESEND_API_KEY/)
+  assert.doesNotMatch(legacyOutreachRoute, /createServiceClient|discovered_apis|outreach_log|fetch\(/)
 })
 
 test('DNC and human-terminal state are rechecked by every draft boundary', () => {

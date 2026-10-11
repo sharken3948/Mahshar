@@ -3,6 +3,12 @@ import { resolve, dirname } from 'path'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 
+const DRY_RUN = process.argv.includes('--dry-run')
+if (!DRY_RUN) {
+  console.error('legacy_discovery_disabled: pass --dry-run for read-only analysis')
+  process.exit(1)
+}
+
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const envCandidates = [
   resolve(process.cwd(), '.env.local'),
@@ -55,7 +61,6 @@ const targets = report.verdicts.filter(
   v => v.source_table === 'api_listings' && v.class === 'html_docs',
 )
 
-const DRY_RUN = process.argv.includes('--dry-run')
 const CONCURRENCY = 8
 const TIMEOUT_MS = 5000
 const MAX_CANDIDATES_PER_ROW = 8
