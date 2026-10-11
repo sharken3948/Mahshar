@@ -6,10 +6,15 @@ import { encryptKey } from '@/lib/crypto';
 import { validateEndpointUrl } from '@/lib/url-validation';
 import { isValidWalletAddress } from '@/lib/wallet-validation';
 import { normalizeExpectedStatusCodes } from '@/lib/marketplace/listing-security';
-import type { AuthType, PaymentModel } from '@/types';
 import { PUBLIC_LISTING_COLUMNS, publicListing } from '@/lib/marketplace/public-listing';
 import { listingContractMetadata } from '@/lib/marketplace/listing-contract-metadata';
 import { SUPPORTED_LISTING_METHODS, validateListingRequestContract } from '@/lib/marketplace/request-contract';
+import { enforceRateLimit } from '@/lib/rate-limit';
+import { readBoundedJson, RequestBodyError } from '@/lib/request-body';
+
+const MAX_LISTING_CREATE_BODY_BYTES = 64 * 1024;
+const LISTING_CREATE_RATE_LIMIT = 10;
+const LISTING_CREATE_RATE_WINDOW_SECONDS = 60;
 
 export const runtime = 'nodejs';
 
@@ -65,43 +70,65 @@ export const GET = marketplaceErrors(async (request: NextRequest) => {
 })
 
 export const POST = withWalletSession(async (request: NextRequest, authenticatedWallet: string) => {
-  const supabase = createServiceClient();
+  const limited = await enforceRateLimit({
+    request,
+    scope: 'listing-create',
+    limit: LISTING_CREATE_RATE_LIMIT,
+    windowSeconds: LISTING_CREATE_RATE_WINDOW_SECONDS,
+    wallet: authenticatedWallet,
+    failClosed: true,
+  });
 
-  const body = await request.json() as {
-    name: string;
-    description: string;
-    category: string;
-    price_per_call: number;
-    payment_model: PaymentModel;
-    seller_wallet: string;
-    auth_type: AuthType;
-    auth_key?: string;
-    auth_param_name?: string;
-    endpoint_url: string;
-    method?: string;
-    example_request?: string;
-    example_response?: string;
-    expected_status_codes?: number[];
-    request_schema?: Record<string, unknown> | null;
-    response_schema?: Record<string, unknown> | null;
-    body_required?: boolean | null;
-    dynamic_path_supported?: boolean;
-    path_parameters?: unknown[] | null;
-    query_parameters?: unknown[] | null;
-  };
+  if (limited) return limited;
+
+  let body: Record<string, unknown>;
+  try {
+    const parsed = await readBoundedJson<unknown>(request, MAX_LISTING_CREATE_BODY_BYTES);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+    }
+    body = parsed as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      return NextResponse.json(
+        { error: error.code === 'body_too_large' ? 'Request body too large' : 'Invalid JSON body' },
+        { status: error.code === 'body_too_large' ? 413 : 400 }
+      );
+    }
+    throw error;
+  }
 
   const { name, description, category, price_per_call, payment_model, seller_wallet, auth_type, auth_key, auth_param_name, endpoint_url, method, example_request, example_response } = body;
-  const normalizedMethod = (method ?? 'GET').toUpperCase();
-  const expectedResult = normalizeExpectedStatusCodes(body.expected_status_codes);
-  if (!expectedResult.ok) return NextResponse.json({ error: expectedResult.error }, { status: 400 });
-  const contractResult = listingContractMetadata(body as unknown as Record<string, unknown>, normalizedMethod);
-  if (!contractResult.ok) return NextResponse.json({ error: contractResult.error }, { status: 400 });
 
   assertWalletClaim(seller_wallet, authenticatedWallet);
 
   if (!name || !description || !category || !payment_model || !endpoint_url) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
+  if (
+    typeof name !== 'string' ||
+    typeof description !== 'string' ||
+    typeof category !== 'string' ||
+    typeof payment_model !== 'string' ||
+    typeof endpoint_url !== 'string' ||
+    (method !== undefined && typeof method !== 'string') ||
+    typeof auth_type !== 'string' ||
+    (auth_key !== undefined && auth_key !== null && typeof auth_key !== 'string') ||
+    (auth_param_name !== undefined && auth_param_name !== null && typeof auth_param_name !== 'string') ||
+    (example_request !== undefined && example_request !== null && typeof example_request !== 'string') ||
+    (example_response !== undefined && example_response !== null && typeof example_response !== 'string') ||
+    (body.body_required !== undefined && body.body_required !== null && typeof body.body_required !== 'boolean') ||
+    (body.dynamic_path_supported !== undefined && typeof body.dynamic_path_supported !== 'boolean') ||
+    (body.path_parameters !== undefined && body.path_parameters !== null && !Array.isArray(body.path_parameters)) ||
+    (body.query_parameters !== undefined && body.query_parameters !== null && !Array.isArray(body.query_parameters))
+  ) {
+    return NextResponse.json({ error: 'Invalid listing fields' }, { status: 400 });
+  }
+  if (!['pay-per-call', 'credits', 'both'].includes(payment_model)) {
+    return NextResponse.json({ error: 'Invalid payment model' }, { status: 400 });
+  }
+
+  const normalizedMethod = (method ?? 'GET').toUpperCase();
   if (!SUPPORTED_LISTING_METHODS.includes(normalizedMethod as typeof SUPPORTED_LISTING_METHODS[number])) {
     return NextResponse.json({ error: 'Method must be GET, POST, PUT, or DELETE' }, { status: 400 });
   }
@@ -115,23 +142,29 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     return NextResponse.json({ error: 'price_per_call must be a positive number' }, { status: 400 });
   }
 
-  const urlValidation = await validateEndpointUrl(endpoint_url);
-  if (!urlValidation.valid) {
-    return NextResponse.json({ error: 'Invalid endpoint URL', reason: urlValidation.error }, { status: 400 });
-  }
+  const expectedResult = normalizeExpectedStatusCodes(body.expected_status_codes);
+  if (!expectedResult.ok) return NextResponse.json({ error: expectedResult.error }, { status: 400 });
+  const contractResult = listingContractMetadata(body, normalizedMethod);
+  if (!contractResult.ok) return NextResponse.json({ error: contractResult.error }, { status: 400 });
 
   const requestContract = validateListingRequestContract({
     endpoint_url, method: normalizedMethod, auth_type, auth_param_name,
     example_request, body_required: body.body_required, request_schema: body.request_schema,
     dynamic_path_supported: body.dynamic_path_supported ?? false,
-    path_parameters: body.path_parameters ?? null,
-    query_parameters: body.query_parameters ?? null,
+    path_parameters: Array.isArray(body.path_parameters) ? body.path_parameters : null,
+    query_parameters: Array.isArray(body.query_parameters) ? body.query_parameters : null,
   });
   if (!requestContract.ok) {
     return NextResponse.json({ error: requestContract.error, field: requestContract.field }, { status: 400 });
   }
 
+  const urlValidation = await validateEndpointUrl(endpoint_url);
+  if (!urlValidation.valid) {
+    return NextResponse.json({ error: 'Invalid endpoint URL', reason: urlValidation.error }, { status: 400 });
+  }
+
   const encrypted_key = auth_key ? encryptKey(auth_key) : null;
+  const supabase = createServiceClient();
 
   const { data, error } = await supabase
     .from('api_listings')
@@ -156,6 +189,6 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     .select('id')
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'Listing creation failed' }, { status: 500 });
   return NextResponse.json({ id: data.id }, { status: 201 });
 })

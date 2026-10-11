@@ -8,11 +8,12 @@ export const bob = privateKeyToAccount(`0x${'22'.repeat(32)}`)
 export const origin = 'https://mahshar.xyz'
 export const state = { tables: {} as Record<string, Record<string, any>[]>, upstream: 0, settled: 0,
   rateLimitError: false, rateLimitAllowed: true, failApiCallInsert: false, pruneCalls: 0, pruneResult: 0,
+  failListingInsert: false, urlValidationCalls: 0,
   authPruneCalls: 0, authPruneResult: { challenges: 0, sessions: 0 } }
 export function reset() {
-  state.upstream = 0; state.settled = 0
+  state.upstream = 0; state.settled = 0; state.urlValidationCalls = 0
   state.rateLimitError = false; state.rateLimitAllowed = true
-  state.failApiCallInsert = false
+  state.failApiCallInsert = false; state.failListingInsert = false
   state.pruneCalls = 0; state.pruneResult = 0
   state.authPruneCalls = 0; state.authPruneResult = { challenges: 0, sessions: 0 }
   state.tables = { api_listings: [], api_calls: [], purchases: [], credit_balances: [], seller_withdrawals: [],
@@ -74,6 +75,9 @@ class Query {
   then(resolve: (value: any) => unknown) {
     let table = state.tables[this.table] ?? []
     if (this.mutation?.kind === 'insert') {
+      if (this.table === 'api_listings' && state.failListingInsert) {
+        return Promise.resolve({ data: null, error: { code: 'XX000', message: 'sensitive database detail' } }).then(resolve)
+      }
       if (this.table === 'api_calls' && state.failApiCallInsert) {
         return Promise.resolve({ data: null, error: { code: 'XX000', message: 'injected api_calls failure' } }).then(resolve)
       }
