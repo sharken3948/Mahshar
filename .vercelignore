@@ -1,0 +1,9 @@
+.env*
+tools/growth-agent/
+.local/growth-agent/
+provider-seeds-20.json
+WORKLOG.md
+.agents/
+.codex/
+.aws/
+backup/

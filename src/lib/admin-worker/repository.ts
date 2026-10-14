@@ -249,21 +249,28 @@ export async function getWorkerRuns(limit = WORKER_RECENT_RUNS_DEFAULT): Promise
 
 export async function getWorkerStatus(): Promise<WorkerStatusDto> {
   const db = createServiceClient()
-  const [controlResult, latestResult, completedResult] = await Promise.all([
+  const acquisitionEnabled = process.env.ADMIN_ACQUISITION_MODE === 'true'
+  const [controlResult, latestResult, completedResult, acquisitionResult, metricsResult] = await Promise.all([
     db.from('worker_control').select('desired_state, batch_size, qualified_target, raw_candidate_limit, current_checkpoint, updated_at').eq('id', 1).single(),
     db.from('worker_runs').select(RUN_SELECT).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     db.from('worker_runs').select('completed_at').eq('status', 'completed')
       .order('completed_at', { ascending: false }).limit(1).maybeSingle(),
-  ]) as [DbResult, DbResult, DbResult]
+    acquisitionEnabled ? db.from('admin_acquisition_control').select('desired_state,canary_used_at').eq('id', 1).single()
+      : Promise.resolve({ data: null, error: null }),
+    acquisitionEnabled ? db.rpc('mahshar_acquisition_metrics') : Promise.resolve({ data: null, error: null }),
+  ]) as [DbResult, DbResult, DbResult, DbResult, DbResult]
   if (controlResult.error) dbFailure('worker_control', controlResult.error)
   if (latestResult.error) dbFailure('worker_latest_run', latestResult.error)
   if (completedResult.error) dbFailure('worker_last_completed', completedResult.error)
+  if (acquisitionResult.error) dbFailure('acquisition_control', acquisitionResult.error)
+  if (metricsResult.error) dbFailure('acquisition_metrics', metricsResult.error)
 
   const control = workerControlRecord(controlResult.data)
   const latest = latestResult.data ? workerRunDto(latestResult.data) : null
   const active = latest && activeWorkerRunStatuses.has(latest.status as 'queued' | 'running' | 'stop_requested')
+  const acquisitionRunning = objectRow(acquisitionResult.data)?.desired_state === 'running'
   const displayStatus = latest?.status === 'stop_requested' ? 'stop_requested'
-    : active ? 'running'
+    : active || acquisitionRunning ? 'running'
       : latest?.status === 'failed' ? 'failed' : 'stopped'
   const completed = objectRow(completedResult.data)
   return {
@@ -272,11 +279,20 @@ export async function getWorkerStatus(): Promise<WorkerStatusDto> {
     batch_size: control.batch_size,
     qualified_target: control.qualified_target, raw_candidate_limit: control.raw_candidate_limit,
     checkpoint: parseWorkerCheckpoint(control.current_checkpoint),
-    can_resume: Boolean(latest && !active && isResumableWorkerRun(
+    can_resume: Boolean(latest && !active && !acquisitionRunning && !(acquisitionEnabled && process.env.ADMIN_ACQUISITION_CANARY === 'true')
+      && (acquisitionEnabled && latest.status === 'completed' || isResumableWorkerRun(
       latest.status, latest.completion_reason, control.current_checkpoint, latest.targets.raw_limit,
-    )),
+    ))),
     last_completed_at: completed ? safeTimestamp(completed.completed_at) : null,
     latest_run: latest,
+    ...(acquisitionEnabled ? { acquisition: {
+      running: acquisitionRunning, simulated_only: true as const,
+      canary_mode: process.env.ADMIN_ACQUISITION_CANARY === 'true',
+      canary_used: typeof objectRow(acquisitionResult.data)?.canary_used_at === 'string',
+      canary_required: process.env.VERCEL_ENV === 'production' && process.env.ADMIN_ACQUISITION_CANARY !== 'true',
+      ...Object.fromEntries(['investigated','verified_emails','eligible_recipients','drafts','reserved','simulated_sent',
+        'skipped','uncertain','failed','daily_runs','daily_groq','daily_sends','daily_simulated_sent'].map(key => [key, safeInteger(objectRow(metricsResult.data)?.[key] ?? 0)])),
+    } as NonNullable<WorkerStatusDto['acquisition']> } : {}),
     as_of: new Date().toISOString(),
   }
 }

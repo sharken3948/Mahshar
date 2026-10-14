@@ -20,6 +20,7 @@ CONTACT_REENRICHMENT = ROOT / 'supabase/migrations/20261007000100_admin_worker_c
 ADMIN_OUTREACH = ROOT / 'supabase/migrations/20261007000200_admin_outreach_v1.sql'
 ADMIN_OUTREACH_V2 = ROOT / 'supabase/migrations/20261008000100_admin_outreach_v2_inbound.sql'
 ADMIN_OUTREACH_DELIVERY = ROOT / 'supabase/migrations/20261008000200_admin_outreach_delivery_events.sql'
+ADMIN_ACQUISITION = ROOT / 'supabase/migrations/20261014000100_admin_acquisition.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -88,9 +89,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20261001000100', '20261001000110',
             '20261002000100', '20261004000100', '20261005000100', '20261005000200', '20261005000300',
             '20261007000100', '20261007000200', '20261008000100', '20261008000200',
+            '20261014000100',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2, ADMIN_OUTREACH_DELIVERY):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2, ADMIN_OUTREACH_DELIVERY, ADMIN_ACQUISITION):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -1877,7 +1879,164 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         assert sql(f"SELECT fit_score||','||qualification_status||','||status FROM worker_leads WHERE id='{outreach_lead}';") == technical_before
         assert sql("SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY id),'[]') FROM worker_runs r;") == outreach_worker_before
 
-        print('PASS: Worker and Admin Outreach transactional migrations, privileges, manual approval, DNC, retries, races, and concurrency')
+        sql('BEGIN;\n' + ADMIN_ACQUISITION.read_text() + '\nCOMMIT;')
+        assert sql("SELECT has_table_privilege('anon','public.admin_acquisition_attempts','SELECT');") == 'f'
+        assert sql("SELECT has_function_privilege('anon','public.mahshar_acquisition_reserve(uuid,uuid,text,text,text)','EXECUTE');") == 'f'
+        assert sql("SELECT has_function_privilege('anon','public.mahshar_acquisition_set_state(boolean,boolean,uuid)','EXECUTE');") == 'f'
+        acquisition_run = rpc_json('mahshar_worker_create_target_run(false)')
+        state = json.loads(sql("SET ROLE service_role; SELECT row_to_json(r) FROM mahshar_acquisition_set_state(true) r;"))
+        assert state['desired_state'] == 'running'
+        assert acquisition_run['status'] == 'queued'
+        rpc_json(f"mahshar_worker_claim_run('{acquisition_run['id']}')")
+        no_email_provider = sql('SELECT gen_random_uuid();')
+        eligible_provider = sql('SELECT gen_random_uuid();')
+        sql(f"""
+          INSERT INTO worker_providers(id,canonical_name,canonical_domain) VALUES
+            ('{no_email_provider}','No Email Fixture','no-email-fixture.example'),
+            ('{eligible_provider}','Eligible Fixture','eligible-fixture.example');
+          INSERT INTO worker_products(provider_id,normalized_product_key,display_name) VALUES
+            ('{no_email_provider}','no-email-api','No Email API'),
+            ('{eligible_provider}','eligible-api','Eligible API');
+          INSERT INTO worker_leads(provider_id,product_id,status,fit_score,fit_reason,qualification_status,
+            contactability_status,email_ready,preferred_email,created_at)
+          SELECT p.id,x.id,'qualified',80,'Fixture fit','qualified',
+            CASE WHEN p.id='{eligible_provider}' THEN 'verified_email' ELSE 'none_found' END,
+            p.id='{eligible_provider}',CASE WHEN p.id='{eligible_provider}' THEN 'business@eligible-fixture.example' ELSE NULL END,
+            CASE WHEN p.id='{no_email_provider}' THEN '1900-01-01'::timestamptz ELSE '1900-01-02'::timestamptz END
+          FROM worker_providers p JOIN worker_products x ON x.provider_id=p.id
+          WHERE p.id IN ('{no_email_provider}','{eligible_provider}');
+          INSERT INTO worker_sources(lead_id,source_type,source_role,url,checked_at)
+            SELECT id,'website','official_docs','https://eligible-fixture.example/docs',clock_timestamp()
+            FROM worker_leads WHERE provider_id='{eligible_provider}';
+          INSERT INTO worker_contacts(provider_id,lead_id,contact_type,value,purpose,source_url,source_type,
+            verification_status,preferred,email_ready,discovered_at,verified_at,evidence_origin)
+          SELECT provider_id,id,'email','business@eligible-fixture.example','business',
+            'https://eligible-fixture.example/contact','official_site','verified',true,true,
+            clock_timestamp(),clock_timestamp(),'automatic'
+          FROM worker_leads WHERE provider_id='{eligible_provider}';
+        """)
+        claimed_empty = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_acquisition_claim_next('{acquisition_run['id']}','{state['epoch']}');"))
+        assert claimed_empty['providerId'] == no_email_provider and claimed_empty['email'] is None
+        sql(f"SET ROLE service_role; SELECT mahshar_acquisition_record('{claimed_empty['attemptId']}','skipped','no_email');")
+        claimed_eligible = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_acquisition_claim_next('{acquisition_run['id']}','{state['epoch']}');"))
+        assert claimed_eligible['providerId'] == eligible_provider and claimed_eligible['verified']
+        assert not claimed_eligible['approved']
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_reserve('{claimed_eligible['attemptId']}',\
+          '{state['epoch']}','business@eligible-fixture.example','Eligible API on Mahshar','Grounded draft');") == ''
+        sql(f"INSERT INTO admin_acquisition_eligibility(provider_id,recipient_email,channel,basis,expires_at)\
+          VALUES('{eligible_provider}','business@eligible-fixture.example','mock','Fixture approval only',clock_timestamp()+interval '1 day');")
+        reserved = sql(f"SET ROLE service_role; SELECT mahshar_acquisition_reserve('{claimed_eligible['attemptId']}',\
+          '{state['epoch']}','business@eligible-fixture.example','Eligible API on Mahshar','Grounded draft');")
+        assert reserved == claimed_eligible['attemptId']
+        assert sql(f"SELECT count(*) FROM admin_outreach_threads WHERE provider_id='{eligible_provider}';") == '0'
+        assert sql(f"SELECT count(*) FROM admin_outreach_messages WHERE id='{reserved}';") == '0'
+        assert sql(f"SELECT subject||':'||body FROM admin_acquisition_attempts WHERE id='{reserved}';") == 'Eligible API on Mahshar:Grounded draft'
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_approve_draft('{reserved}',\
+          '0x1111111111111111111111111111111111111111');", 'admin_outreach_draft_not_approvable')
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_mark_sent('{reserved}','fake-brevo-id');")
+        sql(f"SET ROLE service_role; SELECT mahshar_acquisition_finish('{reserved}','simulated:{reserved}',false);")
+        assert sql(f"SELECT status FROM admin_acquisition_attempts WHERE id='{reserved}';") == 'simulated_sent'
+        assert sql(f"SELECT reserved_at IS NOT NULL AND dispatched_at IS NOT NULL FROM admin_acquisition_attempts WHERE id='{reserved}';") == 't'
+        assert sql(f"SELECT count(*) FROM admin_outreach_messages WHERE provider_message_id='simulated:{reserved}';") == '0'
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_reserve('{reserved}','{state['epoch']}',\
+          'business@eligible-fixture.example','Again','Again');") == ''
+        metrics = json.loads(sql("SET ROLE service_role; SELECT mahshar_acquisition_metrics();"))
+        assert metrics['investigated'] == 2 and metrics['simulated_sent'] == 1 and metrics['skipped'] == 1
+        assert metrics['daily_sends'] == 1 and metrics['daily_simulated_sent'] == 1
+        # An old investigation reserved today consumes today's slot, regardless of session timezone.
+        sql(f"UPDATE admin_acquisition_attempts SET created_at=clock_timestamp()-interval '2 days' WHERE id='{reserved}';")
+        assert json.loads(sql("SET ROLE service_role; SET TIME ZONE 'Pacific/Honolulu'; SELECT mahshar_acquisition_metrics();"))['daily_sends'] == 1
+        assert json.loads(sql("SET ROLE service_role; SET TIME ZONE 'Pacific/Kiritimati'; SELECT mahshar_acquisition_metrics();"))['daily_simulated_sent'] == 1
+        # Reservation and dispatch are independent UTC dates across midnight.
+        sql(f"UPDATE admin_acquisition_attempts SET reserved_at=date_trunc('day',clock_timestamp(),'UTC')-interval '1 microsecond'\
+          WHERE id='{reserved}';")
+        assert json.loads(sql("SET ROLE service_role; SELECT mahshar_acquisition_metrics();"))['daily_sends'] == 0
+        assert json.loads(sql("SET ROLE service_role; SELECT mahshar_acquisition_metrics();"))['daily_simulated_sent'] == 1
+        sql(f"UPDATE admin_acquisition_attempts SET reserved_at=clock_timestamp(),\
+          dispatched_at=date_trunc('day',clock_timestamp(),'UTC')-interval '1 microsecond' WHERE id='{reserved}';")
+        assert json.loads(sql("SET ROLE service_role; SELECT mahshar_acquisition_metrics();"))['daily_sends'] == 1
+        assert json.loads(sql("SET ROLE service_role; SELECT mahshar_acquisition_metrics();"))['daily_simulated_sent'] == 0
+        # The control-row lock serializes simultaneous reservations at the UTC ceiling.
+        sql(f"""
+          INSERT INTO worker_providers(canonical_name,canonical_domain)
+          SELECT 'Budget fixture '||n,'budget-'||n||'.example' FROM generate_series(1,25) n;
+          INSERT INTO worker_products(provider_id,normalized_product_key,display_name)
+          SELECT id,'budget-api','Budget API' FROM worker_providers WHERE canonical_domain LIKE 'budget-%.example';
+          INSERT INTO worker_leads(provider_id,product_id,status,fit_score,fit_reason,qualification_status,
+            contactability_status,email_ready,preferred_email)
+          SELECT p.id,x.id,'qualified',80,'Fixture fit','qualified','verified_email',true,
+            'business@'||p.canonical_domain FROM worker_providers p JOIN worker_products x ON x.provider_id=p.id
+          WHERE p.canonical_domain LIKE 'budget-%.example';
+          INSERT INTO admin_acquisition_attempts(provider_id,lead_id,run_id,status,recipient_email,subject,body,reserved_at,dispatched_at)
+          SELECT l.provider_id,l.id,'{acquisition_run['id']}',
+            CASE WHEN p.canonical_name IN ('Budget fixture 24','Budget fixture 25') THEN 'investigating' ELSE 'simulated_sent' END,
+            l.preferred_email,'Fixture','Fixture',
+            CASE WHEN p.canonical_name IN ('Budget fixture 24','Budget fixture 25') THEN NULL ELSE clock_timestamp() END,
+            CASE WHEN p.canonical_name IN ('Budget fixture 24','Budget fixture 25') THEN NULL ELSE clock_timestamp() END
+          FROM worker_leads l JOIN worker_providers p ON p.id=l.provider_id WHERE p.canonical_domain LIKE 'budget-%.example';
+          INSERT INTO admin_acquisition_eligibility(provider_id,recipient_email,channel,basis,expires_at)
+          SELECT l.provider_id,l.preferred_email,'mock','Fixture approval only',clock_timestamp()+interval '1 day'
+          FROM worker_leads l JOIN worker_providers p ON p.id=l.provider_id
+          WHERE p.canonical_name IN ('Budget fixture 24','Budget fixture 25');
+        """)
+        budget_candidates = sql("SELECT a.id||','||l.preferred_email FROM admin_acquisition_attempts a JOIN worker_leads l ON l.id=a.lead_id WHERE a.status='investigating' ORDER BY a.id;").splitlines()
+        assert len(budget_candidates) == 2
+        def reserve_budget(candidate):
+            attempt_id, email = candidate.split(',')
+            try:
+                return sql(f"SET ROLE service_role; SELECT mahshar_acquisition_reserve('{attempt_id}','{state['epoch']}',\
+                  '{email}','Budget API on Mahshar','Fixture draft');")
+            except subprocess.CalledProcessError as error:
+                assert 'acquisition_daily_send_limit' in error.stderr, error.stderr
+                return 'limited'
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            budget_results = list(pool.map(reserve_budget, budget_candidates))
+        assert sorted(result == 'limited' for result in budget_results) == [False, True], budget_results
+        assert json.loads(sql("SET ROLE service_role; SELECT mahshar_acquisition_metrics();"))['daily_sends'] == 25
+        assert sql("SELECT count(*) FROM admin_outreach_messages WHERE subject='Budget API on Mahshar';") == '0'
+        sql("SET ROLE service_role; SELECT mahshar_acquisition_set_state(false);")
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_claim_next('{acquisition_run['id']}','{state['epoch']}');") == ''
+        assert sql(f"SET ROLE service_role; SELECT (mahshar_acquisition_create_next_run('{state['epoch']}')).id;") == ''
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_reserve('{reserved}','{state['epoch']}',\
+          'business@eligible-fixture.example','Again','Again');") == ''
+        # Production canary consumes one durable session, one investigation, and no continuation.
+        stopped_for_canary = rpc_json('mahshar_worker_request_stop()')
+        assert stopped_for_canary and stopped_for_canary['id'] == acquisition_run['id'] and stopped_for_canary['status'] == 'stop_requested', stopped_for_canary
+        assert rpc_json(f"mahshar_worker_claim_run('{acquisition_run['id']}')")['status'] == 'stopped'
+        sql("""
+          INSERT INTO worker_providers(canonical_name,canonical_domain) VALUES
+            ('Canary fixture one','canary-one.example'),('Canary fixture two','canary-two.example');
+          INSERT INTO worker_products(provider_id,normalized_product_key,display_name)
+          SELECT id,'canary-api','Canary API' FROM worker_providers WHERE canonical_domain LIKE 'canary-%.example';
+          INSERT INTO worker_leads(provider_id,product_id,status,fit_score,fit_reason,qualification_status,
+            contactability_status,email_ready,preferred_email,created_at)
+          SELECT p.id,x.id,'qualified',80,'Fixture fit','qualified','none_found',false,NULL,
+            CASE WHEN p.canonical_domain='canary-one.example' THEN '1800-01-01'::timestamptz ELSE '1800-01-02'::timestamptz END
+          FROM worker_providers p JOIN worker_products x ON x.provider_id=p.id
+          WHERE p.canonical_domain LIKE 'canary-%.example';
+        """)
+        canary_run = rpc_json('mahshar_worker_create_target_run(false)')
+        canary_state = json.loads(sql(f"SET ROLE service_role; SELECT row_to_json(r) FROM\
+          mahshar_acquisition_set_state(true,true,'{canary_run['id']}') r;"))
+        assert canary_state['canary_run_id'] == canary_run['id'] and canary_state['canary_used_at']
+        rpc_json(f"mahshar_worker_claim_run('{canary_run['id']}')")
+        canary_claim = json.loads(sql(f"SET ROLE service_role; SELECT mahshar_acquisition_claim_next('{canary_run['id']}',\
+          '{canary_state['epoch']}');"))
+        assert canary_claim['attemptId']
+        assert int(sql("SELECT count(*) FROM worker_leads l JOIN worker_providers p ON p.id=l.provider_id\
+          LEFT JOIN admin_acquisition_attempts a ON a.provider_id=p.id\
+          WHERE p.canonical_domain LIKE 'canary-%.example' AND a.id IS NULL;")) >= 1
+        sql(f"SET ROLE service_role; SELECT mahshar_acquisition_record('{canary_claim['attemptId']}','skipped','no_email');")
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_claim_next('{canary_run['id']}',\
+          '{canary_state['epoch']}');") == ''
+        assert sql(f"SET ROLE service_role; SELECT (mahshar_acquisition_create_next_run('{canary_state['epoch']}')).id;") == ''
+        assert sql("SELECT count(*) FROM admin_acquisition_attempts WHERE run_id='" + canary_run['id'] + "';") == '1'
+        sql("SET ROLE service_role; SELECT mahshar_acquisition_set_state(false);")
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_claim_next('{canary_run['id']}',\
+          '{canary_state['epoch']}');") == ''
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_acquisition_set_state(true,true,'{canary_run['id']}');",
+                       'acquisition_canary_unavailable')
+        print('PASS: Worker, Admin Outreach, and Acquisition migrations, privileges, and lifecycle')
     finally:
         if started:
             run([BIN / 'pg_ctl', '-D', data, '-m', 'immediate', '-w', 'stop'])

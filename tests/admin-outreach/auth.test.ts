@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test } from 'node:test'
 import { NextRequest } from 'next/server'
-import { alice, bob, origin, reset, sessionHeaders } from '../marketplace/fixtures'
+import { alice, bob, origin, reset, sessionHeaders, state } from '../marketplace/fixtures'
 import { boundary } from '../admin/fixture'
 import * as dashboard from '../../src/app/api/admin/outreach/route'
 import * as drafts from '../../src/app/api/admin/outreach/drafts/route'
@@ -44,6 +44,32 @@ test('Outreach routes expose only intended methods', () => {
   assert.deepEqual(['POST'].filter(method => method in send), ['POST'])
   assert.deepEqual(['PATCH'].filter(method => method in status), ['PATCH'])
   assert.deepEqual(['POST'].filter(method => method in brevoEvents), ['POST'])
+})
+
+test('mock acquisition attempt IDs cannot reach Brevo through Admin approval or send', async () => {
+  const id = '11111111-1111-4111-8111-111111111111'
+  state.tables.admin_acquisition_attempts = [{ id, status: 'reserved', subject: 'Mock invitation', body: 'Mock body' }]
+  state.tables.admin_outreach_messages = []
+  const context = { params: Promise.resolve({ id }) } as never
+  const previousFetch = globalThis.fetch
+  const previousMode = process.env.MAINNET_MODE
+  const previousKey = process.env.BREVO_API_KEY
+  let outbound = 0
+  globalThis.fetch = async () => { outbound++; throw new Error('unexpected outbound request') }
+  process.env.MAINNET_MODE = 'true'
+  process.env.BREVO_API_KEY = 'fixture-only'
+  try {
+    const approval = await approve.POST(request(`/api/admin/outreach/drafts/${id}/approve`, 'POST', alice), context)
+    const delivery = await send.POST(request(`/api/admin/outreach/drafts/${id}/send`, 'POST', alice), context)
+    assert.equal(approval.status, 409)
+    assert.equal(delivery.status, 503)
+    assert.equal(outbound, 0)
+    assert.equal(state.tables.admin_outreach_messages.length, 0)
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousMode === undefined) delete process.env.MAINNET_MODE; else process.env.MAINNET_MODE = previousMode
+    if (previousKey === undefined) delete process.env.BREVO_API_KEY; else process.env.BREVO_API_KEY = previousKey
+  }
 })
 
 test('Brevo provider webhook uses dedicated provider authentication rather than an Admin wallet session', async () => {

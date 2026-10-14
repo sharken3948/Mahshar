@@ -143,6 +143,19 @@ test('UI availability follows the lifecycle and resumable checkpoint', () => {
   assert.deepEqual(workerControlAvailability(status(run('running', { version: 1, nextIndex: 10, batchSize: 50 }, 1), false)), { canStart: false, canStop: true, canResume: false })
   assert.deepEqual(workerControlAvailability(status(run('stopped', { version: 1, nextIndex: 20, batchSize: 50 }, 1), true)), { canStart: true, canStop: false, canResume: true })
   assert.deepEqual(workerControlAvailability(status(run('completed', { version: 1, nextIndex: 20, batchSize: 50 }, 1), true)), { canStart: true, canStop: false, canResume: false })
+  const sleeping = { ...status(run('completed', { version: 1, nextIndex: 50, batchSize: 50 }, 1), true),
+    acquisition: { running: true, simulated_only: true as const, investigated: 1, verified_emails: 1,
+      eligible_recipients: 1, drafts: 1, reserved: 0, simulated_sent: 1, skipped: 0, uncertain: 0,
+      failed: 0, daily_runs: 1, daily_groq: 1, daily_sends: 1, daily_simulated_sent: 1 } }
+  assert.deepEqual(workerControlAvailability(sleeping), { canStart: false, canStop: true, canResume: false })
+  assert.deepEqual(workerControlAvailability({ ...sleeping, acquisition: { ...sleeping.acquisition, running: false } }),
+    { canStart: true, canStop: false, canResume: false })
+  assert.deepEqual(workerControlAvailability({ ...sleeping, acquisition: {
+    ...sleeping.acquisition, running: false, canary_mode: true, canary_used: true,
+  } }), { canStart: false, canStop: false, canResume: false })
+  assert.deepEqual(workerControlAvailability({ ...sleeping, acquisition: {
+    ...sleeping.acquisition, running: false, canary_required: true,
+  } }), { canStart: false, canStop: false, canResume: false })
   const terminalStopped = run('stopped', { version: 1, nextIndex: 20, batchSize: 50 }, 1)
   terminalStopped.completion_reason = 'deadline_reached'
   assert.deepEqual(workerControlAvailability(status(terminalStopped, true)), { canStart: true, canStop: false, canResume: false })

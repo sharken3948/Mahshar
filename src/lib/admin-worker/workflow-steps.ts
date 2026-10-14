@@ -2,6 +2,8 @@ import 'server-only'
 import { advanceWorkerCheckpoint, parseWorkerCheckpoint } from './checkpoint'
 import { WORKER_CHUNK_SIZE } from './constants'
 import { processDiscoveryRange } from './discovery/processor'
+import { processAcquisitionBatch } from './acquisition'
+import { acquisitionPort } from './acquisition-runtime'
 import { advanceWorkerDiscoveryRun, claimWorkerRun, completeWorkerRun, failWorkerRun } from './repository'
 import type { WorkerRunDto } from './types'
 import type { CandidateOutcome } from './discovery/types'
@@ -24,14 +26,25 @@ export async function claimWorkerRunStep(runId: string): Promise<WorkerRunDto> {
   return claimWorkerRun(runId)
 }
 
-export async function processDiscoveryChunkStep(runId: string, checkpointValue: unknown): Promise<WorkerRunDto> {
+type ChunkDependencies = {
+  discover: typeof processDiscoveryRange
+  acquire: (runId: string, epoch: string) => Promise<unknown>
+  advance: typeof advanceWorkerDiscoveryRun
+}
+
+export async function processDiscoveryChunkStep(runId: string, checkpointValue: unknown, acquisitionEpoch?: string,
+  dependencies: Partial<ChunkDependencies> = {}): Promise<WorkerRunDto> {
   'use step'
+  const deps: ChunkDependencies = { discover: processDiscoveryRange,
+    acquire: (id, epoch) => processAcquisitionBatch(acquisitionPort(id, epoch), WORKER_CHUNK_SIZE),
+    advance: advanceWorkerDiscoveryRun, ...dependencies }
   const checkpoint = parseWorkerCheckpoint(checkpointValue)
   if (!checkpoint) throw new Error('worker_checkpoint_invalid')
   const requested = advanceWorkerCheckpoint(checkpoint, WORKER_CHUNK_SIZE)
-  const result = await processDiscoveryRange(runId, checkpoint.nextIndex, requested.nextIndex)
+  const result = await deps.discover(runId, checkpoint.nextIndex, requested.nextIndex)
+  if (acquisitionEpoch) await deps.acquire(runId, acquisitionEpoch)
   const counters = aggregateDiscoveryCounters(result.outcomes)
-  return advanceWorkerDiscoveryRun(runId, checkpoint.nextIndex, result.nextIndex, counters, result)
+  return deps.advance(runId, checkpoint.nextIndex, result.nextIndex, counters, result)
 }
 
 export async function completeWorkerRunStep(runId: string): Promise<WorkerRunDto> {

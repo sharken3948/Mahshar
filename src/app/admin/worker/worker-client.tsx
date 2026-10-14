@@ -158,11 +158,31 @@ export function WorkerClient() {
   const checkpoint = status?.checkpoint
   return <div className={styles.page}>
     <section className={styles.heading}>
-      <div><span className={styles.eyebrow}>Isolated discovery control</span><h1>Worker Agent</h1><p>Discover and qualify one durable, bounded batch of public API candidates at a time.</p></div>
+      <div><span className={styles.eyebrow}>Isolated discovery control</span><h1>Worker Agent</h1><p>Discover and qualify public API candidates in bounded batches.{status?.acquisition ? ' Autonomous acquisition is simulated only.' : ''}</p></div>
       <div className={`${styles.overallStatus} ${styles[`overall_${status?.status ?? 'stopped'}`]}`}>
         <i/><div><span>Worker status</span><strong>{status ? statusLabel(status.status) : 'Loading'}</strong></div>
       </div>
     </section>
+
+    {status?.acquisition && <section className={styles.panel} aria-label="Acquisition progress">
+      <header><div><span>Autonomous acquisition · simulated transport</span><h2>Acquisition progress</h2></div></header>
+      <div className={styles.countGrid}>
+        <div><span>Providers investigated</span><strong>{status.acquisition.investigated}</strong></div>
+        <div><span>Verified emails</span><strong>{status.acquisition.verified_emails}</strong></div>
+        <div><span>Channel eligible</span><strong>{status.acquisition.eligible_recipients}</strong></div>
+        <div><span>Drafts generated</span><strong>{status.acquisition.drafts}</strong></div>
+        <div><span>Simulated sends</span><strong>{status.acquisition.simulated_sent}</strong></div>
+        <div><span>Skipped</span><strong>{status.acquisition.skipped}</strong></div>
+        <div><span>Uncertain</span><strong>{status.acquisition.uncertain}</strong></div>
+        <div><span>Failed</span><strong>{status.acquisition.failed}</strong></div>
+        <div><span>Discovery batches today</span><strong>{status.acquisition.daily_runs} / 6</strong></div>
+        <div><span>Groq calls today</span><strong>{status.acquisition.daily_groq} / 600</strong></div>
+        <div><span>Simulated send slots today</span><strong>{status.acquisition.daily_sends} / 25</strong></div>
+        <div><span>Simulated dispatches today</span><strong>{status.acquisition.daily_simulated_sent}</strong></div>
+        {status.acquisition.canary_mode && <div><span>One-session canary</span><strong>{status.acquisition.canary_used ? 'Used' : 'Available'}</strong></div>}
+        {status.acquisition.canary_required && <div><span>Production canary</span><strong>Configuration required</strong></div>}
+      </div>
+    </section>}
 
     {phase === 'degraded' && <div className={styles.warning} role="status">Refresh failed. Showing the last known Worker state.</div>}
     {phase === 'unavailable' && <div className={styles.warning} role="alert">Worker status is temporarily unavailable. Core Mahshar remains unaffected.</div>}
@@ -185,7 +205,9 @@ export function WorkerClient() {
     </section>
 
     <section className={styles.notice}>
-      <div aria-hidden="true">i</div><p><strong>Discovery V1</strong>Bounded public API discovery, technical Fit, and official contact research are enabled. Leads remain Admin-only; no outreach, account creation, or Marketplace listing occurs.</p>
+      <div aria-hidden="true">i</div><p><strong>{status?.acquisition ? 'Acquisition review mode' : 'Discovery V1'}</strong>{status?.acquisition
+        ? ' Discovery, contact research and eligibility checks run in bounded batches. The only outbound adapter records simulated delivery; no email is sent.'
+        : ' Bounded public API discovery, technical Fit, and official contact research are enabled. Leads remain Admin-only; no outreach, account creation, or Marketplace listing occurs.'}</p>
     </section>
 
     <section className={styles.panel}>

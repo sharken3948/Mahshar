@@ -12,6 +12,8 @@ const client = readFileSync('src/app/admin/outreach/outreach-client.tsx', 'utf8'
 const repository = readFileSync('src/lib/admin-outreach/repository.ts', 'utf8')
 const styles = readFileSync('src/app/admin/outreach/outreach.module.css', 'utf8')
 const approvalRoute = readFileSync('src/app/api/admin/outreach/drafts/[id]/approve/route.ts', 'utf8')
+const sendRoute = readFileSync('src/app/api/admin/outreach/drafts/[id]/send/route.ts', 'utf8')
+const acquisitionMigration = readFileSync('supabase/migrations/20261014000100_admin_acquisition.sql', 'utf8')
 const legacyOutreachRoute = readFileSync('src/app/api/discovery/outreach/route.ts', 'utf8')
 
 const lead = {
@@ -152,6 +154,14 @@ test('manual approval is durable and the only first-send path is the approval ac
   assert.match(client, /transport required/)
   assert.match(approvalRoute, /approveOutreachDraft[\s\S]+sendOutreachEmail[\s\S]+markOutreachSent/)
   assert.doesNotMatch(repository, /setInterval|setTimeout|cron|schedule/i)
+})
+
+test('mock acquisition attempts cannot enter either Admin approval or send API path', () => {
+  assert.doesNotMatch(acquisitionMigration, /mahshar_admin_outreach_save_draft|INSERT INTO public\.admin_outreach_messages|outreach_message_id/)
+  assert.match(acquisitionMigration, /UPDATE public\.admin_acquisition_attempts SET status='reserved',recipient_email=p_email,subject=p_subject,body=p_body/)
+  assert.match(approvalRoute, /approveOutreachDraft\(id, principal\.wallet\)[\s\S]+getApprovedOutreachMessage\(id\)[\s\S]+sendOutreachEmail/)
+  assert.match(sendRoute, /getApprovedOutreachMessage\(id\)[\s\S]+sendOutreachEmail/)
+  assert.match(repository, /from\('admin_outreach_messages'\)[\s\S]+\.eq\('id', messageId\)\.single\(\)/)
 })
 
 test('Brevo transport sends one plain-text message with a stable idempotency key', async () => {

@@ -172,6 +172,14 @@ Autonomous clients should start with the public discovery endpoint and its curre
 
 Runtime discovery and OpenAPI URLs are generated from the configured canonical marketplace origin.
 
+## Admin Acquisition
+
+Admin Acquisition is deployed but disabled in Production. Both server-only flags, `ADMIN_ACQUISITION_MODE` and `ADMIN_ACQUISITION_CANARY`, default to `false`; the existing bounded Discovery Worker remains the default.
+
+The acquisition workflow has only a simulated delivery adapter. Its drafts and simulated results are stored separately from ordinary Admin Outreach messages and cannot be approved or sent through Brevo. Real email sending is unavailable in acquisition mode. A bounded mock canary requires separate operator approval before either flag is enabled.
+
+See [Admin Acquisition controls and activation boundaries](docs/admin-acquisition.md).
+
 ## Wallet Funding
 
 Mahshar supports Circle Onramp funding for a connected Arc Mainnet wallet. It is available from the dashboard Wallet workspace and from the Buyer application when additional Arc USDC is needed.

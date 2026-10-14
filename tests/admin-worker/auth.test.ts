@@ -49,3 +49,22 @@ test('Worker routes expose only their intended HTTP method', () => {
     for (const method of ['GET', 'PUT', 'PATCH', 'DELETE']) assert.equal(method in route, false)
   }
 })
+
+test('Production acquisition Start requires the explicit mock-only canary gate', async () => {
+  const previousMode = process.env.ADMIN_ACQUISITION_MODE
+  const previousCanary = process.env.ADMIN_ACQUISITION_CANARY
+  const previousVercel = process.env.VERCEL_ENV
+  process.env.ADMIN_ACQUISITION_MODE = 'true'
+  process.env.ADMIN_ACQUISITION_CANARY = 'false'
+  process.env.VERCEL_ENV = 'production'
+  try {
+    const response = await start.POST(request('/api/admin/worker/start', 'POST', alice))
+    assert.equal(response.status, 409)
+    assert.deepEqual(await response.json(), { error: 'acquisition_canary_required' })
+    assert.equal(boundary.external, 0)
+  } finally {
+    if (previousMode === undefined) delete process.env.ADMIN_ACQUISITION_MODE; else process.env.ADMIN_ACQUISITION_MODE = previousMode
+    if (previousCanary === undefined) delete process.env.ADMIN_ACQUISITION_CANARY; else process.env.ADMIN_ACQUISITION_CANARY = previousCanary
+    if (previousVercel === undefined) delete process.env.VERCEL_ENV; else process.env.VERCEL_ENV = previousVercel
+  }
+})
