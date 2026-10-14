@@ -6,6 +6,8 @@ import { discoverApiDirectoryRange } from './registry'
 import { researchCandidate } from './research'
 import { discoverProviderContacts } from './contact'
 import { buildContactClaimKey } from './contact-claim-key'
+import { boundedDiscoveryFetch } from './fetch'
+import { createPublicContactSearchAdapter } from './contact-search'
 import { assessTraction } from './traction'
 import {
   applyContactActionability, claimContactEnrichmentCandidates, claimDeferredCandidates, claimDiscoveryBudget, getDiscoveryCandidates, getDiscoveryRunContext,
@@ -232,6 +234,7 @@ export async function processDiscoveryCandidate(
 }
 
 export type DiscoveryRangeDependencies = {
+  acquisition?: { running(): Promise<boolean>; afterProvider(): Promise<unknown> }
   claimContactEnrichmentCandidates: typeof claimContactEnrichmentCandidates
   getReusableProvenance: typeof getReusableProvenance
   getSavedContactResearch: typeof getSavedContactResearch
@@ -262,9 +265,11 @@ async function enrichExistingLeads(
   runId: string, deadlineMs: number, remaining: number, deps: DiscoveryRangeDependencies,
 ): Promise<CandidateOutcome[]> {
   if (remaining <= 0) return []
+  if (deps.acquisition && !await deps.acquisition.running()) return []
   const candidates = await deps.claimContactEnrichmentCandidates(runId, Math.min(DEFERRED_SLICE, remaining))
   const results: CandidateOutcome[] = []
   for (const candidate of candidates) {
+    if (deps.acquisition && !await deps.acquisition.running()) break
     if (!candidate.providerId || !candidate.leadId || !candidate.normalizedDomain || Date.now() >= deadlineMs) break
     const leadId = candidate.leadId
     const current = await deps.getSavedContactResearch(candidate.leadId)
@@ -284,6 +289,7 @@ async function enrichExistingLeads(
       providerId: candidate.providerId, productId: candidate.productId ?? undefined, leadId: candidate.leadId,
       discovered: 0, qualified: applied.countedQualified ? 1 : 0, persisted: applied.blocked ? 0 : 1, targetReached: applied.targetReached,
     }))
+    await deps.acquisition?.afterProvider()
     if (applied.targetReached) break
   }
   return results
@@ -293,17 +299,21 @@ async function drainDeferredWithDependencies(
   runId: string, batchId: string, deadlineMs: number, remaining: number, deps: DiscoveryRangeDependencies,
 ): Promise<CandidateOutcome[]> {
   if (remaining <= 0) return []
+  if (deps.acquisition && !await deps.acquisition.running()) return []
   const candidates = await deps.claimDeferredCandidates(runId, batchId, Math.min(DEFERRED_SLICE, remaining))
   const outcomes: CandidateOutcome[] = []
   let credited = 0
   for (const candidate of candidates) {
+    if (deps.acquisition && !await deps.acquisition.running()) break
+    let result: CandidateOutcome
     try {
-      const result = await deps.processDiscoveryCandidate(runId, candidate, deadlineMs, {}, true)
+      result = await deps.processDiscoveryCandidate(runId, candidate, deadlineMs, {}, true)
       outcomes.push(result)
       credited += result.qualified
-      if (credited >= remaining || result.targetReached) break
     }
-    catch { /* A deferred item remains durable and must not poison fresh discovery. */ }
+    catch { continue /* A deferred item remains durable and must not poison fresh discovery. */ }
+    await deps.acquisition?.afterProvider()
+    if (credited >= remaining || result.targetReached) break
   }
   return outcomes
 }
@@ -312,6 +322,29 @@ export async function processDiscoveryRange(
   runId: string, start: number, end: number, dependencies: Partial<DiscoveryRangeDependencies> = {},
 ): Promise<{ outcomes: CandidateOutcome[]; nextIndex: number; sourceExhausted: boolean; deadlineReached: boolean; hardLimitReached: boolean }> {
   const deps = { ...defaultRangeDependencies, ...dependencies }
+  if (deps.acquisition) {
+    const guard = async () => {
+      if (!await deps.acquisition!.running()) throw new Error('acquisition_stopped')
+    }
+    // Guard every new external request (including redirects) and inference. Legacy
+    // discovery keeps its original adapters and behavior when no epoch is supplied.
+    const fetcher: typeof boundedDiscoveryFetch = (url, options) => boundedDiscoveryFetch(url, { ...options, beforeRequest: guard })
+    const contact = deps.discoverProviderContacts
+    deps.discoverProviderContacts = input => contact({ ...input, fetcher, searchAdapter: createPublicContactSearchAdapter(fetcher) })
+    const source = deps.discoverApiDirectoryRange
+    deps.discoverApiDirectoryRange = async input => { await guard(); return source({ ...input, fetcher }) }
+    const candidate = deps.processDiscoveryCandidate
+    deps.processDiscoveryCandidate = async (id, item, deadline, overrides = {}, retry = false) => {
+      await guard()
+      return candidate(id, item, deadline, {
+        ...overrides,
+        researchCandidate: input => researchCandidate({ ...input, fetcher }),
+        discoverProviderContacts: deps.discoverProviderContacts,
+        qualifyCandidate: async (...args) => { await guard(); return qualifyCandidate(...args) },
+        claimDiscoveryBudget: async (...args) => { await guard(); return deps.claimDiscoveryBudget(...args) },
+      }, retry)
+    }
+  }
   const context = await deps.getDiscoveryRunContext(runId)
   const deadlineMs = Date.parse(context.deadlineAt)
   if (context.qualifiedCount >= context.qualifiedTarget) {
@@ -338,6 +371,10 @@ export async function processDiscoveryRange(
   let sourceExhausted = false
   let sourceDeadlineReached = false
   if (existing.size < end - start) {
+    if (deps.acquisition && !await deps.acquisition.running()) return {
+      outcomes: [...enrichmentOutcomes, ...deferredOutcomes], nextIndex: start,
+      sourceExhausted: false, deadlineReached: false, hardLimitReached: false,
+    }
     let discovered: Awaited<ReturnType<typeof discoverApiDirectoryRange>>
     try {
       discovered = await deps.discoverApiDirectoryRange({
@@ -365,11 +402,13 @@ export async function processDiscoveryRange(
   let hardLimitReached = false
   let qualified = context.qualifiedCount + enrichmentQualified + deferredQualified
   for (let ordinal = start; ordinal < end; ordinal += 1) {
+    if (deps.acquisition && !await deps.acquisition.running()) break
     const candidate = byOrdinal.get(ordinal)
     if (!candidate) break
     const result = await deps.processDiscoveryCandidate(runId, candidate, deadlineMs)
     results.push(result)
     nextIndex = ordinal + 1
+    await deps.acquisition?.afterProvider()
     qualified += result.qualified
     if (qualified >= context.qualifiedTarget || result.targetReached) break
     if (['source_budget_exhausted', 'research_budget_exhausted', 'groq_budget_exhausted', 'contact_budget_exhausted'].includes(result.reasonCode)) {

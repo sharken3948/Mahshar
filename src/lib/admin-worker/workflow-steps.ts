@@ -3,7 +3,7 @@ import { advanceWorkerCheckpoint, parseWorkerCheckpoint } from './checkpoint'
 import { WORKER_CHUNK_SIZE } from './constants'
 import { processDiscoveryRange } from './discovery/processor'
 import { processAcquisitionBatch } from './acquisition'
-import { acquisitionPort } from './acquisition-runtime'
+import { acquisitionPort, acquisitionWorkAllowed } from './acquisition-runtime'
 import { advanceWorkerDiscoveryRun, claimWorkerRun, completeWorkerRun, failWorkerRun } from './repository'
 import type { WorkerRunDto } from './types'
 import type { CandidateOutcome } from './discovery/types'
@@ -41,7 +41,12 @@ export async function processDiscoveryChunkStep(runId: string, checkpointValue: 
   const checkpoint = parseWorkerCheckpoint(checkpointValue)
   if (!checkpoint) throw new Error('worker_checkpoint_invalid')
   const requested = advanceWorkerCheckpoint(checkpoint, WORKER_CHUNK_SIZE)
-  const result = await deps.discover(runId, checkpoint.nextIndex, requested.nextIndex)
+  const result = await deps.discover(runId, checkpoint.nextIndex, requested.nextIndex, acquisitionEpoch ? {
+    acquisition: {
+      running: () => acquisitionWorkAllowed(runId, acquisitionEpoch),
+      afterProvider: () => deps.acquire(runId, acquisitionEpoch),
+    },
+  } : {})
   if (acquisitionEpoch) await deps.acquire(runId, acquisitionEpoch)
   const counters = aggregateDiscoveryCounters(result.outcomes)
   return deps.advance(runId, checkpoint.nextIndex, result.nextIndex, counters, result)

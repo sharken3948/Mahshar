@@ -12,6 +12,7 @@ export type AcquisitionCandidate = {
   recipientEligible: boolean
   channelApproved: boolean
   evidence: string[]
+  savedDraft?: AcquisitionDraft
 }
 
 export type AcquisitionDraft = { subject: string; body: string }

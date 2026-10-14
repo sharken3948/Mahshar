@@ -17,7 +17,7 @@ export async function workerBatchWorkflow(runId: string, acquisitionEpoch?: stri
   while (true) {
     try {
       let run = await claimWorkerRunStep(currentRunId)
-      if (terminalStatuses.has(run.status)) {
+      if (terminalStatuses.has(run.status) && !(acquisitionEpoch && !canary && run.status === 'completed')) {
         if (acquisitionEpoch) {
           if (canary) await finishAcquisitionCanaryStep(currentRunId, acquisitionEpoch)
           else await failAcquisitionStep(acquisitionEpoch)
@@ -31,10 +31,10 @@ export async function workerBatchWorkflow(runId: string, acquisitionEpoch?: stri
         run = await claimWorkerRunStep(currentRunId)
         return { runId: currentRunId, status: run.status }
       }
-      if (acquisitionEpoch) await processAcquisitionStep(currentRunId, acquisitionEpoch)
+      if (acquisitionEpoch && run.status !== 'completed') await processAcquisitionStep(currentRunId, acquisitionEpoch)
 
       const maximumChunks = Math.ceil(WORKER_MAX_BATCH_SIZE / WORKER_CHUNK_SIZE)
-      for (let chunk = 0; chunk < maximumChunks && run.checkpoint.nextIndex < run.batch_size; chunk += 1) {
+      for (let chunk = 0; chunk < maximumChunks && !terminalStatuses.has(run.status) && run.checkpoint.nextIndex < run.batch_size; chunk += 1) {
         run = await processDiscoveryChunkStep(currentRunId, run.checkpoint, acquisitionEpoch)
         if (terminalStatuses.has(run.status)) break
       }
@@ -46,6 +46,7 @@ export async function workerBatchWorkflow(runId: string, acquisitionEpoch?: stri
       }
       // Workflow sleep is durable: the server/browser need not stay alive between batches.
       do {
+        if (!await acquisitionStillRunningStep(acquisitionEpoch)) return { runId: currentRunId, status: 'stopped' }
         await sleep('1h')
         if (!await acquisitionStillRunningStep(acquisitionEpoch)) return { runId: currentRunId, status: 'stopped' }
         const next = await createNextAcquisitionRunStep(acquisitionEpoch, currentRunId)

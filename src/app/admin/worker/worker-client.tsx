@@ -165,9 +165,12 @@ export function WorkerClient() {
     </section>
 
     {status?.acquisition && <section className={styles.panel} aria-label="Acquisition progress">
-      <header><div><span>Autonomous acquisition · simulated transport</span><h2>Acquisition progress</h2></div></header>
+      <header><div><span>{status.acquisition.continuous_mode ? 'Continuous acquisition' : 'Acquisition canary'} · simulated transport</span><h2>Acquisition progress</h2></div></header>
       <div className={styles.countGrid}>
         <div><span>Providers investigated</span><strong>{status.acquisition.investigated}</strong></div>
+        <div><span>Investigations pending</span><strong>{status.acquisition.investigating ?? 0}</strong></div>
+        <div><span>Research retries exhausted</span><strong>{status.acquisition.research_retries_exhausted ?? 0}</strong></div>
+        {status.acquisition.waiting && <div><span>Cloud continuation</span><strong>Waiting for next bounded batch</strong></div>}
         <div><span>Verified emails</span><strong>{status.acquisition.verified_emails}</strong></div>
         <div><span>Channel eligible</span><strong>{status.acquisition.eligible_recipients}</strong></div>
         <div><span>Drafts generated</span><strong>{status.acquisition.drafts}</strong></div>
@@ -179,8 +182,8 @@ export function WorkerClient() {
         <div><span>Groq calls today</span><strong>{status.acquisition.daily_groq} / 600</strong></div>
         <div><span>Simulated send slots today</span><strong>{status.acquisition.daily_sends} / 25</strong></div>
         <div><span>Simulated dispatches today</span><strong>{status.acquisition.daily_simulated_sent}</strong></div>
-        {status.acquisition.canary_mode && <div><span>One-session canary</span><strong>{status.acquisition.canary_used ? 'Used' : 'Available'}</strong></div>}
-        {status.acquisition.canary_required && <div><span>Production canary</span><strong>Configuration required</strong></div>}
+        <div><span>One-session canary</span><strong>{status.acquisition.canary_used ? 'Used · history preserved' : 'Available'}</strong></div>
+        {status.acquisition.canary_required && <div><span>Operating mode</span><strong>Configuration required</strong></div>}
       </div>
     </section>}
 

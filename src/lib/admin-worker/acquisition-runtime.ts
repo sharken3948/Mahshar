@@ -2,7 +2,7 @@ import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
 import { GROQ_MODEL, ensureGroqAvailable, fenceUntrusted, groq } from '@/lib/groq-neutral'
 import { claimDiscoveryBudget } from './discovery/repository'
-import { AcquisitionBudgetPause, mockCanaryAcquisitionDraft, processAcquisitionBatch, type AcquisitionCandidate, type AcquisitionDraft, type AcquisitionPort } from './acquisition'
+import { AcquisitionBudgetPause, mockCanaryAcquisitionDraft, processAcquisitionBatch, validAcquisitionDraft, type AcquisitionCandidate, type AcquisitionDraft, type AcquisitionPort } from './acquisition'
 
 type Row = Record<string, unknown>
 function dataRow(value: unknown): Row | null {
@@ -42,6 +42,10 @@ export function acquisitionCanaryEnabled(): boolean {
   return process.env.ADMIN_ACQUISITION_CANARY === 'true'
 }
 
+export function acquisitionContinuousEnabled(): boolean {
+  return process.env.ADMIN_ACQUISITION_CONTINUOUS === 'true' && !acquisitionCanaryEnabled()
+}
+
 export async function generateAcquisitionDraft(candidate: AcquisitionCandidate): Promise<AcquisitionDraft> {
   ensureGroqAvailable()
   const evidence = { provider: candidate.provider.slice(0, 160), product: candidate.product.slice(0, 160),
@@ -68,7 +72,8 @@ export function acquisitionPort(runId: string, epoch: string, canary = false): A
         db.from('worker_control').select('desired_state').eq('id', 1).single(),
       ])
       if (control.error || run.error || worker.error) throw new Error('acquisition_state_unavailable')
-      return acquisitionModeEnabled() && dataRow(control.data)?.desired_state === 'running' && dataRow(control.data)?.epoch === epoch
+      return acquisitionModeEnabled() && (canary ? acquisitionCanaryEnabled() : acquisitionContinuousEnabled())
+        && dataRow(control.data)?.desired_state === 'running' && dataRow(control.data)?.epoch === epoch
         && dataRow(run.data)?.status === 'running' && dataRow(worker.data)?.desired_state === 'running'
     },
     next: async () => {
@@ -84,6 +89,8 @@ export function acquisitionPort(runId: string, epoch: string, canary = false): A
         recipientEligible: row.approved === true, channelApproved: row.approved === true,
         evidence: [row.docsUrl, row.docsSummary].filter((value): value is string => typeof value === 'string'
           && value.length > 0).map(value => value.slice(0, 500)),
+        ...(typeof row.subject === 'string' && typeof row.body === 'string'
+          ? { savedDraft: { subject: row.subject, body: row.body } } : {}),
       }
     },
     priorOutreach: async providerId => {
@@ -93,10 +100,21 @@ export function acquisitionPort(runId: string, epoch: string, canary = false): A
     },
     draft: async candidate => {
       if (canary) return mockCanaryAcquisitionDraft(candidate)
+      if (candidate.savedDraft) return candidate.savedDraft
       const claim = await claimDiscoveryBudget(runId, 'groq', `acq:${runId}:${candidate.providerId}`)
-      if (claim === 'exhausted' || claim === 'deadline_reached') throw new AcquisitionBudgetPause()
+      if (claim === 'exhausted' || claim === 'deadline_reached' || claim === 'replayed') throw new AcquisitionBudgetPause()
       if (claim !== 'claimed') throw new Error(`acquisition_groq_${claim}`)
-      return generateAcquisitionDraft(candidate)
+      let draft: AcquisitionDraft
+      try { draft = await generateAcquisitionDraft(candidate) }
+      catch (error) {
+        if (error && typeof error === 'object' && 'status' in error && error.status === 429) throw new AcquisitionBudgetPause()
+        throw error
+      }
+      if (candidate.attemptId && validAcquisitionDraft(candidate, draft)) {
+        await rpc('mahshar_acquisition_save_draft', { p_attempt_id: candidate.attemptId, p_epoch: epoch,
+          p_subject: draft.subject, p_body: draft.body })
+      }
+      return draft
     },
     reserve: async (candidate, draft) => {
       if (!candidate.attemptId || !candidate.email) return null
@@ -134,7 +152,11 @@ export async function finishAcquisitionCanaryStep(runId: string, epoch: string):
 export async function acquisitionStillRunningStep(epoch: string): Promise<boolean> {
   'use step'
   const state = await acquisitionState()
-  return state.running && state.epoch === epoch
+  return acquisitionModeEnabled() && acquisitionContinuousEnabled() && state.running && state.epoch === epoch
+}
+
+export async function acquisitionWorkAllowed(runId: string, epoch: string): Promise<boolean> {
+  return acquisitionPort(runId, epoch).running()
 }
 
 export async function createNextAcquisitionRunStep(epoch: string, parentRunId: string): Promise<string | null> {

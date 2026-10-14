@@ -25,6 +25,7 @@ AUDIT_LIFECYCLE = ROOT / 'supabase/migrations/20261014000200_admin_acquisition_r
 AUDIT_SEND = ROOT / 'supabase/migrations/20261014000300_admin_outreach_send_reservation.sql'
 AUDIT_INBOUND = ROOT / 'supabase/migrations/20261014000400_admin_outreach_inbound_safety.sql'
 AUDIT_IDENTITY = ROOT / 'supabase/migrations/20261014000500_admin_outreach_inbound_identity_gate.sql'
+CONTINUOUS = ROOT / 'supabase/migrations/20261014000600_admin_acquisition_continuous.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -93,10 +94,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20261001000100', '20261001000110',
             '20261002000100', '20261004000100', '20261005000100', '20261005000200', '20261005000300',
             '20261007000100', '20261007000200', '20261008000100', '20261008000200',
-            '20261014000100', '20261014000200', '20261014000300', '20261014000400', '20261014000500',
+            '20261014000100', '20261014000200', '20261014000300', '20261014000400', '20261014000500', '20261014000600',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2, ADMIN_OUTREACH_DELIVERY, ADMIN_ACQUISITION, AUDIT_LIFECYCLE, AUDIT_SEND, AUDIT_INBOUND, AUDIT_IDENTITY):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2, ADMIN_OUTREACH_DELIVERY, ADMIN_ACQUISITION, AUDIT_LIFECYCLE, AUDIT_SEND, AUDIT_INBOUND, AUDIT_IDENTITY, CONTINUOUS):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -2200,7 +2201,140 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
           'team@initial-compat.example','support@mahshar.xyz','Re: Fixture','Fixture only.','{inbound['id']}',clock_timestamp(),'0x{'1'*40}') RETURNING id;""")
         expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_reserve_send('{reply_gate}');",'admin_outreach_sender_identity_unverified')
         assert sql(f"SELECT send_reserved_at IS NULL FROM admin_outreach_messages WHERE id='{reply_gate}';")=='t'
-        print('PASS: Worker, Admin Outreach, and Acquisition migrations, privileges, and lifecycle')
+        # Continuous mode is forward-only; preserve the consumed canary and every
+        # historical row. All fixture writes below target this disposable cluster.
+        sql(f"UPDATE admin_acquisition_control SET canary_run_id='{canary_run['id']}',desired_state='stopped';")
+        old_control=sql("SELECT (to_jsonb(c)-'operating_mode')::text FROM admin_acquisition_control c;")
+        old_attempts=sql("SELECT md5(string_agg(to_jsonb(a)::text,'' ORDER BY id)) FROM admin_acquisition_attempts a;")
+        old_worker=sql("SELECT md5(string_agg(to_jsonb(w)::text,'' ORDER BY id)) FROM worker_runs w;")
+        expect_failure('BEGIN;\n'+CONTINUOUS.read_text()+"\nDO $$ BEGIN RAISE EXCEPTION 'continuous_rollback'; END $$; COMMIT;", 'continuous_rollback')
+        assert sql("SELECT count(*) FROM information_schema.columns WHERE table_name='admin_acquisition_control' AND column_name='operating_mode';")=='0'
+        sql('BEGIN;\n'+CONTINUOUS.read_text()+'\nCOMMIT;')
+        assert sql("SELECT (to_jsonb(c)-'operating_mode')::text FROM admin_acquisition_control c;")==old_control
+        assert sql("SELECT md5(string_agg(to_jsonb(a)::text,'' ORDER BY id)) FROM admin_acquisition_attempts a;")==old_attempts
+        assert sql("SELECT md5(string_agg(to_jsonb(w)::text,'' ORDER BY id)) FROM worker_runs w;")==old_worker
+        assert sql("SELECT operating_mode FROM admin_acquisition_control;")=='canary'
+        for signature in ['mahshar_acquisition_set_state(boolean,boolean,uuid)',
+          'mahshar_acquisition_claim_next(uuid,uuid)','mahshar_acquisition_create_next_run(uuid,uuid)',
+          'mahshar_acquisition_reserve(uuid,uuid,text,text,text)',
+          'mahshar_worker_claim_deferred_candidates(uuid,text,integer)',
+          'mahshar_acquisition_save_draft(uuid,uuid,text,text)','mahshar_acquisition_metrics()']:
+            for role in ['anon','authenticated']:
+                assert sql(f"SELECT has_function_privilege('{role}','public.{signature}','EXECUTE');")=='f'
+            assert sql(f"SELECT has_function_privilege('service_role','public.{signature}','EXECUTE');")=='t'
+            assert sql(f"SELECT proconfig[1] FROM pg_proc WHERE oid='public.{signature}'::regprocedure;") in {'search_path=','search_path=""'}
+        for table in ['admin_acquisition_control','admin_acquisition_attempts','admin_acquisition_eligibility']:
+            assert sql(f"SELECT relrowsecurity FROM pg_class WHERE oid='public.{table}'::regclass;")=='t'
+            assert sql(f"SELECT has_table_privilege('service_role','{table}','UPDATE');")=='f'
+
+        continuous_parent=rpc_json('mahshar_worker_create_target_run(false)')
+        active=json.loads(sql("SET ROLE service_role; SELECT row_to_json(r) FROM mahshar_acquisition_set_state(true) r;"))
+        assert active['operating_mode']=='continuous' and active['canary_run_id']==canary_run['id']
+        assert active['canary_used_at']==canary_state['canary_used_at']
+        assert rpc_json(f"mahshar_worker_claim_run('{continuous_parent['id']}')")['status']=='running'
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_finish_canary('{canary_run['id']}','{canary_state['epoch']}');")=='f'
+        # Daily fixture reservations are made due on a different day, before
+        # exercising this session's independent reservation accounting.
+        sql("UPDATE admin_acquisition_attempts SET reserved_at=clock_timestamp()-interval '2 days' WHERE reserved_at IS NOT NULL;")
+        providers=[]
+        for n in range(6):
+            pid=sql('SELECT gen_random_uuid();'); providers.append(pid)
+            sql(f"""INSERT INTO worker_providers(id,canonical_name,canonical_domain) VALUES('{pid}','Continuous Fixture {n}','continuous-{n}.example');
+              INSERT INTO worker_products(provider_id,normalized_product_key,display_name) VALUES('{pid}','continuous-api','Continuous API');
+              INSERT INTO worker_leads(provider_id,product_id,status,qualification_status,fit_score,fit_reason,
+                contactability_status,email_ready,preferred_email,created_at)
+              SELECT '{pid}',id,'qualified','qualified',80,'Fixture','verified_email',{str(n>0).lower()},
+                CASE WHEN {n}>0 THEN 'team@continuous-{n}.example' ELSE NULL END,'1600-01-0{n+1}'::timestamptz FROM worker_products WHERE provider_id='{pid}';
+              INSERT INTO worker_sources(lead_id,source_type,source_role,url,checked_at)
+                SELECT id,'website','official_docs','https://continuous-{n}.example/docs',clock_timestamp() FROM worker_leads WHERE provider_id='{pid}';""")
+            if n:
+                sql(f"""INSERT INTO worker_contacts(provider_id,lead_id,contact_type,value,purpose,source_url,source_type,
+                  verification_status,preferred,email_ready,discovered_at,verified_at)
+                  SELECT '{pid}',id,'email','team@continuous-{n}.example','business','https://continuous-{n}.example/contact',
+                  'official_site','verified',true,true,clock_timestamp(),clock_timestamp() FROM worker_leads WHERE provider_id='{pid}';
+                  INSERT INTO admin_acquisition_eligibility(provider_id,recipient_email,channel,basis,expires_at)
+                    VALUES('{pid}','team@continuous-{n}.example','mock','Disposable continuous fixture',clock_timestamp()+interval '1 day');""")
+        def acquisition_claim():
+            return json.loads(sql(f"SET ROLE service_role; SELECT mahshar_acquisition_claim_next('{continuous_parent['id']}','{active['epoch']}');"))
+        empty=acquisition_claim(); assert empty['providerId']==providers[0]
+        sql(f"SET ROLE service_role; SELECT mahshar_acquisition_record('{empty['attemptId']}','skipped','no_email');")
+        drafted=acquisition_claim(); assert drafted['providerId']==providers[1] and drafted['approved']
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_save_draft('{drafted['attemptId']}','{active['epoch']}','Continuous API','Fixture draft');")=='t'
+        assert acquisition_claim()['subject']=='Continuous API'
+        reserve_expr=f"mahshar_acquisition_reserve('{drafted['attemptId']}','{active['epoch']}','team@continuous-1.example','Continuous API','Fixture draft')"
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            reservations=list(pool.map(lambda _:sql('SET ROLE service_role; SELECT '+reserve_expr+';'),range(3)))
+        assert reservations.count(drafted['attemptId'])==1 and reservations.count('')==2
+        sql(f"SET ROLE service_role; SELECT mahshar_acquisition_finish('{drafted['attemptId']}',NULL,true);")
+        assert sql('SET ROLE service_role; SELECT '+reserve_expr+';')==''
+        completed=acquisition_claim(); assert completed['providerId']==providers[2]
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_reserve('{completed['attemptId']}','{active['epoch']}','team@continuous-2.example','Continuous API','Fixture draft');")==completed['attemptId']
+        sql(f"SET ROLE service_role; SELECT mahshar_acquisition_finish('{completed['attemptId']}','simulated:{completed['attemptId']}',false);")
+        blocked=acquisition_claim(); assert blocked['providerId']==providers[3]
+        sql(f"UPDATE worker_providers SET status='do_not_contact' WHERE id='{providers[3]}';")
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_reserve('{blocked['attemptId']}','{active['epoch']}','team@continuous-3.example','Continuous API','Fixture draft');")==''
+        assert sql(f"SELECT count(*) FROM admin_outreach_messages WHERE id IN ('{drafted['attemptId']}','{completed['attemptId']}');")=='0'
+
+        # Temporary research failures: due after 1/2/4 hours, at most three
+        # lease claims, including concurrent attempts and crash/restart.
+        candidate_id=sql(f"""INSERT INTO worker_candidates(discovery_batch_id,ordinal,source_type,source_url,discovered_name,
+          discovered_domain,discovered_product,discovered_docs_url,status,reason_code,updated_at)
+          VALUES('{canary_run['id']}',299,'api_directory','https://directory.example/retry','Retry Fixture',
+            'retry.example','Retry API','https://retry.example/docs','deferred','official_docs_unreachable',clock_timestamp()) RETURNING id;""")
+        def retry_claim(key):
+            return sql(f"SET ROLE service_role; SELECT candidate_id FROM mahshar_worker_claim_deferred_candidates('{continuous_parent['id']}','{key}',5);").splitlines()
+        assert candidate_id not in retry_claim('continuous:not-due')
+        for retry_number in range(3):
+            backoff=[1,2,4][retry_number]
+            sql(f"UPDATE worker_candidates SET updated_at=clock_timestamp()-interval '{backoff} hours'+interval '1 minute',processing_lease_id=NULL,processing_lease_expires_at=NULL WHERE id='{candidate_id}';")
+            assert candidate_id not in retry_claim(f'continuous:backoff:{retry_number}')
+            sql(f"UPDATE worker_candidates SET updated_at=clock_timestamp()-interval '5 hours',processing_lease_id=NULL,processing_lease_expires_at=NULL WHERE id='{candidate_id}';")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                claims=list(pool.map(lambda n:retry_claim(f'continuous:retry:{retry_number}:{n}'),range(2)))
+            assert sum(candidate_id in claim for claim in claims)==1
+            assert sql(f"SELECT processing_attempt FROM worker_candidates WHERE id='{candidate_id}';")==str(retry_number+1)
+        sql(f"UPDATE worker_candidates SET updated_at=clock_timestamp()-interval '5 hours',processing_lease_id=NULL,processing_lease_expires_at=NULL WHERE id='{candidate_id}';")
+        assert candidate_id not in retry_claim('continuous:exhausted')
+        assert json.loads(sql('SET ROLE service_role; SELECT mahshar_acquisition_metrics();'))['research_retries_exhausted']>=1
+
+        quota_candidates=[acquisition_claim(),None]
+        # The first remains investigating until reserved; mark it temporarily
+        # failed only in this fixture to obtain the other provider, then restore.
+        sql(f"UPDATE admin_acquisition_attempts SET status='failed' WHERE id='{quota_candidates[0]['attemptId']}';")
+        quota_candidates[1]=acquisition_claim()
+        sql(f"UPDATE admin_acquisition_attempts SET status='investigating' WHERE id='{quota_candidates[0]['attemptId']}';")
+        assert [c['providerId'] for c in quota_candidates]==providers[4:6]
+        sql("UPDATE admin_acquisition_attempts SET reserved_at=clock_timestamp() WHERE id IN (SELECT id FROM admin_acquisition_attempts WHERE reserved_at<date_trunc('day',clock_timestamp(),'UTC') ORDER BY id LIMIT 22);")
+        assert json.loads(sql('SET ROLE service_role; SELECT mahshar_acquisition_metrics();'))['daily_sends']==24
+        def continuous_quota_claim(candidate):
+            try:
+                return sql(f"SET ROLE service_role; SELECT mahshar_acquisition_reserve('{candidate['attemptId']}','{active['epoch']}','{candidate['email']}','Continuous API','Fixture draft');")
+            except subprocess.CalledProcessError as error:
+                assert 'acquisition_daily_send_limit' in error.stderr; return 'limited'
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            quota_results=list(pool.map(continuous_quota_claim,quota_candidates))
+        assert quota_results.count('limited')==1 and sum(bool(r) and r!='limited' for r in quota_results)==1
+        assert json.loads(sql('SET ROLE service_role; SELECT mahshar_acquisition_metrics();'))['daily_sends']==25
+
+        # Two child batches, idempotent replay, cloud association and Stop while
+        # waiting. No new claim or reservation can pass after cleared intent.
+        def finish_fixture(run):
+            sql(f"UPDATE worker_runs SET status='completed',processed_count=batch_size,source_cursor=batch_size,completion_reason='source_exhausted',checkpoint=jsonb_build_object('version',1,'nextIndex',batch_size,'batchSize',batch_size) WHERE id='{run['id']}'; UPDATE worker_control SET desired_state='stopped',current_checkpoint=(SELECT checkpoint FROM worker_runs WHERE id='{run['id']}') WHERE id=1;")
+        sql("UPDATE worker_runs SET created_at='2000-01-01';")
+        finish_fixture(continuous_parent)
+        child=rpc_json(f"mahshar_acquisition_create_next_run('{active['epoch']}','{continuous_parent['id']}')")
+        assert rpc_json(f"mahshar_acquisition_create_next_run('{active['epoch']}','{continuous_parent['id']}')")['id']==child['id']
+        rpc_json(f"mahshar_worker_claim_run('{child['id']}')"); finish_fixture(child)
+        grandchild=rpc_json(f"mahshar_acquisition_create_next_run('{active['epoch']}','{child['id']}')")
+        assert grandchild['id']!=child['id']
+        sql('SET ROLE service_role; SELECT mahshar_acquisition_set_state(false);')
+        assert sql(f"SET ROLE service_role; SELECT (mahshar_acquisition_create_next_run('{active['epoch']}','{child['id']}')).id;")==''
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_claim_next('{grandchild['id']}','{active['epoch']}');")==''
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_save_draft('{blocked['attemptId']}','{active['epoch']}','Late','Late');")=='f'
+        assert sql("SELECT canary_run_id FROM admin_acquisition_control;")==canary_run['id']
+        assert sql("SELECT canary_used_at FROM admin_acquisition_control;")
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_acquisition_set_state(true,true,'{grandchild['id']}');",'acquisition_canary_unavailable')
+        print('PASS: Worker, Admin Outreach, Acquisition and Continuous migrations, privileges, history, retries and lifecycle')
     finally:
         if started:
             run([BIN / 'pg_ctl', '-D', data, '-m', 'immediate', '-w', 'stop'])

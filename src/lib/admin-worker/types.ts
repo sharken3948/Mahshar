@@ -85,7 +85,8 @@ export type WorkerStatusDto = {
   acquisition?: { running: boolean; simulated_only: true; investigated: number; verified_emails: number;
     eligible_recipients: number; drafts: number; reserved: number; simulated_sent: number;
     skipped: number; uncertain: number; failed: number; daily_runs: number; daily_groq: number; daily_sends: number;
-    daily_simulated_sent: number; canary_mode?: boolean; canary_used?: boolean; canary_required?: boolean }
+    daily_simulated_sent: number; canary_mode?: boolean; canary_used?: boolean; canary_required?: boolean;
+    continuous_mode?: boolean; waiting?: boolean; investigating?: number; research_retries_exhausted?: number }
   as_of: string
 }
 

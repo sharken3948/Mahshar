@@ -3,7 +3,7 @@ import { start } from 'workflow/api'
 import { workerBatchWorkflow } from '@/workflows/admin-worker-batch'
 import { startWorkerBatch, stopWorkerBatch, type WorkerStartMode } from './control'
 import { workerControlRepository } from './repository'
-import { acquisitionCanaryEnabled, acquisitionModeEnabled, acquisitionState, setAcquisitionState, stopAcquisitionEpoch } from './acquisition-runtime'
+import { acquisitionCanaryEnabled, acquisitionContinuousEnabled, acquisitionModeEnabled, acquisitionState, setAcquisitionState, stopAcquisitionEpoch } from './acquisition-runtime'
 import { WorkerControlError } from './control'
 import { createServiceClient } from '@/lib/supabase/server'
 
@@ -24,7 +24,10 @@ async function launchWorkerWorkflow(runId: string): Promise<string> {
 }
 
 export async function startWorkerCommand(mode: WorkerStartMode) {
-  if (acquisitionModeEnabled() && process.env.VERCEL_ENV === 'production' && !acquisitionCanaryEnabled()) {
+  if (acquisitionModeEnabled() && acquisitionCanaryEnabled() && process.env.ADMIN_ACQUISITION_CONTINUOUS === 'true') {
+    throw new WorkerControlError('acquisition_modes_conflict', 409)
+  }
+  if (acquisitionModeEnabled() && !acquisitionCanaryEnabled() && !acquisitionContinuousEnabled()) {
     throw new WorkerControlError('acquisition_canary_required', 409)
   }
   if (acquisitionModeEnabled()) {

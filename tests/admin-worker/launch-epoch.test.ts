@@ -9,8 +9,10 @@ import type { WorkerRunDto } from '../../src/lib/admin-worker/types'
 test('late Workflow launch failure cannot clear a newer authorized acquisition epoch', async () => {
   reset(); boundary.unavailable = false; boundary.unavailableTable = null
   const saved = { createRun: workerControlRepository.createRun, failRun: workerControlRepository.failRun,
-    mode: process.env.ADMIN_ACQUISITION_MODE, canary: process.env.ADMIN_ACQUISITION_CANARY, vercel: process.env.VERCEL_ENV }
+    mode: process.env.ADMIN_ACQUISITION_MODE, canary: process.env.ADMIN_ACQUISITION_CANARY,
+    continuous: process.env.ADMIN_ACQUISITION_CONTINUOUS, vercel: process.env.VERCEL_ENV }
   process.env.ADMIN_ACQUISITION_MODE = 'true'; process.env.ADMIN_ACQUISITION_CANARY = 'false'; process.env.VERCEL_ENV = 'preview'
+  process.env.ADMIN_ACQUISITION_CONTINUOUS = 'true'
   state.tables.admin_acquisition_control = [{ id: 1, desired_state: 'stopped', epoch: 'before', canary_used_at: null }]
   state.tables.worker_runs = []
   const failedRuns: string[] = []; const stops: string[] = []
@@ -44,7 +46,8 @@ test('late Workflow launch failure cannot clear a newer authorized acquisition e
   } finally {
     workerControlRepository.createRun = saved.createRun; workerControlRepository.failRun = saved.failRun
     boundary.rpcOverride = null; boundary.workflowStart = null
-    for (const [key, value] of Object.entries({ ADMIN_ACQUISITION_MODE: saved.mode, ADMIN_ACQUISITION_CANARY: saved.canary, VERCEL_ENV: saved.vercel })) {
+    for (const [key, value] of Object.entries({ ADMIN_ACQUISITION_MODE: saved.mode, ADMIN_ACQUISITION_CANARY: saved.canary,
+      ADMIN_ACQUISITION_CONTINUOUS: saved.continuous, VERCEL_ENV: saved.vercel })) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value
     }
   }

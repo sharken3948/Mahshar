@@ -174,9 +174,9 @@ Runtime discovery and OpenAPI URLs are generated from the configured canonical m
 
 ## Admin Acquisition
 
-Admin Acquisition is deployed but disabled in Production. Both server-only flags, `ADMIN_ACQUISITION_MODE` and `ADMIN_ACQUISITION_CANARY`, default to `false`; the existing bounded Discovery Worker remains the default.
+The first bounded Production mock canary completed successfully. All server-only acquisition flags default to `false`; the existing bounded Discovery Worker remains the default. Continuous simulated operation is prepared locally for review and requires the separate additive migration, release and operator approval described below. It does not reset the consumed canary.
 
-The acquisition workflow has only a simulated delivery adapter. Its drafts and simulated results are stored separately from ordinary Admin Outreach messages and cannot be approved or sent through Brevo. Real email sending is unavailable in acquisition mode. A bounded mock canary requires separate operator approval before either flag is enabled.
+The acquisition workflow has only a simulated delivery adapter. Its drafts and simulated results are stored separately from ordinary Admin Outreach messages and cannot be approved or sent through Brevo. Real email sending is unavailable in acquisition mode. `ADMIN_ACQUISITION_MODE` requires exactly one authorized operating mode: `ADMIN_ACQUISITION_CANARY` or `ADMIN_ACQUISITION_CONTINUOUS`. Continuous mode reuses bounded cloud batches, durable waits, checkpoints, quotas and Start/Stop/Resume; it requires independent mock eligibility and keeps Brevo deactivated.
 
 See [Admin Acquisition controls and activation boundaries](docs/admin-acquisition.md).
 

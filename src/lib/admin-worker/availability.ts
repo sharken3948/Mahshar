@@ -10,6 +10,7 @@ export function workerControlAvailability(status: WorkerStatusDto | null) {
     canStart: status !== null && !active && !acquisitionRunning && !canaryUsed && !canaryRequired,
     canStop: status !== null && (acquisitionRunning || current === 'queued' || current === 'running'),
     canResume: status !== null && !active && !acquisitionRunning && !canaryUsed && !canaryRequired && status.can_resume
-      && (current === 'stopped' || current === 'failed') && status.latest_run?.completion_reason === null,
+      && ((current === 'stopped' || current === 'failed') && status.latest_run?.completion_reason === null
+        || status.acquisition?.continuous_mode === true && current === 'completed'),
   }
 }

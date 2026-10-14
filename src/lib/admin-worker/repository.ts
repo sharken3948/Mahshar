@@ -288,10 +288,14 @@ export async function getWorkerStatus(): Promise<WorkerStatusDto> {
     ...(acquisitionEnabled ? { acquisition: {
       running: acquisitionRunning, simulated_only: true as const,
       canary_mode: process.env.ADMIN_ACQUISITION_CANARY === 'true',
+      continuous_mode: process.env.ADMIN_ACQUISITION_CONTINUOUS === 'true' && process.env.ADMIN_ACQUISITION_CANARY !== 'true',
+      waiting: acquisitionRunning && !active,
       canary_used: typeof objectRow(acquisitionResult.data)?.canary_used_at === 'string',
-      canary_required: process.env.VERCEL_ENV === 'production' && process.env.ADMIN_ACQUISITION_CANARY !== 'true',
+      canary_required: (process.env.ADMIN_ACQUISITION_CANARY !== 'true' && process.env.ADMIN_ACQUISITION_CONTINUOUS !== 'true')
+        || (process.env.ADMIN_ACQUISITION_CANARY === 'true' && process.env.ADMIN_ACQUISITION_CONTINUOUS === 'true'),
       ...Object.fromEntries(['investigated','verified_emails','eligible_recipients','drafts','reserved','simulated_sent',
-        'skipped','uncertain','failed','daily_runs','daily_groq','daily_sends','daily_simulated_sent'].map(key => [key, safeInteger(objectRow(metricsResult.data)?.[key] ?? 0)])),
+        'skipped','uncertain','failed','daily_runs','daily_groq','daily_sends','daily_simulated_sent',
+        'investigating','research_retries_exhausted'].map(key => [key, safeInteger(objectRow(metricsResult.data)?.[key] ?? 0)])),
     } as NonNullable<WorkerStatusDto['acquisition']> } : {}),
     as_of: new Date().toISOString(),
   }

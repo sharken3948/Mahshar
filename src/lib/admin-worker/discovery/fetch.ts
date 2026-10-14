@@ -15,13 +15,14 @@ const defaultTransport: DiscoveryTransport = (url, init, timeoutMs) => safeOutbo
 
 export async function boundedDiscoveryFetch(
   input: string,
-  options: { maxBytes?: number; accept?: string; timeoutMs?: number } = {},
+  options: { maxBytes?: number; accept?: string; timeoutMs?: number; beforeRequest?: () => Promise<void> } = {},
   transport: DiscoveryTransport = defaultTransport,
 ): Promise<{ url: string; status: number; contentType: string; body: string }> {
   const maxBytes = Math.min(options.maxBytes ?? WORKER_EXTERNAL_RESPONSE_LIMIT, WORKER_EXTERNAL_RESPONSE_LIMIT)
   const timeoutMs = Math.min(options.timeoutMs ?? WORKER_EXTERNAL_TIMEOUT_MS, WORKER_EXTERNAL_TIMEOUT_MS)
   let current = input
   for (let redirects = 0; redirects <= 2; redirects += 1) {
+    await options.beforeRequest?.()
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
     let response: Response
