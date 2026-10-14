@@ -174,9 +174,11 @@ Runtime discovery and OpenAPI URLs are generated from the configured canonical m
 
 ## Admin Acquisition
 
-The first bounded Production mock canary completed successfully. Continuous simulated acquisition is deployed but disabled in Production. All server-only acquisition flags default to `false`; the existing bounded Discovery Worker remains the default. Continuous activation requires separate operator approval. The consumed canary and historical invitations remain preserved.
+The first bounded Production mock canary completed successfully. Continuous simulated acquisition is deployed. Execution follows operator-approved configuration and Admin Start/Stop controls. All server-only acquisition flags default to `false`; the existing bounded Discovery Worker remains the default. Enabling acquisition flags requires separate operator approval; deployment does not start the Worker. The consumed canary and historical invitations remain preserved.
 
 The acquisition workflow has only a simulated delivery adapter. Its drafts and simulated results are stored separately from ordinary Admin Outreach messages and cannot be approved or sent through Brevo. Real email sending is unavailable in acquisition mode. `ADMIN_ACQUISITION_MODE` requires exactly one authorized operating mode: `ADMIN_ACQUISITION_CANARY` or `ADMIN_ACQUISITION_CONTINUOUS`. Continuous mode reuses bounded cloud batches, durable waits, checkpoints, quotas and Start/Stop/Resume; it requires independent mock eligibility and keeps Brevo deactivated.
+
+The Admin Worker dashboard separates distinct discovered/qualified providers, recorded Groq invitations and real accepted initial Outreach invitations. Simulated delivery never counts as a real send. Groq preparation counts require explicit persisted provenance; mock and historical unknown-origin drafts are excluded. View is read-only and shows exact saved messages and recorded timestamps. Trusted provider reply counts remain unavailable until inbound sender identity is supported.
 
 See [Admin Acquisition controls and activation boundaries](docs/admin-acquisition.md).
 

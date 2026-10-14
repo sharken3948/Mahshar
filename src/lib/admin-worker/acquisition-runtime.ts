@@ -112,7 +112,7 @@ export function acquisitionPort(runId: string, epoch: string, canary = false): A
       }
       if (candidate.attemptId && validAcquisitionDraft(candidate, draft)) {
         await rpc('mahshar_acquisition_save_draft', { p_attempt_id: candidate.attemptId, p_epoch: epoch,
-          p_subject: draft.subject, p_body: draft.body })
+          p_subject: draft.subject, p_body: draft.body, p_generator: 'groq' })
       }
       return draft
     },

@@ -26,6 +26,7 @@ AUDIT_SEND = ROOT / 'supabase/migrations/20261014000300_admin_outreach_send_rese
 AUDIT_INBOUND = ROOT / 'supabase/migrations/20261014000400_admin_outreach_inbound_safety.sql'
 AUDIT_IDENTITY = ROOT / 'supabase/migrations/20261014000500_admin_outreach_inbound_identity_gate.sql'
 CONTINUOUS = ROOT / 'supabase/migrations/20261014000600_admin_acquisition_continuous.sql'
+DRAFT_PROVENANCE = ROOT / 'supabase/migrations/20261014000700_admin_acquisition_draft_provenance.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -94,10 +95,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20261001000100', '20261001000110',
             '20261002000100', '20261004000100', '20261005000100', '20261005000200', '20261005000300',
             '20261007000100', '20261007000200', '20261008000100', '20261008000200',
-            '20261014000100', '20261014000200', '20261014000300', '20261014000400', '20261014000500', '20261014000600',
+            '20261014000100', '20261014000200', '20261014000300', '20261014000400', '20261014000500', '20261014000600', '20261014000700',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2, ADMIN_OUTREACH_DELIVERY, ADMIN_ACQUISITION, AUDIT_LIFECYCLE, AUDIT_SEND, AUDIT_INBOUND, AUDIT_IDENTITY, CONTINUOUS):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2, ADMIN_OUTREACH_DELIVERY, ADMIN_ACQUISITION, AUDIT_LIFECYCLE, AUDIT_SEND, AUDIT_INBOUND, AUDIT_IDENTITY, CONTINUOUS, DRAFT_PROVENANCE):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -2260,6 +2261,21 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         sql(f"SET ROLE service_role; SELECT mahshar_acquisition_record('{empty['attemptId']}','skipped','no_email');")
         drafted=acquisition_claim(); assert drafted['providerId']==providers[1] and drafted['approved']
         assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_save_draft('{drafted['attemptId']}','{active['epoch']}','Continuous API','Fixture draft');")=='t'
+        # Additive rollout over existing canary/history and an old-code draft.
+        history_before=json.loads(sql('SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY id),\'[]\'::jsonb) FROM admin_acquisition_attempts a;'))
+        run([BIN / 'psql', '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-h', root, '-p', '55462', '-U', 'worker_test', '-d', 'postgres', '-f', DRAFT_PROVENANCE])
+        history_after=json.loads(sql("SELECT coalesce(jsonb_agg(to_jsonb(a)-'draft_generator'-'draft_prepared_at' ORDER BY id),'[]'::jsonb) FROM admin_acquisition_attempts a;"))
+        assert history_before==history_after
+        assert sql("SELECT count(*) FROM admin_acquisition_attempts WHERE draft_generator IS NOT NULL OR draft_prepared_at IS NOT NULL;")=='0'
+        assert sql("SELECT relrowsecurity FROM pg_class WHERE oid='public.admin_acquisition_attempts'::regclass;")=='t'
+        for role in ['anon','authenticated']:
+            assert sql(f"SELECT has_function_privilege('{role}','public.mahshar_acquisition_save_draft(uuid,uuid,text,text,text)','EXECUTE');")=='f'
+            expect_failure(f"SET ROLE {role}; SELECT mahshar_acquisition_save_draft('{drafted['attemptId']}','{active['epoch']}','Continuous API','Fixture draft','groq');",'permission denied')
+        assert sql("SELECT has_function_privilege('service_role','public.mahshar_acquisition_save_draft(uuid,uuid,text,text,text)','EXECUTE');")=='t'
+        assert sql("SELECT has_table_privilege('service_role','public.admin_acquisition_attempts','UPDATE');")=='f'
+        assert sql("SELECT proconfig[1] FROM pg_proc WHERE oid='public.mahshar_acquisition_save_draft(uuid,uuid,text,text,text)'::regprocedure;")=='search_path=""'
+        # Replays and resumed historical drafts cannot acquire provenance.
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_save_draft('{drafted['attemptId']}','{active['epoch']}','Continuous API','Fixture draft','groq');")=='f'
         assert acquisition_claim()['subject']=='Continuous API'
         reserve_expr=f"mahshar_acquisition_reserve('{drafted['attemptId']}','{active['epoch']}','team@continuous-1.example','Continuous API','Fixture draft')"
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
@@ -2268,9 +2284,26 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         sql(f"SET ROLE service_role; SELECT mahshar_acquisition_finish('{drafted['attemptId']}',NULL,true);")
         assert sql('SET ROLE service_role; SELECT '+reserve_expr+';')==''
         completed=acquisition_claim(); assert completed['providerId']==providers[2]
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_save_draft('{completed['attemptId']}','{active['epoch']}','Continuous API','Fixture draft','groq');")=='t'
+        prepared_at=sql(f"SELECT draft_prepared_at FROM admin_acquisition_attempts WHERE id='{completed['attemptId']}';")
+        assert prepared_at
         assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_reserve('{completed['attemptId']}','{active['epoch']}','team@continuous-2.example','Continuous API','Fixture draft');")==completed['attemptId']
         sql(f"SET ROLE service_role; SELECT mahshar_acquisition_finish('{completed['attemptId']}','simulated:{completed['attemptId']}',false);")
+        assert sql(f"SELECT draft_generator FROM admin_acquisition_attempts WHERE id='{completed['attemptId']}';")=='groq'
+        assert sql(f"SELECT draft_prepared_at FROM admin_acquisition_attempts WHERE id='{completed['attemptId']}';")==prepared_at
         blocked=acquisition_claim(); assert blocked['providerId']==providers[3]
+        for generator in ["'mock'",'NULL']:
+            assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_save_draft('{blocked['attemptId']}','{active['epoch']}','Continuous API','Fixture draft',{generator});")=='f'
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_save_draft('{blocked['attemptId']}','{active['epoch']}','','Fixture draft','groq');")=='f'
+        def save_groq_fixture(_):
+            return sql(f"SET ROLE service_role; SELECT mahshar_acquisition_save_draft('{blocked['attemptId']}','{active['epoch']}','Continuous API','Fixture draft','groq');")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            saved=list(pool.map(save_groq_fixture,range(3)))
+        assert saved.count('t')==1 and saved.count('f')==2
+        assert sql("SELECT count(*) FROM admin_acquisition_attempts WHERE draft_generator='groq' AND draft_prepared_at IS NOT NULL;")=='2'
+        sql(f"UPDATE admin_acquisition_attempts SET body='Changed fixture text' WHERE id='{blocked['attemptId']}';")
+        assert sql(f"SELECT draft_generator IS NULL AND draft_prepared_at IS NULL FROM admin_acquisition_attempts WHERE id='{blocked['attemptId']}';")=='t'
+        assert sql("SELECT count(*) FROM admin_acquisition_attempts WHERE draft_generator='groq' AND draft_prepared_at IS NOT NULL;")=='1'
         sql(f"UPDATE worker_providers SET status='do_not_contact' WHERE id='{providers[3]}';")
         assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_reserve('{blocked['attemptId']}','{active['epoch']}','team@continuous-3.example','Continuous API','Fixture draft');")==''
         assert sql(f"SELECT count(*) FROM admin_outreach_messages WHERE id IN ('{drafted['attemptId']}','{completed['attemptId']}');")=='0'
@@ -2331,10 +2364,11 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         assert sql(f"SET ROLE service_role; SELECT (mahshar_acquisition_create_next_run('{active['epoch']}','{child['id']}')).id;")==''
         assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_claim_next('{grandchild['id']}','{active['epoch']}');")==''
         assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_save_draft('{blocked['attemptId']}','{active['epoch']}','Late','Late');")=='f'
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_save_draft('{blocked['attemptId']}','{active['epoch']}','Late','Late','groq');")=='f'
         assert sql("SELECT canary_run_id FROM admin_acquisition_control;")==canary_run['id']
         assert sql("SELECT canary_used_at FROM admin_acquisition_control;")
         expect_failure(f"SET ROLE service_role; SELECT mahshar_acquisition_set_state(true,true,'{grandchild['id']}');",'acquisition_canary_unavailable')
-        print('PASS: Worker, Admin Outreach, Acquisition and Continuous migrations, privileges, history, retries and lifecycle')
+        print('PASS: Worker, Admin Outreach, Acquisition and Continuous migrations, privileges, history, retries and lifecycle; Groq provenance history, atomicity, replay and content binding')
     finally:
         if started:
             run([BIN / 'pg_ctl', '-D', data, '-m', 'immediate', '-w', 'stop'])

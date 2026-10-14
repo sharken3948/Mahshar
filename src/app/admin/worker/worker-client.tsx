@@ -7,6 +7,8 @@ import { verificationLabel, workerCompletionLabel } from '@/lib/admin-worker/pre
 import type { WorkerQualifiedLeadDto, WorkerQualifiedLeadsDto, WorkerRunDto, WorkerRunsDto, WorkerStatusDto } from '@/lib/admin-worker/types'
 import { workerLeadContactLabel } from './lead-presentation'
 import { QualificationLabel } from './qualification-label'
+import { DashboardContent, dashboardStatus } from './dashboard-content'
+import type { WorkerDashboard } from '@/lib/admin-worker/dashboard-types'
 import styles from './worker.module.css'
 
 const REFRESH_INTERVAL_MS = 12_000
@@ -48,6 +50,7 @@ function LatestRun({ run }: { run: WorkerRunDto | null }) {
     <div className={styles.runSummary}>
       <div><span>Raw scanned</span><strong>{run.counts.raw_scanned} / {run.targets.raw_limit}</strong></div>
       <div><span>Remaining to target</span><strong>{run.targets.remaining}</strong></div>
+      <div><span>Workflow run ID</span><code>{run.workflow_run_id ?? 'Not recorded'}</code></div>
       <div><span>Completion</span><strong>{workerCompletionLabel(run)}</strong></div>
       <div><span>Source exhausted</span><strong>{run.source_exhausted ? 'Yes' : 'No'}</strong></div>
     </div>
@@ -84,6 +87,10 @@ export function WorkerClient() {
   const mounted = useRef(true)
   const lastAttempt = useRef(0)
   const hasKnownData = useRef(false)
+  const refreshVersion = useRef(0)
+  const [dashboard, setDashboard] = useState<WorkerDashboard | null>(null)
+  const [dashboardPage, setDashboardPage] = useState(0)
+  const [dashboardUnavailable, setDashboardUnavailable] = useState(false)
   const [status, setStatus] = useState<WorkerStatusDto | null>(null)
   const [runs, setRuns] = useState<WorkerRunDto[]>([])
   const [leads, setLeads] = useState<WorkerQualifiedLeadDto[]>([])
@@ -101,17 +108,24 @@ export function WorkerClient() {
 
   const refresh = useCallback(async () => {
     if (document.visibilityState !== 'visible') return
+    const version = ++refreshVersion.current
     lastAttempt.current = Date.now()
     const load = async <T,>(url: string): Promise<T> => {
       const response = await request(url, { cache: 'no-store' })
       if (!response.ok) throw new Error('worker_refresh_unavailable')
       return response.json() as Promise<T>
     }
-    const [statusResult, runsResult, leadsResult] = await Promise.allSettled([
+    const [statusResult, runsResult, leadsResult, dashboardResult] = await Promise.allSettled([
       load<WorkerStatusDto>('/api/admin/worker/status'),
       load<WorkerRunsDto>('/api/admin/worker/runs?limit=10'),
       load<WorkerQualifiedLeadsDto>('/api/admin/worker/leads?limit=25'),
+      load<WorkerDashboard>(`/api/admin/worker/dashboard?page=${dashboardPage}`),
     ])
+    if (!mounted.current || version !== refreshVersion.current) return
+    if (mounted.current) {
+      setDashboardUnavailable(dashboardResult.status === 'rejected')
+      if (dashboardResult.status === 'fulfilled') setDashboard(dashboardResult.value)
+    }
     let failed = false
     if (statusResult.status === 'fulfilled') {
       if (mounted.current) { setStatus(statusResult.value); hasKnownData.current = true }
@@ -123,7 +137,7 @@ export function WorkerClient() {
       if (mounted.current) { setLeads(leadsResult.value.leads); setLeadCounts(leadsResult.value.counts); setLeadsPhase('ready'); hasKnownData.current = true }
     } else { if (mounted.current) setLeadsPhase('failed'); failed = true }
     if (mounted.current) setPhase(failed ? (hasKnownData.current ? 'degraded' : 'unavailable') : 'ready')
-  }, [request])
+  }, [request, dashboardPage])
 
   useEffect(() => {
     void refresh()
@@ -158,12 +172,28 @@ export function WorkerClient() {
   const checkpoint = status?.checkpoint
   return <div className={styles.page}>
     <section className={styles.heading}>
-      <div><span className={styles.eyebrow}>Isolated discovery control</span><h1>Worker Agent</h1><p>Discover and qualify public API candidates in bounded batches.{status?.acquisition ? ' Autonomous acquisition is simulated only.' : ''}</p></div>
+      <div><span className={styles.eyebrow}>API provider acquisition</span><h1>Admin Worker</h1><p>Discover APIs. Prepare invitations. Track results.{status?.acquisition ? ' Autonomous acquisition is simulated only.' : ''}</p></div>
       <div className={`${styles.overallStatus} ${styles[`overall_${status?.status ?? 'stopped'}`]}`}>
-        <i/><div><span>Worker status</span><strong>{status ? statusLabel(status.status) : 'Loading'}</strong></div>
+        <i/><div><span>Worker status</span><strong>{phase === 'loading' ? 'Loading' : dashboardStatus(status)}</strong></div>
       </div>
     </section>
 
+    <section className={styles.controlPanel}>
+      <div><span>Worker controls</span><h2>Run the Worker</h2><p>Bounded cloud batches. Stop prevents new work; dispatched work is reconciled.</p></div>
+      <div className={styles.controls}>
+        <button type="button" onClick={() => void command('start')} disabled={!controls.canStart || busy !== null}>{busy === 'start' ? 'Starting…' : 'Start'}</button>
+        <button type="button" className={styles.stopButton} onClick={() => void command('stop')} disabled={!controls.canStop || busy !== null}>{busy === 'stop' ? 'Requesting…' : 'Stop'}</button>
+        {controls.canResume && <button type="button" onClick={() => void command('resume')} disabled={!controls.canResume || busy !== null}>{busy === 'resume' ? 'Resuming…' : 'Resume'}</button>}
+      </div>
+    </section>
+
+    {commandError && <div className={styles.error} role="alert">{commandError}</div>}
+    {phase === 'degraded' && <div className={styles.warning} role="status">Refresh failed. Showing the last known Worker state.</div>}
+    {phase === 'unavailable' && <div className={styles.warning} role="alert">Worker controls are unavailable.</div>}
+    <DashboardContent dashboard={dashboard} status={status} page={dashboardPage} onPage={value => { setDashboard(null); setDashboardPage(value) }} unavailable={dashboardUnavailable}/>
+    <details className={styles.technical}>
+      <summary>Technical Details <span>Quotas, checkpoints, Discovery and run history</span></summary>
+      <div className={styles.technicalBody}>
     {status?.acquisition && <section className={styles.panel} aria-label="Acquisition progress">
       <header><div><span>{status.acquisition.continuous_mode ? 'Continuous acquisition' : 'Acquisition canary'} · simulated transport</span><h2>Acquisition progress</h2></div></header>
       <div className={styles.countGrid}>
@@ -173,7 +203,7 @@ export function WorkerClient() {
         {status.acquisition.waiting && <div><span>Cloud continuation</span><strong>Waiting for next bounded batch</strong></div>}
         <div><span>Verified emails</span><strong>{status.acquisition.verified_emails}</strong></div>
         <div><span>Channel eligible</span><strong>{status.acquisition.eligible_recipients}</strong></div>
-        <div><span>Drafts generated</span><strong>{status.acquisition.drafts}</strong></div>
+        <div><span>Saved acquisition drafts</span><strong>{status.acquisition.drafts}</strong></div>
         <div><span>Simulated sends</span><strong>{status.acquisition.simulated_sent}</strong></div>
         <div><span>Skipped</span><strong>{status.acquisition.skipped}</strong></div>
         <div><span>Uncertain</span><strong>{status.acquisition.uncertain}</strong></div>
@@ -187,24 +217,11 @@ export function WorkerClient() {
       </div>
     </section>}
 
-    {phase === 'degraded' && <div className={styles.warning} role="status">Refresh failed. Showing the last known Worker state.</div>}
-    {phase === 'unavailable' && <div className={styles.warning} role="alert">Worker status is temporarily unavailable. Core Mahshar remains unaffected.</div>}
-    {commandError && <div className={styles.error} role="alert">{commandError}</div>}
-
     <section className={styles.statusGrid} aria-label="Worker configuration">
       <article><span>Qualified target</span><strong>{status?.qualified_target ?? '—'}</strong><small>Only actionable technical fits count</small></article>
       <article><span>Raw scan hard cap</span><strong>{status?.raw_candidate_limit ?? '—'}</strong><small>Stops safely even below target</small></article>
       <article><span>Last checkpoint</span><strong>{checkpoint ? `${checkpoint.nextIndex} / ${checkpoint.batchSize}` : 'None'}</strong><small>Compact checkpoint version {checkpoint?.version ?? '—'}</small></article>
       <article><span>Last completed</span><strong className={styles.timeValue}>{timeLabel(status?.last_completed_at ?? null)}</strong><small>Durable completion timestamp</small></article>
-    </section>
-
-    <section className={styles.controlPanel}>
-      <div><span>Batch controls</span><h2>Lifecycle</h2><p>Stop is cooperative and takes effect at a safe chunk boundary. Resume creates a new run from the last safe checkpoint.</p></div>
-      <div className={styles.controls}>
-        <button type="button" onClick={() => void command('start')} disabled={!controls.canStart || busy !== null}>{busy === 'start' ? 'Starting…' : 'Start'}</button>
-        <button type="button" className={styles.stopButton} onClick={() => void command('stop')} disabled={!controls.canStop || busy !== null}>{busy === 'stop' ? 'Requesting…' : 'Stop'}</button>
-        <button type="button" onClick={() => void command('resume')} disabled={!controls.canResume || busy !== null}>{busy === 'resume' ? 'Resuming…' : 'Resume'}</button>
-      </div>
     </section>
 
     <section className={styles.notice}>
@@ -265,5 +282,7 @@ export function WorkerClient() {
         </tr>)}</tbody>
       </table></div>}
     </section>
+      </div>
+    </details>
   </div>
 }

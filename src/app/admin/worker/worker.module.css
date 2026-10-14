@@ -1,4 +1,53 @@
 .page { display: grid; min-width: 0; gap: 24px; }
+.metricGrid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.metricGrid article { min-width: 0; padding: 22px 18px; border: 1px solid rgba(146,169,211,.15); border-radius: 14px; background: #0f1828; }
+.metricGrid span { color: #b0bfd7; font-size: 13px; font-weight: 600; }
+.metricGrid strong { display: block; margin: 16px 0 10px; color: #f2f6ff; font-size: 34px; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
+.metricGrid small { display: block; color: #8393ad; font-size: 12px; line-height: 1.5; }
+.currentActivity { display: grid; gap: 7px; padding-left: 16px; border-left: 2px solid #6b9de9; }
+.currentActivity > span { color: #879ab7; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.currentActivity strong { color: #dae6f8; font-size: 15px; font-weight: 550; overflow-wrap: anywhere; }
+.currentActivity small { color: #8697b1; font-size: 12px; }
+.providerTable th:last-child { width: 10%; }
+.providerTable td { overflow-wrap: anywhere; }
+.pagination { display: flex; align-items: center; justify-content: flex-end; gap: 15px; padding: 15px 22px; color: #90a2bf; font-size: 12px; }
+.detailsButton:disabled { cursor: not-allowed; opacity: .4; }
+.activityList { margin: 0; padding: 0 25px; list-style: none; }
+.activityList li { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 17px 0; border-bottom: 1px solid rgba(146,169,211,.1); color: #a6b5cd; }
+.activityList li:last-child { border: 0; }
+.activityList strong, .activityList span { display: block; font-size: 13px; line-height: 1.65; }
+.activityList strong { color: #dce7f8; font-weight: 550; }
+.activityList time { flex-shrink: 0; color: #7f90aa; font-size: 12px; }
+.technical { min-width: 0; border-top: 1px solid rgba(146,169,211,.16); }
+.technical > summary { padding: 22px 0; color: #b0c1dc; cursor: pointer; font-size: 14px; font-weight: 600; }
+.technical > summary span { margin-left: 12px; color: #798aa4; font-size: 12px; font-weight: 400; }
+.technicalBody { display: grid; gap: 22px; }
+.invitationDialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); box-sizing: border-box; padding: 26px; border: 1px solid #344b6d; border-radius: 18px; color: #aebdd4; background: #101a2b; box-shadow: 0 30px 100px rgba(0,0,0,.5); }
+.invitationDialog::backdrop { background: rgba(3,7,14,.75); backdrop-filter: blur(4px); }
+.invitationDialog header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.invitationDialog header span { color: #8195b5; font-size: 12px; }
+.invitationDialog h2 { margin: 7px 0; color: #edf4ff; font-size: 23px; }
+.invitationDialog p { font-size: 13px; line-height: 1.6; }
+.invitation { margin-top: 22px; padding: 20px; border: 1px solid rgba(146,169,211,.17); border-radius: 12px; }
+.invitationMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 12px; }
+.invitation dl { display: grid; gap: 9px; margin: 20px 0; font-size: 12px; }
+.invitation dl > div { display: grid; grid-template-columns: 110px minmax(0,1fr); gap: 12px; }
+.invitation dt { color: #8397b7; }
+.invitation dd { margin: 0; overflow-wrap: anywhere; }
+.invitation h3 { color: #e3edfc; font-size: 16px; line-height: 1.6; overflow-wrap: anywhere; }
+.invitation pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #c5d2e7; font: inherit; font-size: 14px; line-height: 1.85; }
+.invitation ul { padding-left: 18px; color: #8397b7; font-size: 12px; line-height: 1.8; }
+.controls button:focus-visible, .detailsButton:focus-visible, .technical summary:focus-visible { outline: 2px solid #8bb7ff; outline-offset: 4px; }
+@media (max-width: 1100px) { .metricGrid { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+@media (max-width: 680px) {
+  .metricGrid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .metricGrid article { padding: 18px 15px; }
+  .technical > summary span { display: block; margin: 8px 0 0 18px; }
+  .activityList li { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .invitationDialog { padding: 18px; }
+  .invitation { padding: 14px; }
+  .invitation dl > div { grid-template-columns: 90px minmax(0,1fr); }
+}
 .heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 4px; }
 .eyebrow { display: block; margin-bottom: 13px; color: #83adf3; font-size: 14px; font-weight: 720; letter-spacing: .18em; text-transform: uppercase; }
 .heading h1 { margin: 0; color: #f6f8fe; font-size: clamp(37px, 3vw, 48px); line-height: 1; letter-spacing: -.045em; }
