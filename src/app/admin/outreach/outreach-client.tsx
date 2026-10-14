@@ -50,6 +50,12 @@ function timeLabel(value: string | null) {
 }
 
 function DeliveryStatus({ message, detailed = false }: { message: OutreachMessageDto; detailed?: boolean }) {
+  if (message.direction === 'inbound' && message.sender_identity_status === 'unverified') {
+    return <section className={styles.deliveryStatus}><strong>Sender identity unverified</strong><p>Automatic reply actions are paused. Review the original email in the human mailbox.</p></section>
+  }
+  if (message.direction === 'outbound' && (message.delivery_uncertain || message.delivery_reserved)) {
+    return <section className={styles.deliveryStatus}><strong>{message.delivery_uncertain ? 'Delivery uncertain' : 'Delivery reserved'}</strong><p>Do not resend. Review the delivery outcome before taking another action.</p></section>
+  }
   if (message.direction !== 'outbound' || !message.delivery_state) return null
   return <section className={styles.deliveryStatus}>
     <div><strong>{deliveryLabels[message.delivery_state]}</strong><span>{timeLabel(message.delivery_event_at)}</span></div>
@@ -134,7 +140,7 @@ export function OutreachClient() {
     method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ subject, body }),
   })
   const approve = (lead: OutreachLeadDto) => lead.draft && mutate(`approve:${lead.id}`, `/api/admin/outreach/drafts/${lead.draft.id}/approve`, { method: 'POST' })
-  const sendApproved = (lead: OutreachLeadDto) => lead.draft && mutate(`send:${lead.id}`, `/api/admin/outreach/drafts/${lead.draft.id}/send`, { method: 'POST' })
+  const sendApproved = (lead: OutreachLeadDto) => lead.draft && !lead.draft.delivery_reserved && !lead.draft.delivery_uncertain && mutate(`send:${lead.id}`, `/api/admin/outreach/drafts/${lead.draft.id}/send`, { method: 'POST' })
   const setStatus = (lead: OutreachLeadDto, status: OutreachStatus) => mutate(`status:${lead.id}`, '/api/admin/outreach/status', {
     method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ leadId: lead.id, status }),
   })
@@ -153,7 +159,7 @@ export function OutreachClient() {
       ? lead.outreach_status === 'needs_reply' || lead.outreach_status === 'interested'
       : lead.outreach_status === 'draft'
     if (!lead.draft || !threadAllowsDraft) return null
-    return <div className={styles.editor}><h3>{reply ? 'Suggested reply draft' : 'Outreach draft'}</h3><label>Subject<input value={subject} maxLength={200} disabled={lead.draft.status !== 'draft'} onChange={event => setSubject(event.target.value)}/></label><label>Body<textarea value={body} maxLength={5000} rows={12} disabled={lead.draft.status !== 'draft'} onChange={event => setBody(event.target.value)}/></label><div className={styles.editorActions}>{lead.draft.status === 'draft' ? <><button type="button" disabled={busy !== null || !subject.trim() || !body.trim()} onClick={() => void save(lead)}>Save edits</button><button type="button" disabled={busy !== null || !subject.trim() || !body.trim()} onClick={() => void approve(lead)}>{data?.transport.outbound === 'configured' ? 'Approve & Send' : 'Approve — Ready to send'}</button></> : data?.transport.outbound === 'configured' ? <button type="button" disabled={busy !== null} onClick={() => void sendApproved(lead)}>Send approved email</button> : <strong>Approved and ready to send · transport required</strong>}<button type="button" className={styles.danger} disabled={busy !== null} onClick={() => void setStatus(lead, 'do_not_contact')}>Do Not Contact</button><button type="button" disabled={busy !== null} onClick={() => void setStatus(lead, 'closed')}>Close</button></div></div>
+    return <div className={styles.editor}><h3>{reply ? 'Suggested reply draft' : 'Outreach draft'}</h3><label>Subject<input value={subject} maxLength={200} disabled={lead.draft.status !== 'draft'} onChange={event => setSubject(event.target.value)}/></label><label>Body<textarea value={body} maxLength={5000} rows={12} disabled={lead.draft.status !== 'draft'} onChange={event => setBody(event.target.value)}/></label><div className={styles.editorActions}>{lead.draft.status === 'draft' ? <><button type="button" disabled={busy !== null || !subject.trim() || !body.trim()} onClick={() => void save(lead)}>Save edits</button><button type="button" disabled={busy !== null || !subject.trim() || !body.trim()} onClick={() => void approve(lead)}>{data?.transport.outbound === 'configured' ? 'Approve & Send' : 'Approve — Ready to send'}</button></> : data?.transport.outbound === 'configured' ? <button type="button" disabled={busy !== null || Boolean(lead.draft.delivery_reserved || lead.draft.delivery_uncertain)} onClick={() => void sendApproved(lead)}>Send approved email</button> : <strong>Approved and ready to send · transport required</strong>}<button type="button" className={styles.danger} disabled={busy !== null} onClick={() => void setStatus(lead, 'do_not_contact')}>Do Not Contact</button><button type="button" disabled={busy !== null} onClick={() => void setStatus(lead, 'closed')}>Close</button></div></div>
   }
 
   return <div className={styles.page}>

@@ -3,7 +3,7 @@ import { start } from 'workflow/api'
 import { workerBatchWorkflow } from '@/workflows/admin-worker-batch'
 import { startWorkerBatch, stopWorkerBatch, type WorkerStartMode } from './control'
 import { workerControlRepository } from './repository'
-import { acquisitionCanaryEnabled, acquisitionModeEnabled, acquisitionState, setAcquisitionState } from './acquisition-runtime'
+import { acquisitionCanaryEnabled, acquisitionModeEnabled, acquisitionState, setAcquisitionState, stopAcquisitionEpoch } from './acquisition-runtime'
 import { WorkerControlError } from './control'
 import { createServiceClient } from '@/lib/supabase/server'
 
@@ -18,7 +18,7 @@ async function launchWorkerWorkflow(runId: string): Promise<string> {
     const run = await start(workerBatchWorkflow, [runId, epoch, canary])
     return run.runId
   } catch (error) {
-    await setAcquisitionState(false)
+    await stopAcquisitionEpoch(epoch)
     throw error
   }
 }

@@ -293,12 +293,9 @@ export async function discoverProviderContacts(input: {
         }
         if (!GITHUB.test(finalHost)) continue
         const githubOwner = new URL(finalUrl).pathname.split('/').filter(Boolean)[0]?.toLowerCase()
-        const links = htmlLinks(response.body, finalUrl)
-        const continuous = links.some(link => {
-          if (link.url.toLowerCase().startsWith('mailto:')) return false
-          const canonical = canonicalExternalUrl(link.url)
-          return Boolean(canonical && trusted(canonical))
-        }) || Boolean(githubOwner && githubOwners.has(githubOwner))
+        // A repository can link to any company. Only an owner independently
+        // linked by an already-verified provider page is contact evidence.
+        const continuous = Boolean(githubOwner && githubOwners.has(githubOwner))
         if (!continuous || !githubOwner) continue
         githubOwners.add(githubOwner)
         for (const candidate of collect(response.body, finalUrl, 'official_github', true, false)) {

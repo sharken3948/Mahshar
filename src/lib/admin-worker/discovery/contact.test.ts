@@ -356,7 +356,7 @@ test('search rejects third-party directories and same-name GitHub identities wit
   }
 })
 
-test('search-discovered GitHub requires exact provider-domain continuity before accepting contact', async () => {
+test('a search-discovered GitHub backlink cannot establish official contact identity', async () => {
   const result = await discoverProviderContacts({ candidate, normalizedDomain: 'opencage.example', facts: [], claimContactBudget: claim, now,
     searchAdapter: { search: async query => query.endsWith(' GitHub')
       ? [{ url: 'https://github.com/opencage-official', title: 'OpenCage GitHub' }] : [] },
@@ -364,9 +364,10 @@ test('search-discovered GitHub requires exact provider-domain continuity before 
       'https://opencage.example/': '<h1>OpenCage Fixture</h1><p>Geocoding API.</p>',
       'https://github.com/opencage-official': '<h1>OpenCage Fixture</h1><a href="https://opencage.example/">Website</a><a href="mailto:api-team@example.net">API team</a>',
     }) })
-  assert.equal(result.status, 'verified_email')
-  assert.equal(result.preferredEmail, 'api-team@example.net')
-  assert.equal(result.evidence[0]?.sourceType, 'official_github')
+  assert.equal(result.status, 'contact_unavailable')
+  assert.equal(result.emailReady, false)
+  assert.equal(result.preferredEmail, null)
+  assert.equal(result.evidence.length, 0)
 })
 
 test('search failure, timeout, ambiguity, and budget exhaustion remain retryable unknown', async () => {

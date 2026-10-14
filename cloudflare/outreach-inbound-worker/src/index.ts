@@ -30,6 +30,7 @@ export type WorkerExecutionContext = {
 }
 
 export type NormalizedInboundPayload = {
+  sender_identity_status: 'unverified'
   message_id: string
   in_reply_to: string | null
   references: string[]
@@ -135,6 +136,8 @@ export function normalizeParsedEmail(email: Email, now: Date): NormalizedInbound
   const text = cleanReplyBody(sourceBody)
   if (!messageId || !senderEmail || !subject || !text) return null
   return {
+    // Neither envelope identity nor sender-supplied auth headers prove MIME From.
+    sender_identity_status: 'unverified',
     message_id: messageId,
     in_reply_to: extractIdentifiers(email.inReplyTo, 1)[0] ?? null,
     references: extractIdentifiers(email.references),

@@ -91,11 +91,12 @@ test('suggested reply output is bounded and rejects unsupported guarantees', asy
   }
 })
 
-test('matched inbound processing creates only a draft suggestion and never sends it', async () => {
+test('trusted internal processor fixture creates only a draft suggestion and never sends it', async () => {
   let finalized: unknown = null
   let classifyCalls = 0
   const result = await processInboundReply(reply, {
-    ingest: async () => ({ id: 'inbound-1', threadId: 'thread-1', matchedBy: 'in_reply_to', processingState: 'received', duplicate: false }),
+    ingest: async () => ({ id: 'inbound-1', threadId: 'thread-1', matchedBy: 'in_reply_to', processingState: 'received', duplicate: false, senderIdentityVerified: true }),
+    claimAi: async () => true,
     context: async () => ({ provider: 'Example', product: 'Weather API', inboundSubject: reply.subject,
       inboundBody: reply.body, threadStatus: 'sent', history: [] }),
     classify: async () => { classifyCalls++; return { classification: 'technical_question', confidence: 0.9, reason: 'Setup question.' } },
@@ -112,7 +113,7 @@ test('matched inbound processing creates only a draft suggestion and never sends
 test('unmatched and completed duplicate replies do not classify or draft', async () => {
   let calls = 0
   const dependencies = (result: { id: string; threadId: string | null; matchedBy: null; processingState: 'unmatched' | 'suggested'; duplicate: boolean }) => ({
-    ingest: async () => result,
+    ingest: async () => ({ ...result, senderIdentityVerified: true }),
     context: async () => { calls++; throw new Error('unexpected') },
     classify: async () => { calls++; throw new Error('unexpected') },
     suggest: async () => { calls++; throw new Error('unexpected') },
@@ -143,4 +144,74 @@ test('V2 migration retains V1 sent records and private service-role-only boundar
   assert.match(migration, /SECURITY DEFINER SET search_path=''/g)
   assert.match(migration, /REVOKE ALL ON FUNCTION[\s\S]+FROM PUBLIC,anon,authenticated,service_role/g)
   assert.match(migration, /GRANT EXECUTE ON FUNCTION[\s\S]+TO service_role/g)
+})
+
+test('one atomic AI claim prevents duplicate concurrent inference and exhausted budget inference', async () => {
+  let claimed = false; let classifications = 0; let suggestions = 0
+  const dependencies = {
+    ingest: async () => ({ id: 'inbound-claim', threadId: 'thread-1', matchedBy: 'in_reply_to' as const, processingState: 'received' as const, duplicate: true, senderIdentityVerified: true }),
+    context: async () => ({ provider: 'Fixture', product: 'Fixture API', inboundSubject: reply.subject, inboundBody: reply.body, threadStatus: 'sent', history: [] }),
+    claimAi: async () => { if (claimed) return false; claimed = true; return true },
+    classify: async () => { classifications++; return { classification: 'technical_question' as const, confidence: 1, reason: 'Fixture' } },
+    suggest: async () => { suggestions++; return { subject: 'Re: Fixture', body: 'Fixture' } },
+    finalize: async () => null,
+  }
+  await Promise.all([processInboundReply(reply, dependencies), processInboundReply(reply, dependencies)])
+  assert.equal(classifications, 1); assert.equal(suggestions, 1)
+  await processInboundReply(reply, dependencies)
+  assert.equal(classifications, 1)
+  await processInboundReply({ ...reply, body: 'Please unsubscribe me.' }, { ...dependencies,
+    finalize: async (_id, classification) => { assert.equal(classification.classification, 'do_not_contact') },
+  })
+  assert.equal(classifications, 1)
+})
+
+
+test('missing or negative sender proof blocks AI, DNC, and historical thread attachment', async () => {
+  let privileged = 0
+  for (const proof of [undefined, false]) {
+    for (const body of ['Please unsubscribe me.', 'Thanks, we are interested.']) {
+      const result = await processInboundReply({ ...reply, body }, {
+        ingest: async () => ({ id: 'historical-inbound', threadId: 'victim-thread', matchedBy: 'in_reply_to', processingState: 'received', duplicate: true, senderIdentityVerified: proof }),
+        claimAi: async () => { privileged++; return true },
+        context: async () => { privileged++; throw new Error('Must not load victim context') },
+        classify: async () => { privileged++; throw new Error('Must not infer') },
+        suggest: async () => { privileged++; throw new Error('Must not draft') },
+        finalize: async () => { privileged++ },
+      })
+      assert.equal(result.threadId, null); assert.equal(result.processingState, 'unmatched')
+    }
+  }
+  assert.equal(privileged, 0)
+})
+
+test('authenticated bridge requests cannot promote forged sender claims into automatic actions', async () => {
+  const { boundary } = await import('../admin/fixture')
+  const savedSecret = process.env.OUTREACH_INBOUND_WEBHOOK_SECRET
+  const savedRpc = boundary.rpcOverride
+  process.env.OUTREACH_INBOUND_WEBHOOK_SECRET = 'synthetic-inbound-secret-32-chars'
+  let ingests = 0; let privileged = 0
+  boundary.rpcOverride = async (name) => {
+    if (name === 'mahshar_admin_outreach_ingest_unverified_inbound') {
+      ingests++
+      return { data: { id: 'fixture-unverified', threadId: null, matchedBy: null, processingState: 'unmatched', duplicate: ingests > 1, senderIdentityVerified: false }, error: null }
+    }
+    privileged++; throw new Error('Identity-sensitive RPC must not execute')
+  }
+  try {
+    for (const claims of [{}, { sender_identity_status: 'verified', sender_authenticated: true, dmarc: 'pass' }]) {
+      const response = await POST(new Request('https://mahshar.xyz/api/internal/outreach/inbound', {
+        method: 'POST', headers: { authorization: 'Bearer synthetic-inbound-secret-32-chars', 'content-type': 'application/json' },
+        body: JSON.stringify({ ...payload, text: 'Please unsubscribe the provider.', ...claims }),
+      }))
+      assert.equal(response.status, 200)
+      const accepted = await response.json()
+      assert.equal(accepted.matched, false); assert.equal(accepted.processingState, 'unmatched')
+    }
+    assert.equal(ingests, 2); assert.equal(privileged, 0)
+  } finally {
+    boundary.rpcOverride = savedRpc
+    if (savedSecret === undefined) delete process.env.OUTREACH_INBOUND_WEBHOOK_SECRET
+    else process.env.OUTREACH_INBOUND_WEBHOOK_SECRET = savedSecret
+  }
 })

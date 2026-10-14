@@ -1,13 +1,18 @@
 import type { WorkerRunDto, WorkerRunStatus } from '../../src/lib/admin-worker/types'
 
 export const canaryFixture = { events: [] as string[], claimStatus: 'running' as WorkerRunStatus,
-  acquisitionFails: false, sleepCalls: 0 }
+  acquisitionFails: false, sleepCalls: 0, stopDuringSleep: false, running: true,
+  failurePersistenceFails: false, finishArgs: [] as string[] }
 
 export function resetCanaryFixture() {
   canaryFixture.events = []
   canaryFixture.claimStatus = 'running'
   canaryFixture.acquisitionFails = false
   canaryFixture.sleepCalls = 0
+  canaryFixture.stopDuringSleep = false
+  canaryFixture.running = true
+  canaryFixture.failurePersistenceFails = false
+  canaryFixture.finishArgs = []
 }
 
 function run(status: WorkerRunStatus): WorkerRunDto {
@@ -22,16 +27,26 @@ function run(status: WorkerRunStatus): WorkerRunDto {
 }
 
 export async function claimWorkerRunStep() { canaryFixture.events.push('claim'); return run(canaryFixture.claimStatus) }
-export async function processAcquisitionStep(_runId: string, _epoch: string, canary: boolean) {
+export async function processAcquisitionStep(_runId: string, _epoch: string, canary = false) {
   canaryFixture.events.push(`acquire:${canary}`)
   if (canaryFixture.acquisitionFails) throw new Error('fixture failure')
   return []
 }
-export async function finishAcquisitionCanaryStep() { canaryFixture.events.push('stop-intent-and-run'); canaryFixture.claimStatus = 'stopped' }
+export async function finishAcquisitionCanaryStep(runId: string, epoch: string) {
+  canaryFixture.finishArgs = [runId, epoch]
+  canaryFixture.events.push('stop-intent-and-run'); canaryFixture.claimStatus = 'stopped'
+}
 export async function completeWorkerRunStep() { canaryFixture.events.push('complete'); return run('stopped') }
 export async function processDiscoveryChunkStep() { canaryFixture.events.push('discovery'); return run('completed') }
-export async function failWorkerRunStep() { canaryFixture.events.push('fail-worker') }
+export async function failWorkerRunStep() {
+  canaryFixture.events.push('fail-worker')
+  if (canaryFixture.failurePersistenceFails) throw new Error('failure persistence unavailable')
+}
 export async function failAcquisitionStep() { canaryFixture.events.push('fail-acquisition') }
-export async function acquisitionStillRunningStep() { canaryFixture.events.push('continuation-check'); return true }
+export async function acquisitionStillRunningStep() { canaryFixture.events.push('continuation-check'); return canaryFixture.running }
 export async function createNextAcquisitionRunStep() { canaryFixture.events.push('next-batch'); return 'next' }
-export async function sleep() { canaryFixture.sleepCalls++; throw new Error('canary must not sleep') }
+export async function sleep() {
+  canaryFixture.sleepCalls++
+  if (canaryFixture.stopDuringSleep) { canaryFixture.running = false; return }
+  throw new Error('canary must not sleep')
+}

@@ -17,11 +17,17 @@ export async function workerBatchWorkflow(runId: string, acquisitionEpoch?: stri
   while (true) {
     try {
       let run = await claimWorkerRunStep(currentRunId)
-      if (terminalStatuses.has(run.status)) return { runId: currentRunId, status: run.status }
+      if (terminalStatuses.has(run.status)) {
+        if (acquisitionEpoch) {
+          if (canary) await finishAcquisitionCanaryStep(currentRunId, acquisitionEpoch)
+          else await failAcquisitionStep(acquisitionEpoch)
+        }
+        return { runId: currentRunId, status: run.status }
+      }
       if (canary) {
         if (!acquisitionEpoch) throw new Error('acquisition_canary_epoch_missing')
         await processAcquisitionStep(currentRunId, acquisitionEpoch, true)
-        await finishAcquisitionCanaryStep(acquisitionEpoch)
+        await finishAcquisitionCanaryStep(currentRunId, acquisitionEpoch)
         run = await claimWorkerRunStep(currentRunId)
         return { runId: currentRunId, status: run.status }
       }
@@ -34,17 +40,20 @@ export async function workerBatchWorkflow(runId: string, acquisitionEpoch?: stri
       }
 
       if (!terminalStatuses.has(run.status)) run = await completeWorkerRunStep(currentRunId)
-      if (!acquisitionEpoch || run.status !== 'completed') return { runId: currentRunId, status: run.status }
+      if (!acquisitionEpoch || run.status !== 'completed') {
+        if (acquisitionEpoch) await failAcquisitionStep(acquisitionEpoch)
+        return { runId: currentRunId, status: run.status }
+      }
       // Workflow sleep is durable: the server/browser need not stay alive between batches.
       do {
         await sleep('1h')
         if (!await acquisitionStillRunningStep(acquisitionEpoch)) return { runId: currentRunId, status: 'stopped' }
-        const next = await createNextAcquisitionRunStep(acquisitionEpoch)
+        const next = await createNextAcquisitionRunStep(acquisitionEpoch, currentRunId)
         if (next) { currentRunId = next; break }
       } while (true)
     } catch (error) {
-      await failWorkerRunStep(currentRunId)
-      if (acquisitionEpoch) await failAcquisitionStep(acquisitionEpoch)
+      try { await failWorkerRunStep(currentRunId) }
+      finally { if (acquisitionEpoch) await failAcquisitionStep(acquisitionEpoch) }
       throw error
     }
   }

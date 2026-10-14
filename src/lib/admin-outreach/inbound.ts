@@ -1,9 +1,9 @@
 import 'server-only'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { isVerifiedOutreachEmail } from '@/lib/admin-worker/contact-readiness'
-import { classifyOutreachReply, suggestOutreachReply, type ReplyClassification, type ReplyContext,
+import { classifyOutreachReply, deterministicDncClassification, suggestOutreachReply, type ReplyClassification, type ReplyContext,
   type SuggestedReply } from './intelligence'
-import { finalizeInboundReply, getInboundReplyContext, ingestInboundReply,
+import { claimInboundReplyAi, finalizeInboundReply, getInboundReplyContext, ingestInboundReply,
   type InboundIngestResult } from './repository'
 
 const MAX_WEBHOOK_BYTES = 64 * 1024
@@ -92,6 +92,7 @@ export function authenticateInboundBridge(request: Request): boolean {
 type InboundContext = ReplyContext & { threadStatus: string }
 type ProcessingDependencies = {
   ingest: (reply: NormalizedInboundReply) => Promise<InboundIngestResult>
+  claimAi: (messageId: string) => Promise<boolean>
   context: (messageId: string) => Promise<InboundContext>
   classify: (body: string) => Promise<ReplyClassification>
   suggest: (context: ReplyContext) => Promise<SuggestedReply | null>
@@ -101,6 +102,7 @@ type ProcessingDependencies = {
 
 const processingDependencies: ProcessingDependencies = {
   ingest: ingestInboundReply,
+  claimAi: claimInboundReplyAi,
   context: getInboundReplyContext,
   classify: classifyOutreachReply,
   suggest: suggestOutreachReply,
@@ -110,10 +112,15 @@ const processingDependencies: ProcessingDependencies = {
 export async function processInboundReply(reply: NormalizedInboundReply,
   dependencies: ProcessingDependencies = processingDependencies): Promise<InboundIngestResult> {
   const ingested = await dependencies.ingest(reply)
+  // Bridge authentication does not authenticate the email author. Missing proof
+  // (including an old RPC response) must not permit classification or opt-out mutation.
+  if (ingested.senderIdentityVerified !== true) return { ...ingested, threadId: null, matchedBy: null, processingState: 'unmatched' }
   if (!ingested.threadId || ingested.processingState === 'unmatched') return ingested
   if (ingested.duplicate && !['received', 'suggestion_failed'].includes(ingested.processingState)) return ingested
   const context = await dependencies.context(ingested.id)
-  const classification = await dependencies.classify(reply.body)
+  const deterministic = deterministicDncClassification(reply.body)
+  if (!deterministic && !await dependencies.claimAi(ingested.id)) return ingested
+  const classification = deterministic ?? await dependencies.classify(reply.body)
   const actionable = ['interested', 'payment_question', 'technical_question', 'other'].includes(classification.classification)
     && !['closed', 'do_not_contact', 'rejected'].includes(context.threadStatus)
   const suggestion = actionable ? await dependencies.suggest(context) : null

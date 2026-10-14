@@ -3,8 +3,6 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { GROQ_MODEL, ensureGroqAvailable, fenceUntrusted, groq } from '@/lib/groq-neutral'
 import { claimDiscoveryBudget } from './discovery/repository'
 import { AcquisitionBudgetPause, mockCanaryAcquisitionDraft, processAcquisitionBatch, type AcquisitionCandidate, type AcquisitionDraft, type AcquisitionPort } from './acquisition'
-import { stopWorkerBatch } from './control'
-import { workerControlRepository } from './repository'
 
 type Row = Record<string, unknown>
 function dataRow(value: unknown): Row | null {
@@ -128,11 +126,9 @@ export async function processAcquisitionStep(runId: string, epoch: string, canar
   return processAcquisitionBatch(acquisitionPort(runId, epoch, canary), canary ? 1 : 10)
 }
 
-export async function finishAcquisitionCanaryStep(epoch: string): Promise<void> {
+export async function finishAcquisitionCanaryStep(runId: string, epoch: string): Promise<void> {
   'use step'
-  const state = await acquisitionState()
-  if (state.epoch === epoch && state.running) await setAcquisitionState(false)
-  await stopWorkerBatch(workerControlRepository)
+  await rpc('mahshar_acquisition_finish_canary', { p_run_id: runId, p_epoch: epoch })
 }
 
 export async function acquisitionStillRunningStep(epoch: string): Promise<boolean> {
@@ -141,14 +137,17 @@ export async function acquisitionStillRunningStep(epoch: string): Promise<boolea
   return state.running && state.epoch === epoch
 }
 
-export async function createNextAcquisitionRunStep(epoch: string): Promise<string | null> {
+export async function createNextAcquisitionRunStep(epoch: string, parentRunId: string): Promise<string | null> {
   'use step'
-  const row = dataRow(await rpc('mahshar_acquisition_create_next_run', { p_epoch: epoch }))
+  const row = dataRow(await rpc('mahshar_acquisition_create_next_run', { p_epoch: epoch, p_parent_run_id: parentRunId }))
   return typeof row?.id === 'string' ? row.id : null
+}
+
+export async function stopAcquisitionEpoch(epoch: string): Promise<void> {
+  await rpc('mahshar_acquisition_stop_epoch', { p_epoch: epoch })
 }
 
 export async function failAcquisitionStep(epoch: string): Promise<void> {
   'use step'
-  const state = await acquisitionState()
-  if (state.epoch === epoch && state.running) await setAcquisitionState(false)
+  await stopAcquisitionEpoch(epoch)
 }

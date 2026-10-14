@@ -62,6 +62,9 @@ export type OutreachMessageDto = {
   delivery_state: OutreachDeliveryEventType | null
   delivery_event_at: string | null
   delivery_events: OutreachDeliveryEventDto[]
+  sender_identity_status?: 'unverified'
+  delivery_uncertain?: boolean
+  delivery_reserved?: boolean
 }
 
 export type OutreachInboxItemDto = {

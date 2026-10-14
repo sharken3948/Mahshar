@@ -16,7 +16,7 @@ type DbError = { message?: string; code?: string } | null
 type DbResult = { data: unknown; error: DbError }
 type DbCountResult = DbResult & { count: number | null }
 
-const MESSAGE_SELECT = 'id,thread_id,direction,status,recipient_email,sender_email,subject,body,provider_message_id,in_reply_to,reference_ids,received_at,classification,classification_confidence,classification_reason,processing_state,matched_by,reply_to_message_id,approved_at,sent_at,created_at,updated_at'
+const MESSAGE_SELECT = 'id,thread_id,direction,status,recipient_email,sender_email,subject,body,provider_message_id,in_reply_to,reference_ids,received_at,classification,classification_confidence,classification_reason,processing_state,matched_by,reply_to_message_id,approved_at,sent_at,created_at,updated_at,send_reserved_at,send_uncertain_at'
 
 function dbFailure(scope: string, error: DbError): never {
   console.error(`[admin-outreach] ${scope} unavailable`, error?.code ?? error?.message ?? 'unknown database error')
@@ -76,6 +76,9 @@ function messageDto(row: Record<string, unknown>, deliveryRows: Record<string, u
     delivery_state: latestDelivery?.event_type ?? null,
     delivery_event_at: latestDelivery?.occurred_at ?? null,
     delivery_events: deliveryEvents,
+    ...(direction === 'inbound' ? { sender_identity_status: 'unverified' as const } : {}),
+    ...(status !== 'sent' && timestamp(row.send_uncertain_at) ? { delivery_uncertain: true } : {}),
+    ...(status === 'ready_to_send' && timestamp(row.send_reserved_at) ? { delivery_reserved: true } : {}),
   }
 }
 
@@ -236,7 +239,7 @@ export async function approveOutreachDraft(messageId: string, adminWallet: strin
 
 export async function getApprovedOutreachMessage(messageId: string): Promise<OutreachMessageDto> {
   const result = await createServiceClient().from('admin_outreach_messages')
-    .select('id,direction,status,recipient_email,sender_email,subject,body,provider_message_id,in_reply_to,reference_ids,received_at,classification,classification_confidence,classification_reason,processing_state,matched_by,reply_to_message_id,approved_at,sent_at,created_at,updated_at')
+    .select(MESSAGE_SELECT)
     .eq('id', messageId).single() as DbResult
   if (result.error) dbFailure('approved message', result.error)
   const message = messageDto(rows(result.data)[0] ?? (result.data as Record<string, unknown>))
@@ -251,13 +254,24 @@ export async function getApprovedOutreachMessage(messageId: string): Promise<Out
 }
 
 export async function markOutreachSent(messageId: string, providerMessageId: string): Promise<unknown> {
-  const db = createServiceClient()
-  const reply = await isReplyDraft(db, messageId)
-  const result = await db.rpc(reply ? 'mahshar_admin_outreach_mark_reply_sent' : 'mahshar_admin_outreach_mark_sent', {
+  const result = await createServiceClient().rpc('mahshar_admin_outreach_finish_send', {
     p_message_id: messageId, p_provider_message_id: providerMessageId,
   }) as DbResult
   if (result.error) rpcFailure(result.error)
   return result.data
+}
+
+export async function reserveOutreachSend(messageId: string): Promise<void> {
+  const result = await createServiceClient().rpc('mahshar_admin_outreach_reserve_send', { p_message_id: messageId }) as DbResult
+  if (result.error) rpcFailure(result.error)
+  if (result.data !== true) throw new Error('admin_outreach_delivery_not_reserved')
+}
+
+export async function markOutreachUncertain(messageId: string): Promise<void> {
+  const result = await createServiceClient().rpc('mahshar_admin_outreach_finish_send', {
+    p_message_id: messageId, p_provider_message_id: null,
+  }) as DbResult
+  if (result.error) rpcFailure(result.error)
 }
 
 export type DeliveryEventIngestResult = {
@@ -301,6 +315,7 @@ export type InboundIngestResult = {
   matchedBy: OutreachMessageDto['matched_by']
   processingState: OutreachProcessingState
   duplicate: boolean
+  senderIdentityVerified?: boolean
 }
 
 function inboundResult(value: unknown): InboundIngestResult {
@@ -312,11 +327,12 @@ function inboundResult(value: unknown): InboundIngestResult {
   return { id: row.id, threadId: typeof row.threadId === 'string' ? row.threadId : null,
     matchedBy: ['in_reply_to','reference','subject_context','sender_unambiguous'].includes(String(row.matchedBy))
       ? row.matchedBy as InboundIngestResult['matchedBy'] : null,
-    processingState: state as OutreachProcessingState, duplicate: row.duplicate }
+    processingState: state as OutreachProcessingState, duplicate: row.duplicate,
+    senderIdentityVerified: row.senderIdentityVerified === true }
 }
 
 export async function ingestInboundReply(reply: NormalizedInboundReply): Promise<InboundIngestResult> {
-  const result = await createServiceClient().rpc('mahshar_admin_outreach_ingest_inbound', {
+  const result = await createServiceClient().rpc('mahshar_admin_outreach_ingest_unverified_inbound', {
     p_provider_message_id: reply.providerMessageId, p_in_reply_to: reply.inReplyTo,
     p_reference_ids: reply.references, p_sender_email: reply.senderEmail, p_recipient_email: reply.recipientEmail,
     p_subject: reply.subject, p_body: reply.body, p_received_at: reply.receivedAt,
@@ -389,4 +405,12 @@ export async function setOutreachStatus(leadId: string, status: OutreachStatus):
   }) as DbResult
   if (result.error) rpcFailure(result.error)
   return result.data
+}
+
+export async function claimInboundReplyAi(messageId: string): Promise<boolean> {
+  const result = await createServiceClient().rpc('mahshar_admin_outreach_claim_inbound_ai', {
+    p_message_id: messageId,
+  }) as DbResult
+  if (result.error) rpcFailure(result.error)
+  return result.data === true
 }

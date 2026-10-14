@@ -103,6 +103,7 @@ test('forwards and posts the exact normalized plain-text payload', async () => {
     'content-type': 'application/json',
   })
   assert.deepEqual(await payloadFrom(run.requests), {
+    sender_identity_status: 'unverified',
     message_id: '<inbound-123@example.com>',
     in_reply_to: '<outbound-456@mahshar.xyz>',
     references: ['<older@mahshar.xyz>', '<outbound-456@mahshar.xyz>'],
@@ -315,4 +316,27 @@ test('forwarding failure is surfaced and does not start the webhook', async () =
   await assert.rejects(run.worker.email(input.value, env, run.context), /forward_failed/)
   assert.equal(run.requests.length, 0)
   assert.deepEqual(run.logs, [{ event: 'forward_failed', details: undefined }])
+})
+
+
+test('forged From, different envelope, and fabricated authentication headers never establish identity', async () => {
+  for (const headers of [[], ['Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=example.com; spf=pass; dkim=pass'],
+    ['ARC-Authentication-Results: i=1; mx.cloudflare.net; dmarc=pass header.from=example.com', 'X-Sender-Authenticated: true']]) {
+    const input = message(rawMessage('Please unsubscribe me.', headers))
+    input.value.from = 'attacker@attacker.example'
+    const run = harness()
+    await run.worker.email(input.value, env, run.context); await Promise.all(run.waits)
+    assert.deepEqual(input.forwarded, ['human-mailbox@example.net'])
+    const payload = await payloadFrom(run.requests)
+    assert.equal(payload.sender_identity_status, 'unverified')
+    assert.equal(payload.sender_email, 'provider@example.com') // observed address only
+  }
+})
+
+test('legitimate replies with matching envelope remain available to the human mailbox without invented authentication', async () => {
+  const input = message(rawMessage('Thanks, we are interested.'))
+  const run = harness()
+  await run.worker.email(input.value, env, run.context); await Promise.all(run.waits)
+  assert.deepEqual(input.forwarded, ['human-mailbox@example.net'])
+  assert.equal((await payloadFrom(run.requests)).sender_identity_status, 'unverified')
 })

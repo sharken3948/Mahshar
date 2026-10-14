@@ -21,6 +21,10 @@ ADMIN_OUTREACH = ROOT / 'supabase/migrations/20261007000200_admin_outreach_v1.sq
 ADMIN_OUTREACH_V2 = ROOT / 'supabase/migrations/20261008000100_admin_outreach_v2_inbound.sql'
 ADMIN_OUTREACH_DELIVERY = ROOT / 'supabase/migrations/20261008000200_admin_outreach_delivery_events.sql'
 ADMIN_ACQUISITION = ROOT / 'supabase/migrations/20261014000100_admin_acquisition.sql'
+AUDIT_LIFECYCLE = ROOT / 'supabase/migrations/20261014000200_admin_acquisition_replay_safety.sql'
+AUDIT_SEND = ROOT / 'supabase/migrations/20261014000300_admin_outreach_send_reservation.sql'
+AUDIT_INBOUND = ROOT / 'supabase/migrations/20261014000400_admin_outreach_inbound_safety.sql'
+AUDIT_IDENTITY = ROOT / 'supabase/migrations/20261014000500_admin_outreach_inbound_identity_gate.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -89,10 +93,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20261001000100', '20261001000110',
             '20261002000100', '20261004000100', '20261005000100', '20261005000200', '20261005000300',
             '20261007000100', '20261007000200', '20261008000100', '20261008000200',
-            '20261014000100',
+            '20261014000100', '20261014000200', '20261014000300', '20261014000400', '20261014000500',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2, ADMIN_OUTREACH_DELIVERY, ADMIN_ACQUISITION):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2, ADMIN_OUTREACH_DELIVERY, ADMIN_ACQUISITION, AUDIT_LIFECYCLE, AUDIT_SEND, AUDIT_INBOUND, AUDIT_IDENTITY):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -2036,6 +2040,166 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
           '{canary_state['epoch']}');") == ''
         expect_failure(f"SET ROLE service_role; SELECT mahshar_acquisition_set_state(true,true,'{canary_run['id']}');",
                        'acquisition_canary_unavailable')
+        # Forward audit migration preserves history and scopes all retry side effects.
+        historical_worker = sql("SELECT md5(string_agg(to_jsonb(r)::text,'' ORDER BY id)) FROM worker_runs r;")
+        historical_messages = sql("SELECT md5(string_agg(to_jsonb(m)::text,'' ORDER BY id)) FROM admin_outreach_messages m;")
+        sql('BEGIN;\n' + AUDIT_LIFECYCLE.read_text() + '\nCOMMIT;')
+        assert sql("SELECT md5(string_agg((to_jsonb(r)-'acquisition_parent_run_id')::text,'' ORDER BY id)) FROM worker_runs r;")==historical_worker
+        assert sql("SELECT md5(string_agg(to_jsonb(m)::text,'' ORDER BY id)) FROM admin_outreach_messages m;")==historical_messages
+        assert sql("SELECT has_function_privilege('anon','public.mahshar_acquisition_finish_canary(uuid,uuid)','EXECUTE');")=='f'
+        assert sql("SELECT has_function_privilege('authenticated','public.mahshar_acquisition_finish_canary(uuid,uuid)','EXECUTE');")=='f'
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_finish_canary('{canary_run['id']}','{canary_state['epoch']}');")=='t'
+        assert rpc_json(f"mahshar_worker_claim_run('{canary_run['id']}')")['status']=='stopped'
+        later_legacy = rpc_json('mahshar_worker_create_target_run(false)')
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_finish_canary('{canary_run['id']}','{canary_state['epoch']}');")=='f'
+        assert sql(f"SELECT status FROM worker_runs WHERE id='{later_legacy['id']}';")=='queued'
+        assert sql("SELECT desired_state FROM worker_control WHERE id=1;")=='running'
+        # Lost child-creation response, including concurrent queue redelivery, returns one durable child.
+        rpc_json(f"mahshar_worker_claim_run('{later_legacy['id']}')")
+        continuous = json.loads(sql("SET ROLE service_role; SELECT row_to_json(r) FROM mahshar_acquisition_set_state(true) r;"))
+        sql(f"UPDATE worker_runs SET created_at='2000-01-01'; UPDATE worker_runs SET processed_count=batch_size,source_cursor=batch_size,checkpoint=jsonb_build_object('version',1,'nextIndex',batch_size,'batchSize',batch_size),status='completed',completion_reason='source_exhausted' WHERE id='{later_legacy['id']}'; UPDATE worker_control SET desired_state='stopped',current_checkpoint=(SELECT checkpoint FROM worker_runs WHERE id='{later_legacy['id']}') WHERE id=1;")
+        child = rpc_json(f"mahshar_acquisition_create_next_run('{continuous['epoch']}','{later_legacy['id']}')")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            children = list(pool.map(lambda _: rpc_json(f"mahshar_acquisition_create_next_run('{continuous['epoch']}','{later_legacy['id']}')"), range(2)))
+        assert all(r['id']==child['id'] for r in children)
+        assert sql("SELECT count(*) FROM worker_runs WHERE status='queued';")=='1'
+        sql("SET ROLE service_role; SELECT mahshar_acquisition_set_state(false);")
+        assert sql(f"SET ROLE service_role; SELECT (mahshar_acquisition_create_next_run('{continuous['epoch']}','{later_legacy['id']}')).id;")==''
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_finish_canary('{canary_run['id']}','{canary_state['epoch']}');")=='f'
+        assert sql(f"SELECT status FROM worker_runs WHERE id='{child['id']}';")=='queued'
+        assert sql(f"SET ROLE service_role; SELECT mahshar_acquisition_stop_epoch('{canary_state['epoch']}');")=='f'
+        sql(f"UPDATE admin_acquisition_control SET desired_state='running' WHERE id=1; UPDATE worker_runs SET status='completed',processed_count=batch_size,source_cursor=batch_size,checkpoint=jsonb_build_object('version',1,'nextIndex',batch_size,'batchSize',batch_size),completion_reason='source_exhausted' WHERE id='{child['id']}'; UPDATE worker_control SET desired_state='stopped',current_checkpoint=(SELECT checkpoint FROM worker_runs WHERE id='{child['id']}') WHERE id=1;")
+        assert rpc_json(f"mahshar_acquisition_create_next_run('{continuous['epoch']}','{later_legacy['id']}')")['id']==child['id']
+        sql("SET ROLE service_role; SELECT mahshar_acquisition_set_state(false);")
+        # Outbound replay and inbound correlation remediation are forward-only.
+        history = sql("SELECT md5(string_agg(to_jsonb(m)::text,'' ORDER BY id)) FROM admin_outreach_messages m;")
+        sql('BEGIN;\n' + AUDIT_SEND.read_text() + '\nCOMMIT;')
+        sql('BEGIN;\n' + AUDIT_INBOUND.read_text() + '\nCOMMIT;')
+        assert sql("SELECT md5(string_agg((to_jsonb(m)-'send_reserved_at'-'send_uncertain_at'-'ai_claimed_at')::text,'' ORDER BY id)) FROM admin_outreach_messages m;")==history
+        for function in ['mahshar_admin_outreach_reserve_send(uuid)','mahshar_admin_outreach_finish_send(uuid,text)','mahshar_admin_outreach_claim_inbound_ai(uuid)','mahshar_acquisition_stop_epoch(uuid)','mahshar_acquisition_create_next_run(uuid,uuid)']:
+            assert sql(f"SELECT has_function_privilege('anon','public.{function}','EXECUTE');")=='f'
+            assert sql(f"SELECT has_function_privilege('authenticated','public.{function}','EXECUTE');")=='f'
+            assert sql(f"SELECT has_function_privilege('service_role','public.{function}','EXECUTE');")=='t'
+            assert sql(f"SELECT prosecdef FROM pg_proc WHERE oid='public.{function}'::regprocedure;")=='t'
+            assert sql(f"SELECT proconfig[1] FROM pg_proc WHERE oid='public.{function}'::regprocedure;") in {'search_path=','search_path=""'}
+        # A new synthetic provider has no existing initial reservation.
+        safe_provider=sql('SELECT gen_random_uuid();'); safe_product=sql('SELECT gen_random_uuid();'); safe_lead=sql('SELECT gen_random_uuid();')
+        sql(f"""INSERT INTO worker_providers(id,canonical_name,canonical_domain) VALUES('{safe_provider}','Audit Safe','audit-safe.example');
+          INSERT INTO worker_products(id,provider_id,normalized_product_key,display_name) VALUES('{safe_product}','{safe_provider}','audit-api','Audit API');
+          INSERT INTO worker_leads(id,provider_id,product_id,status,qualification_status,contactability_status,email_ready,preferred_email)
+          VALUES('{safe_lead}','{safe_provider}','{safe_product}','qualified','qualified','verified_email',true,'team@audit-safe.example');
+          INSERT INTO worker_contacts(provider_id,lead_id,contact_type,value,purpose,source_url,source_type,verification_status,preferred,email_ready,discovered_at,verified_at)
+          VALUES('{safe_provider}','{safe_lead}','email','team@audit-safe.example','business','https://audit-safe.example/contact','official_site','verified',true,true,clock_timestamp(),clock_timestamp());""")
+        safe_draft=json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_save_draft('{safe_provider}','{safe_lead}','team@audit-safe.example','Audit API','Fixture only.');"))
+        safe_message=safe_draft['id']; safe_thread=safe_draft['threadId']
+        sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_approve_draft('{safe_message}','0x{'1' * 40}');")
+        sql(f"UPDATE admin_outreach_threads SET status='do_not_contact' WHERE id='{safe_thread}';")
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_reserve_send('{safe_message}');",'admin_outreach_lead_blocked')
+        assert sql(f"SELECT send_reserved_at IS NULL FROM admin_outreach_messages WHERE id='{safe_message}';")=='t'
+        sql(f"UPDATE admin_outreach_threads SET status='draft' WHERE id='{safe_thread}';")
+        def reserve_outbound(_):
+            try: return sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_reserve_send('{safe_message}');")
+            except subprocess.CalledProcessError as error:
+                assert 'admin_outreach_delivery_not_reservable' in error.stderr; return 'blocked'
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool: claims=list(pool.map(reserve_outbound,range(3)))
+        assert claims.count('t')==1 and claims.count('blocked')==2,claims
+        sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_finish_send('{safe_message}',NULL);")
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_reserve_send('{safe_message}');",'admin_outreach_delivery_not_reservable')
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_finish_send('{safe_message}','simulated:fixture');",'admin_outreach_delivery_invalid')
+        sql(f"UPDATE admin_outreach_threads SET status='do_not_contact' WHERE id='{safe_thread}';")
+        sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_finish_send('{safe_message}','audit-real-fixture-id');")
+        assert sql(f"SELECT status FROM admin_outreach_threads WHERE id='{safe_thread}';")=='do_not_contact'
+        for reply_to,refs in [("'audit-real-fixture-id'","'{}'"),("NULL","ARRAY['audit-real-fixture-id']")]:
+            inbound=json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_ingest_inbound(gen_random_uuid()::text,{reply_to},{refs},'attacker@audit-safe.example','support@mahshar.xyz','Attack','Stop',clock_timestamp());"))
+            assert inbound['threadId'] is None and inbound['processingState']=='unmatched'
+        inbound=json.loads(sql("SET ROLE service_role; SELECT mahshar_admin_outreach_ingest_inbound('audit-authenticated-fixture','audit-real-fixture-id','{}','team@audit-safe.example','support@mahshar.xyz','Re: Audit API','Question',clock_timestamp());"))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            claims=list(pool.map(lambda _:sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_claim_inbound_ai('{inbound['id']}');"),range(3)))
+        assert claims.count('t')==1 and claims.count('f')==2
+        # Old received mail claimed today counts today; yesterday's claims do not.
+        sql("UPDATE admin_outreach_messages SET ai_claimed_at=clock_timestamp()-interval '1 day' WHERE ai_claimed_at IS NOT NULL;")
+        sql(f"""INSERT INTO admin_outreach_messages(thread_id,direction,status,recipient_email,sender_email,subject,body,processing_state,created_at,ai_claimed_at,provider_message_id,received_at)
+          SELECT '{safe_thread}','inbound','received','support@mahshar.xyz','team@audit-safe.example','Daily','Fixture','received',clock_timestamp()-interval '1 day',clock_timestamp(),gen_random_uuid()::text,clock_timestamp() FROM generate_series(1,24);""")
+        ids=sql(f"""INSERT INTO admin_outreach_messages(thread_id,direction,status,recipient_email,sender_email,subject,body,processing_state,created_at,provider_message_id,received_at)
+          SELECT '{safe_thread}','inbound','received','support@mahshar.xyz','team@audit-safe.example','Daily pending','Fixture','received',clock_timestamp()-interval '1 day',gen_random_uuid()::text,clock_timestamp() FROM generate_series(1,3) RETURNING id;""").splitlines()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            claims=list(pool.map(lambda mid:sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_claim_inbound_ai('{mid}');"),ids))
+        assert claims.count('t')==1 and claims.count('f')==2
+        assert sql("SELECT count(*) FROM admin_outreach_messages WHERE ai_claimed_at>=date_trunc('day',clock_timestamp(),'UTC');")=='25'
+        # The identity gate must work with the deployed eight-argument contract,
+        # old application callers, historical matched replays and direct RPC calls.
+        history = sql("SELECT md5(string_agg(to_jsonb(m)::text,'' ORDER BY id)) FROM admin_outreach_messages m;")
+        thread_history=sql("SELECT md5(string_agg(to_jsonb(t)::text,'' ORDER BY id)) FROM admin_outreach_threads t;")
+        worker_history=sql("SELECT md5(string_agg(to_jsonb(w)::text,'' ORDER BY id)) FROM worker_runs w;")
+        expect_failure('BEGIN;\n'+AUDIT_IDENTITY.read_text()+"\nDO $$ BEGIN RAISE EXCEPTION 'identity_migration_rollback'; END $$; COMMIT;", 'identity_migration_rollback')
+        assert sql("SELECT count(*) FROM information_schema.columns WHERE table_name='admin_outreach_messages' AND column_name='sender_identity_status';")=='0'
+        assert sql("SELECT to_regprocedure('public.mahshar_admin_outreach_ingest_unverified_inbound(text,text,text[],text,text,text,text,timestamptz)');")==''
+        sql('BEGIN;\n'+AUDIT_IDENTITY.read_text()+'\nCOMMIT;')
+        assert sql("SELECT md5(string_agg((to_jsonb(m)-'sender_identity_status')::text,'' ORDER BY id)) FROM admin_outreach_messages m;")==history
+        assert sql("SELECT md5(string_agg(to_jsonb(t)::text,'' ORDER BY id)) FROM admin_outreach_threads t;")==thread_history
+        assert sql("SELECT md5(string_agg(to_jsonb(w)::text,'' ORDER BY id)) FROM worker_runs w;")==worker_history
+        assert sql("SELECT relrowsecurity FROM pg_class WHERE oid='public.admin_outreach_messages'::regclass;")=='t'
+        assert sql("SELECT count(*) FROM pg_policy WHERE polrelid='public.admin_outreach_messages'::regclass;")=='0'
+        for function in ['mahshar_admin_outreach_ingest_inbound(text,text,text[],text,text,text,text,timestamptz)',
+          'mahshar_admin_outreach_ingest_unverified_inbound(text,text,text[],text,text,text,text,timestamptz)',
+          'mahshar_admin_outreach_finalize_inbound(uuid,text,numeric,text,text,text,text)',
+          'mahshar_admin_outreach_claim_inbound_ai(uuid)','mahshar_admin_outreach_approve_reply_draft(uuid,text)',
+          'mahshar_admin_outreach_assert_reply_sendable(uuid)']:
+            for role in ['anon','authenticated']: assert sql(f"SELECT has_function_privilege('{role}','public.{function}','EXECUTE');")=='f'
+            assert sql(f"SELECT has_function_privilege('service_role','public.{function}','EXECUTE');")=='t'
+            assert sql(f"SELECT prosecdef FROM pg_proc WHERE oid='public.{function}'::regprocedure;")=='t'
+            assert sql(f"SELECT proconfig[1] FROM pg_proc WHERE oid='public.{function}'::regprocedure;") in {'search_path=','search_path=""'}
+        assert sql("SELECT has_table_privilege('service_role','admin_outreach_messages','UPDATE');")=='f'
+        replay=json.loads(sql("SET ROLE service_role; SELECT mahshar_admin_outreach_ingest_inbound('audit-authenticated-fixture','audit-real-fixture-id','{}','team@audit-safe.example','support@mahshar.xyz','Re: Audit API','Please unsubscribe',clock_timestamp());"))
+        assert replay['duplicate'] and replay['threadId'] is None and not replay['senderIdentityVerified']
+        assert replay['id']==inbound['id']
+        assert sql(f"SELECT thread_id FROM admin_outreach_messages WHERE id='{inbound['id']}';")==safe_thread
+        # Even an exact sender/recipient/reference match is untrusted without proven authentication.
+        identity_call="SET ROLE service_role; SELECT mahshar_admin_outreach_ingest_unverified_inbound('identity-gate-fixture','audit-real-fixture-id',ARRAY['audit-real-fixture-id'],'team@audit-safe.example','support@mahshar.xyz','Re: Audit API','Please unsubscribe me',clock_timestamp());"
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            identity_events=list(pool.map(lambda _:json.loads(sql(identity_call)),range(3)))
+        assert sum(not e['duplicate'] for e in identity_events)==1
+        assert len({e['id'] for e in identity_events})==1
+        assert all(e['threadId'] is None and not e['senderIdentityVerified'] and e['processingState']=='unmatched' for e in identity_events)
+        gate_id=identity_events[0]['id']
+        assert sql(f"SELECT sender_identity_status||','||processing_state||','||(thread_id IS NULL)::text FROM admin_outreach_messages WHERE id='{gate_id}';")=='unverified,unmatched,true'
+        assert sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_claim_inbound_ai('{inbound['id']}');")=='f'
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_finalize_inbound('{inbound['id']}','do_not_contact',1,'Fixture','classified',NULL,NULL);",'admin_outreach_sender_identity_unverified')
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_approve_reply_draft('{safe_message}','0x{'1'*40}');",'admin_outreach_sender_identity_unverified')
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_assert_reply_sendable('{safe_message}');",'admin_outreach_sender_identity_unverified')
+        expect_failure(f"UPDATE admin_outreach_messages SET sender_identity_status='verified' WHERE id='{gate_id}';")
+        assert sql("SELECT md5(string_agg(to_jsonb(t)::text,'' ORDER BY id)) FROM admin_outreach_threads t;")==thread_history
+        assert sql("SELECT md5(string_agg(to_jsonb(w)::text,'' ORDER BY id)) FROM worker_runs w;")==worker_history
+        # Existing initial invitations still use normal reservation/delivery logic.
+        initial_provider=sql('SELECT gen_random_uuid();'); initial_product=sql('SELECT gen_random_uuid();'); initial_lead=sql('SELECT gen_random_uuid();')
+        sql(f"""INSERT INTO worker_providers(id,canonical_name,canonical_domain) VALUES('{initial_provider}','Initial Compatibility','initial-compat.example');
+          INSERT INTO worker_products(id,provider_id,normalized_product_key,display_name) VALUES('{initial_product}','{initial_provider}','initial-api','Initial API');
+          INSERT INTO worker_leads(id,provider_id,product_id,status,qualification_status,contactability_status,email_ready,preferred_email)
+          VALUES('{initial_lead}','{initial_provider}','{initial_product}','qualified','qualified','verified_email',true,'team@initial-compat.example');
+          INSERT INTO worker_contacts(provider_id,lead_id,contact_type,value,purpose,source_url,source_type,verification_status,preferred,email_ready,discovered_at,verified_at)
+          VALUES('{initial_provider}','{initial_lead}','email','team@initial-compat.example','business','https://initial-compat.example/contact','official_site','verified',true,true,clock_timestamp(),clock_timestamp());""")
+        compatibility_draft=json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_save_draft('{initial_provider}','{initial_lead}','team@initial-compat.example','Initial API','Fixture only.');"))
+        compatibility_message=compatibility_draft['id']
+        sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_approve_draft('{compatibility_message}','0x{'1'*40}');")
+        assert sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_reserve_send('{compatibility_message}');")=='t'
+        assert json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_finish_send('{compatibility_message}','initial-compat-fixture');"))['status']=='sent'
+        # Provider-level initial uniqueness holds across different products/leads.
+        other_product=sql('SELECT gen_random_uuid();'); other_lead=sql('SELECT gen_random_uuid();')
+        sql(f"""INSERT INTO worker_products(id,provider_id,normalized_product_key,display_name) VALUES('{other_product}','{initial_provider}','other-api','Other API');
+          INSERT INTO worker_leads(id,provider_id,product_id,status,qualification_status,contactability_status,email_ready,preferred_email)
+          VALUES('{other_lead}','{initial_provider}','{other_product}','qualified','qualified','verified_email',true,'team@initial-compat.example');
+          UPDATE worker_contacts SET lead_id='{other_lead}' WHERE provider_id='{initial_provider}';""")
+        other_draft=json.loads(sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_save_draft('{initial_provider}','{other_lead}','team@initial-compat.example','Other API','Fixture only.');"))
+        sql(f"SET ROLE service_role; SELECT mahshar_admin_outreach_approve_draft('{other_draft['id']}','0x{'1'*40}');")
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_reserve_send('{other_draft['id']}');",'admin_outreach_provider_already_contacted')
+        assert sql(f"SELECT send_reserved_at IS NULL FROM admin_outreach_messages WHERE id='{other_draft['id']}';")=='t'
+        # A historical reply reservation cannot bypass the sender gate through direct RPC.
+        sql(f"UPDATE admin_outreach_threads SET status='needs_reply' WHERE id='{compatibility_draft['threadId']}';")
+        reply_gate=sql(f"""INSERT INTO admin_outreach_messages(thread_id,direction,status,recipient_email,sender_email,subject,body,
+          reply_to_message_id,approved_at,approved_by) VALUES('{compatibility_draft['threadId']}','outbound','ready_to_send',
+          'team@initial-compat.example','support@mahshar.xyz','Re: Fixture','Fixture only.','{inbound['id']}',clock_timestamp(),'0x{'1'*40}') RETURNING id;""")
+        expect_failure(f"SET ROLE service_role; SELECT mahshar_admin_outreach_reserve_send('{reply_gate}');",'admin_outreach_sender_identity_unverified')
+        assert sql(f"SELECT send_reserved_at IS NULL FROM admin_outreach_messages WHERE id='{reply_gate}';")=='t'
         print('PASS: Worker, Admin Outreach, and Acquisition migrations, privileges, and lifecycle')
     finally:
         if started:

@@ -1,9 +1,10 @@
 import { createServiceClient as baseClient } from '../marketplace/fixtures'
-export const boundary = { actions: 0, unavailable: false, unavailableTable: null as string | null, external: 0 }
+export const boundary = { actions: 0, unavailable: false, unavailableTable: null as string | null, external: 0, workflowStart: null as null | ((...args: unknown[]) => Promise<{ runId: string }>), rpcOverride: null as null | ((name: string, args: Record<string, unknown>) => Promise<any>) }
 export function createServiceClient() {
   const db = baseClient()
   return {
     rpc: async (...args: Parameters<typeof db.rpc>) => {
+      if (boundary.rpcOverride) return boundary.rpcOverride(String(args[0]), args[1] as Record<string, unknown>)
       if (boundary.unavailable) return { data: null, error: { code: '42P01' } }
       return db.rpc(...args)
     },
