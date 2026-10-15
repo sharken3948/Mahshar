@@ -29,6 +29,7 @@ CONTINUOUS = ROOT / 'supabase/migrations/20261014000600_admin_acquisition_contin
 DRAFT_PROVENANCE = ROOT / 'supabase/migrations/20261014000700_admin_acquisition_draft_provenance.sql'
 CONTACT_COVERAGE = ROOT / 'supabase/migrations/20261015000100_admin_worker_contact_coverage.sql'
 NAME_INTEGRITY = ROOT / 'supabase/migrations/20261015000400_admin_invitation_name_integrity.sql'
+DAILY_RUN_LIMIT = ROOT / 'supabase/migrations/20261015000500_admin_worker_daily_run_limit.sql'
 STANDARD_TEMPLATE = ROOT / 'supabase/migrations/20261015000300_admin_acquisition_standard_template.sql'
 DRAFT_ONLY = ROOT / 'supabase/migrations/20261015000200_admin_acquisition_draft_only.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
@@ -99,10 +100,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20261001000100', '20261001000110',
             '20261002000100', '20261004000100', '20261005000100', '20261005000200', '20261005000300',
             '20261007000100', '20261007000200', '20261008000100', '20261008000200',
-            '20261014000100', '20261014000200', '20261014000300', '20261014000400', '20261014000500', '20261014000600', '20261014000700', '20261015000100', '20261015000200', '20261015000300', '20261015000400',
+            '20261014000100', '20261014000200', '20261014000300', '20261014000400', '20261014000500', '20261014000600', '20261014000700', '20261015000100', '20261015000200', '20261015000300', '20261015000400', '20261015000500',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2, ADMIN_OUTREACH_DELIVERY, ADMIN_ACQUISITION, AUDIT_LIFECYCLE, AUDIT_SEND, AUDIT_INBOUND, AUDIT_IDENTITY, CONTINUOUS, DRAFT_PROVENANCE, CONTACT_COVERAGE, DRAFT_ONLY, STANDARD_TEMPLATE, NAME_INTEGRITY):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2, ADMIN_OUTREACH_DELIVERY, ADMIN_ACQUISITION, AUDIT_LIFECYCLE, AUDIT_SEND, AUDIT_INBOUND, AUDIT_IDENTITY, CONTINUOUS, DRAFT_PROVENANCE, CONTACT_COVERAGE, DRAFT_ONLY, STANDARD_TEMPLATE, NAME_INTEGRITY, DAILY_RUN_LIMIT):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -2376,6 +2377,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         exec(compile((ROOT / 'tests/admin-worker/draft-only-postgres.py').read_text(), 'draft-only-postgres.py', 'exec'))
         exec(compile((ROOT / 'tests/admin-worker/template-postgres.py').read_text(), 'template-postgres.py', 'exec'))
         exec(compile((ROOT / 'tests/admin-worker/name-integrity-postgres.py').read_text(), 'name-integrity-postgres.py', 'exec'))
+        try:
+            exec(compile((ROOT / 'tests/admin-worker/daily-run-limit-postgres.py').read_text(), 'daily-run-limit-postgres.py', 'exec'))
+        except subprocess.CalledProcessError as error:
+            raise AssertionError(error.stderr) from error
         print('PASS: Worker, Admin Outreach, Acquisition and Continuous migrations, privileges, history, retries and lifecycle; Groq provenance history, atomicity, replay and content binding')
     finally:
         if started:

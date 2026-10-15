@@ -3,7 +3,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAdminRequest } from '@/components/AdminAccess'
 import { workerControlAvailability } from '@/lib/admin-worker/availability'
-import { verificationLabel, workerCompletionLabel } from '@/lib/admin-worker/presentation'
+import { WORKER_DAILY_RUN_LIMIT } from '@/lib/admin-worker/constants'
+import { verificationLabel, workerCompletionLabel, workerCommandErrorMessage } from '@/lib/admin-worker/presentation'
 import type { WorkerQualifiedLeadDto, WorkerQualifiedLeadsDto, WorkerRunDto, WorkerRunsDto, WorkerStatusDto } from '@/lib/admin-worker/types'
 import { workerLeadContactLabel } from './lead-presentation'
 import { QualificationLabel } from './qualification-label'
@@ -13,6 +14,10 @@ import type { WorkerDashboard } from '@/lib/admin-worker/dashboard-types'
 import styles from './worker.module.css'
 
 const REFRESH_INTERVAL_MS = 12_000
+
+export function WorkerDailyRunQuota({ used }: { used: number }) {
+  return <div><span>Discovery batches today</span><strong>{used} / {WORKER_DAILY_RUN_LIMIT}</strong></div>
+}
 
 function statusLabel(value: string) {
   return value.replace(/_/g, ' ').replace(/^./, letter => letter.toUpperCase())
@@ -158,9 +163,7 @@ export function WorkerClient() {
       const response = await request(`/api/admin/worker/${action}`, { method: 'POST' })
       if (!response.ok) {
         const body = await response.json().catch(() => null) as { error?: string } | null
-        throw new Error(body?.error === 'worker_already_active' ? 'A Worker batch is already active.'
-          : body?.error === 'worker_not_resumable' ? 'No safe resumable checkpoint is available.'
-            : 'The Worker command could not be completed.')
+        throw new Error(workerCommandErrorMessage(body?.error))
       }
       await refresh()
     } catch (error) {
@@ -209,7 +212,7 @@ export function WorkerClient() {
         <div><span>Skipped</span><strong>{status.acquisition.skipped}</strong></div>
         <div><span>Uncertain</span><strong>{status.acquisition.uncertain}</strong></div>
         <div><span>Failed</span><strong>{status.acquisition.failed}</strong></div>
-        <div><span>Discovery batches today</span><strong>{status.acquisition.daily_runs} / 6</strong></div>
+        <WorkerDailyRunQuota used={status.acquisition.daily_runs}/>
         <div><span>Groq calls today</span><strong>{status.acquisition.daily_groq} / 600</strong></div>
         <div><span>Simulated send slots today</span><strong>{status.acquisition.daily_sends} / 25</strong></div>
         <div><span>Simulated dispatches today</span><strong>{status.acquisition.daily_simulated_sent}</strong></div>

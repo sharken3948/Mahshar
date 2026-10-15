@@ -1,4 +1,5 @@
 export const WORKER_CONTROL_ID = 1 as const
+export const WORKER_DAILY_RUN_LIMIT = 20
 export const WORKER_DEFAULT_BATCH_SIZE = 50
 export const WORKER_QUALIFIED_TARGET = 50
 export const WORKER_RAW_CANDIDATE_LIMIT = 300

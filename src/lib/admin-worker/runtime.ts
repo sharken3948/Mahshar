@@ -6,6 +6,7 @@ import { workerControlRepository } from './repository'
 import { acquisitionCanaryEnabled, acquisitionContinuousEnabled, acquisitionModeEnabled, acquisitionState, setAcquisitionState, stopAcquisitionEpoch } from './acquisition-runtime'
 import { WorkerControlError } from './control'
 import { createServiceClient } from '@/lib/supabase/server'
+import { WORKER_DAILY_RUN_LIMIT } from './constants'
 
 async function launchWorkerWorkflow(runId: string): Promise<string> {
   if (!acquisitionModeEnabled()) {
@@ -40,7 +41,7 @@ export async function startWorkerCommand(mode: WorkerStartMode) {
     const count = await createServiceClient().from('worker_runs').select('id', { count: 'exact', head: true })
       .gte('created_at', `${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`)
     if (count.error) throw new WorkerControlError('worker_control_unavailable', 503)
-    if ((count.count ?? 0) >= 6) throw new WorkerControlError('worker_daily_limit', 429)
+    if ((count.count ?? 0) >= WORKER_DAILY_RUN_LIMIT) throw new WorkerControlError('worker_daily_limit', 429)
   }
   try {
     return await startWorkerBatch(mode, workerControlRepository, launchWorkerWorkflow)
