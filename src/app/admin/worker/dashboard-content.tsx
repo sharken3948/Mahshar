@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useAdminRequest } from '@/components/AdminAccess'
-import type { WorkerActivity, WorkerActivityHistory, WorkerDashboard, WorkerProviderDetail, WorkerInvitation } from '@/lib/admin-worker/dashboard-types'
+import type { WorkerActivity, WorkerActivityHistory, WorkerDashboard, WorkerProviderDetail, WorkerInvitation, WorkerContactRoute } from '@/lib/admin-worker/dashboard-types'
+import { contactCoverageLabel } from '@/lib/admin-worker/contact-coverage'
 import type { WorkerStatusDto } from '@/lib/admin-worker/types'
 import { CompactRecords } from './compact-records'
 import styles from './worker.module.css'
@@ -17,6 +18,27 @@ export function dashboardStatus(status: WorkerStatusDto | null): string {
 
 function time(value: string | null) {
   return value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : 'Not recorded'
+}
+
+function contactUrl(value: string): string | null {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && !url.username && !url.password ? url.toString() : null
+  } catch { return null }
+}
+
+export function ContactChannels({ contacts }: { contacts: WorkerContactRoute[] }) {
+  return <section><h3>Saved contact channels</h3><p>Published contact details do not grant permission to send. Forms require manual review; no form is submitted here.</p>
+    {!contacts.length && <p>No saved contact channels on this page.</p>}
+    <CompactRecords records={contacts} label="Saved contact channels">{visible => visible.map(contact => {
+      const url = contactUrl(contact.type === 'email' ? contact.source_url : contact.value)
+      const label = contact.type === 'email' ? 'Verified email' : contact.form_state === 'available'
+        ? 'Official form available' : contact.form_state === 'manual_required' ? 'CAPTCHA / manual review required' : 'Official contact page · form not confirmed'
+      return <article key={contact.id} className={styles.invitation}><h4>{label} · {contact.purpose}</h4>
+        <p>{contact.value}</p>{url && <a href={url} target="_blank" rel="noopener noreferrer">{contact.form_state ? 'Open official form' : 'View official source'}</a>}
+        <p>Verified: {time(contact.verified_at)}</p></article>
+    })}</CompactRecords>
+  </section>
 }
 
 export function DashboardContent({ dashboard, status, page, onPage, unavailable }: {
@@ -101,6 +123,7 @@ export function DashboardContent({ dashboard, status, page, onPage, unavailable 
         <p>{detail.provider.qualification}{detail.provider.reason ? ` · ${detail.provider.reason}` : ''}</p>
         <p>{detail.provider.domain} · {detail.provider.invitation} · {detail.provider.delivery}</p>
         <p>Discovered: {time(detail.provider.discovered_at)} · {detail.provider.contact}</p>
+        <ContactChannels contacts={detail.contacts ?? []}/>
         <h3>Saved activity timeline</h3>
         <CompactRecords records={detail.activity.events} label="Saved provider activity timeline">{events => <ul className={styles.detailTimeline}>{events.map(event => <li key={event.id}><strong>{event.stage ?? 'Saved activity'}</strong><p>{event.label}</p><time dateTime={event.at}>{time(event.at)}</time></li>)}</ul>}</CompactRecords>
         {!detail.activity.events.length && <p>No saved activity available.</p>}
@@ -110,7 +133,7 @@ export function DashboardContent({ dashboard, status, page, onPage, unavailable 
         {!detail.research.length && <p>No saved research results on this page.</p>}
         <CompactRecords records={detail.research} label="Saved provider research results">{research => research.map(result => <article key={result.id} className={styles.invitation}>
           <h3>{result.qualification}</h3><p>{result.summary ?? 'No qualification summary recorded.'}</p><p>Qualified: {time(result.qualified_at)}</p>
-          <p>Contact: {result.contact} · {time(result.contact_researched_at)}{result.email ? ` · ${result.email}` : ''}</p>
+          <p>Contact: {contactCoverageLabel(result.contact_state, result.contact)} · {time(result.contact_researched_at)}{result.email ? ` · ${result.email}` : ''}</p>
           {result.traction && <p>{result.traction}</p>}
           {result.evidence.map(evidence => <div key={evidence.id}><strong>{evidence.role}</strong><p>{evidence.summary ?? 'No evidence summary recorded.'}</p><p>{evidence.url}</p><time dateTime={evidence.checked_at}>{time(evidence.checked_at)}</time></div>)}
         </article>)}</CompactRecords>

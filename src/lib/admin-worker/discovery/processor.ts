@@ -210,7 +210,7 @@ export async function processDiscoveryCandidate(
         scope: 'candidate', scopeId: candidate.id, ...claim,
       })),
     })
-    if (contact.completed) {
+    if (contact.completed || contact.evidence.length || ['contact_research_temporary_failure', 'contact_identity_ambiguous'].includes(contact.failureCode ?? '')) {
       const saved = await deps.saveContactResearch({ runId, providerId: entity.providerId, leadId: entity.leadId, research: contact })
       if (saved === 'blocked') {
         const blocked = outcome('blocked', 'existing_human_state', { ...entity, discovered, duplicate: 1 })
@@ -279,7 +279,8 @@ async function enrichExistingLeads(
         scope: 'enrich', scopeId: leadId, ...claim,
       })),
     })
-    if (!current && research.completed) {
+    if (!current && (research.completed || research.evidence.length
+      || ['contact_research_temporary_failure', 'contact_identity_ambiguous'].includes(research.failureCode ?? ''))) {
       const saved = await deps.saveContactResearch({ runId, providerId: candidate.providerId, leadId: candidate.leadId, research })
       if (saved === 'blocked') continue
     }

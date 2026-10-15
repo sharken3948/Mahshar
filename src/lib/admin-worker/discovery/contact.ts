@@ -11,6 +11,7 @@ import type { ContactClaimDescriptor } from './contact-claim-key'
 import { boundedDiscoveryFetch, type DiscoveryFetcher } from './fetch'
 import { canonicalExternalUrl } from './sanitize'
 import type { BudgetClaimResult, ContactEvidence, ContactResearchResult, ProvenanceFact, RawCandidate } from './types'
+import { contactDocument, contactFormState, decodeContactEntities, publishedEmails } from './contact-evidence'
 
 const NAVIGATION_ROUTE = /(contact|support|sales|business|partner|company|about|pricing|developer)/i
 const CONTACT_INTENT = /\b(?:contact(?:\s+us)?|customer\s+support|developer\s+support|support\s+(?:portal|center|team)|sales\s+(?:team|contact|inquir(?:y|ies))|talk\s+to\s+sales|request\s+(?:a\s+)?demo|partnerships?|partner\s+with\s+us|help\s+(?:center|desk)|business\s+(?:inquir(?:y|ies)|contact|support|development|partnerships?))\b/i
@@ -100,26 +101,42 @@ function preference(item: ContactEvidence): number {
 
 function htmlLinks(body: string, base: string): Array<{ url: string; label: string }> {
   const links: Array<{ url: string; label: string }> = []
-  for (const match of body.matchAll(/<a\b[^>]*?href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-    const raw = match[1]?.trim()
+  for (const match of body.matchAll(/<a\b[^>]*?href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))[^>]*>([\s\S]*?)<\/a>/gi)) {
+    const raw = (match[1] ?? match[2] ?? match[3])?.trim()
     if (!raw) continue
     try {
-      const url = raw.toLowerCase().startsWith('mailto:') ? raw : new URL(raw, base).toString()
-      links.push({ url, label: (match[2] ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() })
+      const decoded = decodeContactEntities(raw)
+      const url = decoded.toLowerCase().startsWith('mailto:') ? decoded : new URL(decoded, base).toString()
+      links.push({ url, label: (match[4] ?? '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() })
     } catch { /* Ignore malformed untrusted links. */ }
   }
-  return links.slice(0, 100)
+  const priority = (link: { url: string; label: string }) => textContactIntent(link.label) ? 0 : /about|company/i.test(link.label) ? 1 : 2
+  return links.sort((a, b) => priority(a) - priority(b)).slice(0, 100)
 }
 
 function verifiedEmail(raw: string, domain: string, officialGithub = false): string | null {
-  const value = raw.replace(/^mailto:/i, '').split('?')[0]?.trim().toLowerCase() ?? ''
+  let value: string
+  try {
+    const decoded = decodeURIComponent(raw.replace(/^mailto:/i, '').split('?')[0] ?? '')
+    if (/[\x00-\x1f\x7f]/.test(decoded)) return null
+    value = decoded.trim().toLowerCase()
+  } catch { return null }
   if (!isVerifiedOutreachEmail(value) || value.includes('..')) return null
   const host = value.split('@')[1] ?? ''
   return officialGithub || host === domain || host.endsWith(`.${domain}`) ? value : null
 }
 
 function selectedEvidence(found: ContactEvidence[]): { evidence: ContactEvidence[]; preferred: ContactEvidence | null; email: ContactEvidence | null } {
-  const unique = [...new Map(found.map(item => [`${item.type}:${item.value}`, item])).values()]
+  const byValue = new Map<string, ContactEvidence>()
+  for (const item of found) {
+    const key = `${item.type}:${item.value}`, existing = byValue.get(key)
+    const best = existing && (NON_OUTREACH.has(existing.purpose)
+      || !NON_OUTREACH.has(item.purpose) && preference(existing) < preference(item)) ? existing : item
+    byValue.set(key, { ...best, preferred: false,
+      formState: existing?.formState === 'manual_required' ? existing.formState : item.formState ?? existing?.formState })
+  }
+  const unique = [...byValue.values()].sort((a, b) => Number(NON_OUTREACH.has(a.purpose)) - Number(NON_OUTREACH.has(b.purpose))
+    || preference(a) - preference(b) || a.value.localeCompare(b.value)).slice(0, 12)
   const outreach = unique.filter(item => !NON_OUTREACH.has(item.purpose))
     .sort((a, b) => preference(a) - preference(b) || a.value.localeCompare(b.value))
   if (outreach[0]) outreach[0].preferred = true
@@ -174,7 +191,9 @@ export async function discoverProviderContacts(input: {
   const asserted = canonicalExternalUrl(input.candidate.discoveredContactUrl)
   if (asserted && trusted(asserted)) roots.add(asserted)
 
-  const queue = [...roots].slice(0, WORKER_CONTACT_PAGE_LIMIT)
+  const rootUrl = `https://${input.normalizedDomain}/`
+  const navigationPriority = (url: string) => url === rootUrl ? -1 : CONTACT_PATH.test(new URL(url).pathname) ? 0 : /about|company/i.test(url) ? 1 : 2
+  const queue = [...roots].sort((a, b) => navigationPriority(a) - navigationPriority(b)).slice(0, WORKER_CONTACT_PAGE_LIMIT)
   const githubOwners = new Set<string>()
   const visited = new Set<string>()
   const found: ContactEvidence[] = []
@@ -185,13 +204,17 @@ export async function discoverProviderContacts(input: {
   const collect = (body: string, finalUrl: string, kind: ContactEvidence['sourceType'], officialGithub: boolean,
     allowQueue: boolean): string[] => {
     const githubCandidates: string[] = []
-    if (!officialGithub && !isSocialUrl(finalUrl) && pageContactIntent(body, finalUrl)) {
+    const formState = officialGithub ? undefined : contactFormState(body)
+    const emails = publishedEmails(body)
+    body = contactDocument(body)
+    if (!officialGithub && !isSocialUrl(finalUrl) && (formState || pageContactIntent(body, finalUrl))) {
       const contactPurpose = purpose(finalUrl)
       found.push({ type: contactPurpose === 'sales' ? 'sales_channel' : 'official_contact', value: finalUrl,
         purpose: contactPurpose, sourceUrl: finalUrl, sourceType: kind, verificationStatus: 'verified', preferred: false,
-        emailReady: false, discoveredAt: now, verifiedAt: now })
+        emailReady: false, discoveredAt: now, verifiedAt: now, formState })
     }
-    for (const link of htmlLinks(body, finalUrl)) {
+    for (const link of htmlLinks(body, finalUrl).sort((a, b) =>
+      Number(!textContactIntent(a.label)) - Number(!textContactIntent(b.label)))) {
       if (link.url.toLowerCase().startsWith('mailto:')) {
         const email = verifiedEmail(link.url, input.normalizedDomain, officialGithub)
         const emailPurpose = email ? purpose(`${email} ${link.label}`) : null
@@ -217,12 +240,13 @@ export async function discoverProviderContacts(input: {
           emailReady: false, discoveredAt: now, verifiedAt: now })
       }
       if (!officialGithub && !GITHUB.test(host) && allowQueue && owned
+        && !visited.has(canonical) && !queue.includes(canonical)
         && NAVIGATION_ROUTE.test(`${link.label} ${canonical}`) && queue.length + visited.size < WORKER_CONTACT_PAGE_LIMIT) {
         if (CONTACT_PATH.test(new URL(canonical).pathname) || textContactIntent(link.label)) queue.unshift(canonical)
         else queue.push(canonical)
       }
     }
-    for (const raw of body.match(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? []) {
+    for (const raw of emails) {
       const email = verifiedEmail(raw, input.normalizedDomain, officialGithub)
       const emailPurpose = email ? purpose(email) : null
       if (email && emailPurpose) found.push({ type: 'email', value: email, purpose: emailPurpose, sourceUrl: finalUrl,
@@ -236,9 +260,9 @@ export async function discoverProviderContacts(input: {
     const url = queue.shift()!
     if (visited.has(url)) continue
     const claim = await input.claimContactBudget({ operation: 'page', value: url })
-    if (claim === 'replayed') return retryable('contact_claim_replayed')
-    if (claim === 'deadline_reached') return retryable('run_budget_exhausted')
-    if (claim === 'exhausted') return retryable('contact_budget_exhausted')
+    if (claim === 'replayed') return retryable('contact_claim_replayed', found)
+    if (claim === 'deadline_reached') return retryable('run_budget_exhausted', found)
+    if (claim === 'exhausted') return retryable('contact_budget_exhausted', found)
     visited.add(url)
     try {
       const response = await fetcher(url, { maxBytes: 192 * 1024, accept: 'text/html,text/plain' })
@@ -255,20 +279,24 @@ export async function discoverProviderContacts(input: {
       }
       successfulOfficialFetch ||= official
       const candidates = collect(response.body, finalUrl, linkedGithub ? 'official_github' : sourceType(finalUrl), linkedGithub, true)
-      for (const candidate of candidates) if (queue.length + visited.size < WORKER_CONTACT_PAGE_LIMIT) queue.push(candidate)
+      for (const candidate of candidates) if (!visited.has(candidate) && !queue.includes(candidate)
+        && queue.length + visited.size < WORKER_CONTACT_PAGE_LIMIT) queue.push(candidate)
     } catch { temporaryFailure = true }
   }
 
   const direct = successfulResult(found)
-  if (direct) return direct
+  if (direct?.emailReady) return direct
 
   const verificationQueue: string[] = []
-  const seenSearchResults = new Set<string>()
+  const seenSearchResults = new Set<string>(visited)
+  const verifiedUrls = new Set<string>(visited)
   let searchCompleted = true
   let verifiedResults = 0
   const verifySearchResults = async (): Promise<ContactResearchResult | null> => {
     while (verificationQueue.length && verifiedResults < WORKER_CONTACT_SEARCH_VERIFICATION_LIMIT) {
       const url = verificationQueue.shift()!
+      if (verifiedUrls.has(url)) continue
+      verifiedUrls.add(url)
       const claim = await input.claimContactBudget({ operation: 'verify', value: url })
       if (claim === 'replayed') return retryable('contact_claim_replayed', found)
       if (claim === 'deadline_reached') return retryable('run_budget_exhausted', found)
@@ -306,7 +334,8 @@ export async function discoverProviderContacts(input: {
         }
       } catch { temporaryFailure = true }
     }
-    return successfulResult(found)
+    const result = successfulResult(found)
+    return result?.emailReady ? result : null
   }
   const queries = contactSearchQueries(input.candidate.discoveredName, input.normalizedDomain)
   for (let index = 0; index < queries.length; index += 1) {
@@ -315,7 +344,7 @@ export async function discoverProviderContacts(input: {
     if (claim === 'deadline_reached') return retryable('run_budget_exhausted', found)
     if (claim === 'exhausted') return retryable('contact_budget_exhausted', found)
     try {
-      for (const result of await searchAdapter.search(queries[index]!, WORKER_CONTACT_SEARCH_RESULT_LIMIT)) {
+      for (const result of (await searchAdapter.search(queries[index]!, WORKER_CONTACT_SEARCH_RESULT_LIMIT)).slice(0, WORKER_CONTACT_SEARCH_RESULT_LIMIT)) {
         const url = canonicalExternalUrl(result.url)
         if (!url || seenSearchResults.has(url)) continue
         seenSearchResults.add(url)
@@ -329,6 +358,9 @@ export async function discoverProviderContacts(input: {
 
   const searched = await verifySearchResults()
   if (searched) return searched
+  const channel = successfulResult(found)
+  if (channel) return { ...channel, completed: searchCompleted && !temporaryFailure && !identityAmbiguity,
+    failureCode: !searchCompleted || temporaryFailure || identityAmbiguity ? 'contact_research_temporary_failure' : null }
   const evidence = selectedEvidence(found).evidence
   if (!searchCompleted || temporaryFailure || identityAmbiguity || !successfulOfficialFetch) {
     return retryable(identityAmbiguity ? 'contact_identity_ambiguous' : 'contact_research_temporary_failure', evidence)

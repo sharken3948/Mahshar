@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { test } from 'node:test'
-import { discoverProviderContacts } from './contact'
+import { discoverProviderContacts as researchContacts } from './contact'
 import {
   buildContactClaimKey, canonicalContactClaimValue, contactClaimKeySegment, CONTACT_CLAIM_FINGERPRINT_LENGTH,
   type ContactClaimDescriptor, type ContactClaimOperation,
@@ -26,6 +26,8 @@ function fixture(pages: Record<string, string | Error>): DiscoveryFetcher {
 const claim = async () => 'claimed' as const
 const now = () => '2026-10-05T12:00:00.000Z'
 const noSearch: ContactSearchAdapter = { search: async () => [] }
+const discoverProviderContacts = (input: Parameters<typeof researchContacts>[0]) =>
+  researchContacts({ ...input, searchAdapter: input.searchAdapter ?? noSearch })
 
 const CLAIM_KEY_PATTERN = /^[a-z0-9:_-]{1,120}$/
 const CANDIDATE_ID = '131f8b3d-82e0-4f6f-b137-3f53e6f7c950'
@@ -140,7 +142,7 @@ test('OpenCage-style source without contact discovers an official Contact route'
   assert.equal(result.status, 'official_contact_page')
   assert.equal(result.preferredContactUrl, 'https://opencage.example/contact')
   assert.equal(result.emailReady, false)
-  assert.equal(searchCalls, 0)
+  assert.equal(searchCalls, 6)
 })
 
 test('official mailto and visible email are verified, deduplicated, and ordered for outreach', async () => {

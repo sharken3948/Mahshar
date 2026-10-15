@@ -2,11 +2,12 @@ import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
 import { activityTimestamp, getWorkerActivity } from './activity-repository'
 import type { WorkerDashboard, WorkerInvitation, WorkerProviderActivity, WorkerProviderDetail } from './dashboard-types'
+import { contactCoverageLabel } from './contact-coverage'
 
 type Row = Record<string, unknown>
 type Result = { data: unknown; error: unknown; count?: number | null }
 const PAGE_SIZE = 25
-const PROVIDER_SELECT = 'id,canonical_name,canonical_domain,status,created_at,updated_at,worker_leads(id,qualification_status,fit_reason,contactability_status,email_ready,updated_at)'
+const PROVIDER_SELECT = 'id,canonical_name,canonical_domain,status,created_at,updated_at,worker_leads(id,qualification_status,fit_reason,contactability_status,contact_research_state,email_ready,updated_at)'
 const ATTEMPT_SELECT = 'id,provider_id,status,reason_code,recipient_email,subject,body,draft_generator,draft_prepared_at,reserved_at,dispatched_at,created_at,updated_at'
 const MESSAGE_SELECT = 'id,status,recipient_email,subject,body,provider_message_id,send_reserved_at,send_uncertain_at,sent_at,created_at,updated_at,admin_outreach_delivery_events(event_type,provider_occurred_at)'
 const MESSAGE_SUMMARY_SELECT = 'id,status,provider_message_id,send_reserved_at,send_uncertain_at,sent_at,created_at,updated_at,admin_outreach_delivery_events(event_type,provider_occurred_at)'
@@ -85,6 +86,8 @@ export function providerActivity(provider: Row, attempt?: Row, messages: Row[] =
     has_invitation: !!message || !!draft,
     discovered_at: string(provider.created_at), latest_activity_at: string(provider.updated_at),
     contact: leads.some(lead => lead.email_ready === true) ? 'Email ready'
+      : leads.some(lead => lead.contact_research_state === 'manual_required') ? contactCoverageLabel('manual_required')
+      : leads.some(lead => lead.contact_research_state === 'form_available') ? contactCoverageLabel('form_available')
       : leads.some(lead => ['verified_email', 'verified_official_contact', 'official_contact_page', 'official_sales_channel'].includes(String(lead.contactability_status))) ? 'Official contact available'
         : leads.some(lead => ['none_found', 'contact_unavailable'].includes(String(lead.contactability_status))) ? 'Contact unavailable' : 'Not confirmed',
   }
@@ -177,12 +180,15 @@ export async function getWorkerProviderDetail(id: string, page = 0, db = createS
   if (providerResult.error) throw new Error('worker_dashboard_unavailable')
   if (!providerResult.data) return null
   const provider = providerResult.data as unknown as Row
-  const [attemptResult, threadResult, researchResult, activity] = await Promise.all([
+  const [attemptResult, threadResult, researchResult, activity, contactsResult] = await Promise.all([
     db.from('admin_acquisition_attempts').select(ATTEMPT_SELECT).eq('provider_id', id),
     db.from('admin_outreach_threads').select('id').eq('provider_id', id),
-    db.from('worker_leads').select('id,qualification_status,fit_reason,qualified_at,contactability_status,contact_researched_at,preferred_email,traction_summary,worker_sources(id,source_role,url,factual_summary,checked_at)')
+    db.from('worker_leads').select('id,qualification_status,fit_reason,qualified_at,contactability_status,contact_research_state,contact_checked_at,contact_researched_at,preferred_contact_url,preferred_email,traction_summary,worker_sources(id,source_role,url,factual_summary,checked_at)')
       .eq('provider_id', id).order('updated_at', { ascending: false }).order('id').range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
     getWorkerActivity(null, 25, db, id),
+    db.from('worker_contacts').select('id,contact_type,value,purpose,source_url,form_state,verified_at')
+      .eq('provider_id', id).eq('verification_status', 'verified').order('verified_at', { ascending: false }).order('id')
+      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
   ])
   const attempt = checked(attemptResult)[0]
   const threadIds = checked(threadResult).map(thread => String(thread.id))
@@ -192,12 +198,18 @@ export async function getWorkerProviderDetail(id: string, page = 0, db = createS
   const messages = checked(result)
   const acquisition = attempt ? acquisitionInvitation(attempt) : null
   const research = checked(researchResult)
+  const contacts = checked(contactsResult)
   return { provider: providerActivity(provider, attempt, messages), invitations: [
     ...(page === 0 && acquisition ? [acquisition] : []), ...messages.slice(0, PAGE_SIZE).map(outreachInvitation),
-  ], page, has_more: messages.length > PAGE_SIZE || research.length > PAGE_SIZE, activity,
+  ], page, has_more: messages.length > PAGE_SIZE || research.length > PAGE_SIZE || contacts.length > PAGE_SIZE, activity,
+    contacts: contacts.slice(0, PAGE_SIZE).map(row => ({ id: String(row.id), type: String(row.contact_type),
+      value: String(row.value), purpose: label(row.purpose), source_url: String(row.source_url),
+      form_state: row.form_state === 'available' || row.form_state === 'manual_required' ? row.form_state : null,
+      verified_at: String(row.verified_at) })),
     research: research.slice(0, PAGE_SIZE).map(row => ({ id: String(row.id), qualification: label(row.qualification_status),
       summary: string(row.fit_reason), qualified_at: string(row.qualified_at), contact: label(row.contactability_status),
-      contact_researched_at: string(row.contact_researched_at), email: string(row.preferred_email), traction: string(row.traction_summary),
+      contact_state: string(row.contact_research_state), contact_url: string(row.preferred_contact_url),
+      contact_researched_at: string(row.contact_checked_at) ?? string(row.contact_researched_at), email: string(row.preferred_email), traction: string(row.traction_summary),
       evidence: rows(row.worker_sources).map(source => ({ id: String(source.id), role: label(source.source_role),
         url: String(source.url), summary: string(source.factual_summary), checked_at: String(source.checked_at) })),
     })) }

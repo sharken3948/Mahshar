@@ -2,11 +2,25 @@ import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { test } from 'node:test'
-import { DashboardContent, InvitationRecord, LiveActivity, confirmedActivityLabel, dashboardStatus } from '../../src/app/admin/worker/dashboard-content'
+import { ContactChannels, DashboardContent, InvitationRecord, LiveActivity, confirmedActivityLabel, dashboardStatus } from '../../src/app/admin/worker/dashboard-content'
 import { WorkerClient } from '../../src/app/admin/worker/worker-client'
 import type { WorkerDashboard } from '../../src/lib/admin-worker/dashboard-types'
 import type { WorkerStatusDto } from '../../src/lib/admin-worker/types'
 import type { WorkerActivity } from '../../src/lib/admin-worker/dashboard-types'
+
+test('saved forms show manual status, safe read-only links and escaped complete text', () => {
+  const html = renderToStaticMarkup(createElement(ContactChannels, { contacts: [
+    { id: 'form', type: 'official_contact', value: 'https://fixture.example/contact', purpose: '<Sales>',
+      source_url: 'https://fixture.example/', form_state: 'manual_required', verified_at: '2026-10-15' },
+    { id: 'bad', type: 'official_contact', value: 'javascript:alert(1)', purpose: 'Contact',
+      source_url: 'https://fixture.example/', form_state: null, verified_at: '2026-10-15' },
+  ] }))
+  assert.match(html, /CAPTCHA \/ manual review required/)
+  assert.match(html, /href="https:\/\/fixture.example\/contact"/)
+  assert.match(html, /&lt;Sales&gt;/)
+  assert.match(html, /do not grant permission to send/)
+  assert.doesNotMatch(html, /href="javascript:|<form|type="submit"/)
+})
 import { CompactRecords } from '../../src/app/admin/worker/compact-records'
 
 test('dashboard renders accurate counters, simulations and actionable provider rows without performing requests', () => {

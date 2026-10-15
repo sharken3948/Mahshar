@@ -53,15 +53,28 @@ export type WorkerProviderDetail = {
   page: number
   has_more: boolean
   activity: WorkerActivityHistory
+  contacts?: WorkerContactRoute[]
   research: {
     id: string
     qualification: string
     summary: string | null
     qualified_at: string | null
     contact: string
+    contact_state?: string | null
+    contact_url?: string | null
     contact_researched_at: string | null
     email: string | null
     traction: string | null
     evidence: { id: string; role: string; url: string; summary: string | null; checked_at: string }[]
   }[]
+}
+
+export type WorkerContactRoute = {
+  id: string
+  type: string
+  value: string
+  purpose: string
+  source_url: string
+  form_state: 'available' | 'manual_required' | null
+  verified_at: string
 }

@@ -1,0 +1,30 @@
+[
+  {
+    "domain": "quickchart.io",
+    "source_url": "https://quickchart.io/contact/",
+    "observed_at": "2026-10-15",
+    "expected_email": "sales@quickchart.io",
+    "html": "<p><strong>Direct support: <a href=\"/cdn-cgi/l/email-protection#6f1c1a1f1f001d1b2f1e1a060c040c070e1d1b410600\"><span class=\"__cf_email__\" data-cfemail=\"27545257574855536756524e444c444f465553094e48\">[email&#160;protected]</span></a></strong></p>\n<p>Sales: <a href=\"/cdn-cgi/l/email-protection#dfacbeb3baac9faeaab6bcb4bcb7beadabf1b6b0\"><span class=\"__cf_email__\" data-cfemail=\"d0a3b1bcb5a390a1a5b9b3bbb3b8b1a2a4feb9bf\">[email&#160;protected]</span></a></p>"
+  },
+  {
+    "domain": "opencagedata.com",
+    "source_url": "https://opencagedata.com/about",
+    "observed_at": "2026-10-15",
+    "expected_email": "support@opencagedata.com",
+    "html": "<tr>\n<td>\n<strong>Email</strong>\n</td>\n<td>\nsupport @ opencagedata.com\n<br>\nor use our\n<a href=\"/contact\">contact form</a>\n</td>\n</tr>"
+  },
+  {
+    "domain": "shotstack.io",
+    "source_url": "https://shotstack.io/contact/",
+    "observed_at": "2026-10-15",
+    "expected_email": "sales@shotstack.io",
+    "html": "<a href=mailto:sales@shotstack.io class=try-now-btn id=copy-email title=\"Click to copy\"><span aria-live=polite id=copy-email-label>sales@shotstack.io</span></a>"
+  },
+  {
+    "domain": "selectpdf.com",
+    "source_url": "https://selectpdf.com/contact/",
+    "observed_at": "2026-10-15",
+    "expected_email": "sales@selectpdf.com",
+    "html": "<a href=\"mailto:sales@selectpdf.com\">sales@selectpdf.com</a>"
+  }
+]

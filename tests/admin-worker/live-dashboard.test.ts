@@ -66,6 +66,24 @@ function database(tables: Record<string, Row[]>) {
   return { client, queries }
 }
 
+test('provider View returns only provider-scoped verified contact routes through bounded GETs', async () => {
+  const provider = api(1)
+  const { client, queries } = database({ worker_providers: [provider], worker_contacts: [
+    { id: uuid(2), provider_id: provider.id, verification_status: 'verified', contact_type: 'official_contact',
+      value: 'https://p1.example/contact', source_url: 'https://p1.example/contact', purpose: 'sales',
+      form_state: 'manual_required', verified_at: at, worker_providers: provider },
+    { id: uuid(3), provider_id: uuid(9), verification_status: 'verified', value: 'https://other.example/contact' },
+    { id: uuid(4), provider_id: provider.id, verification_status: 'unverified', value: 'https://unverified.example/' },
+  ] })
+  const detail = await getWorkerProviderDetail(provider.id, 0, client)
+  assert.equal(detail?.contacts?.length, 1)
+  assert.equal(detail?.contacts?.[0].form_state, 'manual_required')
+  assert.equal(detail?.contacts?.[0].value, 'https://p1.example/contact')
+  const read = queries.find(url => url.pathname.endsWith('/worker_contacts') && url.searchParams.has('provider_id'))
+  assert.equal(read?.searchParams.get('limit'), '26')
+  assert.equal(read?.searchParams.get('verification_status'), 'eq.verified')
+})
+
 test('activity cursor validation prevents filter injection and preserves timestamp precision', () => {
   assert.equal(parseActivityCursor(new URL('https://fixture/')), null)
   for (const query of ['before=x', 'id=x', 'before=2026-10-15&id=found:x', `before=${encodeURIComponent(at)}&id=found:${uuid(1)},or(id.gt.0)`]) {

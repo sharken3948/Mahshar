@@ -77,6 +77,7 @@ export type ContactEvidence = {
   emailReady: boolean
   discoveredAt: string
   verifiedAt: string
+  formState?: 'available' | 'manual_required'
 }
 
 export type ContactResearchResult = {

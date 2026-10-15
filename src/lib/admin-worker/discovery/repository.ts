@@ -1,5 +1,6 @@
 import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
+import { contactResearchDue } from '../contact-coverage'
 import { canonicalExternalUrl, durableExternalName, durableExternalSummary } from './sanitize'
 import type { BudgetClaimResult, CandidateOutcome, ContactResearchResult, DurableCandidate, ProvenanceFact, RawCandidate, WorkerQualification, WorkerTraction } from './types'
 
@@ -80,14 +81,14 @@ export async function claimDiscoveryBudget(runId: string, budget: 'source' | 're
 
 export async function getSavedContactResearch(leadId: string): Promise<ContactResearchResult | null> {
   const db = createServiceClient()
-  const leadResult = await db.from('worker_leads').select('provider_id,contactability_status,email_ready,preferred_email,preferred_contact_url,contact_researched_at')
+  const leadResult = await db.from('worker_leads').select('provider_id,contactability_status,email_ready,preferred_email,preferred_contact_url,contact_researched_at,contact_checked_at,contact_research_state,commercial_api')
     .eq('id', leadId).single() as DbResult
   if (leadResult.error) fail('worker_contact_lead_lookup', leadResult.error)
   const lead = row(leadResult.data)
-  if (!lead || typeof lead.contact_researched_at !== 'string') return null
+  if (!lead || contactResearchDue(lead)) return null
   if (typeof lead.provider_id !== 'string') throw new Error('worker_contact_lead_invalid')
   const contactsResult = await db.from('worker_contacts')
-    .select('contact_type,value,purpose,source_url,source_type,verification_status,preferred,email_ready,discovered_at,verified_at')
+    .select('contact_type,value,purpose,source_url,source_type,verification_status,preferred,email_ready,discovered_at,verified_at,form_state')
     .eq('provider_id', lead.provider_id).order('preferred', { ascending: false }).order('verified_at', { ascending: false }).limit(12) as DbResult
   if (contactsResult.error) fail('worker_contact_evidence_lookup', contactsResult.error)
   const evidence = Array.isArray(contactsResult.data) ? contactsResult.data.flatMap(value => {
@@ -100,6 +101,7 @@ export async function getSavedContactResearch(leadId: string): Promise<ContactRe
       sourceType: item.source_type as ContactResearchResult['evidence'][number]['sourceType'], verificationStatus: 'verified' as const,
       preferred: item.preferred === true, emailReady: item.email_ready === true,
       discoveredAt: item.discovered_at, verifiedAt: item.verified_at,
+      formState: item.form_state === 'available' ? 'available' as const : item.form_state === 'manual_required' ? 'manual_required' as const : undefined,
     }]
   }) : []
   return {
