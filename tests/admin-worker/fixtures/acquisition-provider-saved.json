@@ -1,0 +1,37 @@
+{
+  "provenance": "Contact, identity and directory summaries from the scoped Production GET investigation on 2026-10-15. Short official documentation excerpts checked separately on 2026-10-15; these are offline fixtures, not Production backfills.",
+  "providers": [
+    {
+      "domain": "image-charts.com", "product": "Image-Charts", "email": "support@image-charts.com", "purpose": "support",
+      "contactSource": "https://www.image-charts.com/pricing.html", "identityUrl": "https://www.image-charts.com/",
+      "skip": "recipient_ineligible", "skipAt": "2026-10-15T11:26:52.048180Z",
+      "contractUrl": "https://api.apis.guru/v2/specs/image-charts.com/6.1.19/swagger.json",
+      "contractSummary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 2 path(s) and supported methods GET. Charts, simple as a URL.",
+      "officialPage": { "url": "https://documentation.image-charts.com/", "body": "<h1>Image-Charts API</h1><p>GET or POST request.</p><code>https://image-charts.com/chart?cht=p3</code>" }
+    },
+    {
+      "domain": "ideaconsult.net", "product": "eNanoMapper database", "email": "info@ideaconsult.net", "purpose": "general",
+      "contactSource": "https://ideaconsult.net/contact-us/", "identityUrl": "https://ideaconsult.net/",
+      "skip": "recipient_ineligible", "skipAt": "2026-10-15T11:26:22.775226Z",
+      "contractUrl": "https://api.apis.guru/v2/specs/ideaconsult.net/enanomapper/4.0.0/openapi.json",
+      "contractSummary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 12 path(s) and supported methods GET, POST. AMBIT REST web services [eNanoMapper profile] with free text & faceted search",
+      "officialPage": { "url": "https://www.ideaconsult.net/products/", "body": "<p>AMBIT REST Webservices provide an OpenTox API compliant REST web service interface.</p>" }
+    },
+    {
+      "domain": "ibanapi.com", "product": "IBANAPI OpenApi Documentation", "email": "hello@ibanapi.com", "purpose": "api",
+      "contactSource": "https://ibanapi.com/prices", "identityUrl": "https://ibanapi.com/",
+      "skip": "recipient_ineligible", "skipAt": "2026-10-15T11:26:09.754299Z",
+      "contractUrl": "https://api.apis.guru/v2/specs/ibanapi.com/1.0.0/openapi.json",
+      "contractSummary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 3 path(s) and supported methods GET. IBANAPI OpenApi documentation",
+      "officialPage": { "url": "https://ibanapi.com/get-api", "body": "<h1>IBAN API documentation</h1><code>GET / POST/validate/{IBAN}</code><code>https://api.ibanapi.com/v1/validate/EE471000001020145685?api_key=API_KEY</code>" }
+    },
+    {
+      "domain": "deeparteffects.com", "product": "Deep Art Effects", "email": "info@deeparteffects.com", "purpose": "general",
+      "contactSource": "https://www.deeparteffects.com/page/about", "identityUrl": "https://www.deeparteffects.com/",
+      "skip": "no_email", "skipAt": "2026-10-15T09:13:12.785698Z",
+      "contractUrl": "https://api.apis.guru/v2/specs/deeparteffects.com/2017-02-10T162446Z/swagger.json",
+      "contractSummary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 3 path(s) and supported methods GET, POST.",
+      "officialPage": { "url": "https://developer.deeparteffects.com/page/guide", "body": "<h1>Getting started using the Web API</h1><p>Request URL:</p><code>[GET] https://api.deeparteffects.com/v1/noauth/styles</code>" }
+    }
+  ]
+}

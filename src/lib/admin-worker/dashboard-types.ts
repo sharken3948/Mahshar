@@ -19,6 +19,7 @@ export type WorkerProviderActivity = {
   domain: string
   qualification: string
   reason: string | null
+  historical_skip?: { reason: string; at: string } | null
   invitation: string
   delivery: string
   has_invitation: boolean
@@ -54,6 +55,7 @@ export type WorkerProviderDetail = {
   has_more: boolean
   activity: WorkerActivityHistory
   contacts?: WorkerContactRoute[]
+  acquisition_history?: { id: string; reason: string; at: string }[]
   research: {
     id: string
     qualification: string

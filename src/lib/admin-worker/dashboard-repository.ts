@@ -9,6 +9,7 @@ type Result = { data: unknown; error: unknown; count?: number | null }
 const PAGE_SIZE = 25
 const PROVIDER_SELECT = 'id,canonical_name,canonical_domain,status,created_at,updated_at,worker_leads(id,qualification_status,fit_reason,contactability_status,contact_research_state,email_ready,updated_at)'
 const ATTEMPT_SELECT = 'id,provider_id,status,reason_code,recipient_email,subject,body,draft_generator,draft_prepared_at,reserved_at,dispatched_at,created_at,updated_at'
+const HISTORY_SELECT = 'id,reason_code,updated_at'
 const MESSAGE_SELECT = 'id,status,recipient_email,subject,body,provider_message_id,send_reserved_at,send_uncertain_at,sent_at,created_at,updated_at,admin_outreach_delivery_events(event_type,provider_occurred_at)'
 const MESSAGE_SUMMARY_SELECT = 'id,status,provider_message_id,send_reserved_at,send_uncertain_at,sent_at,created_at,updated_at,admin_outreach_delivery_events(event_type,provider_occurred_at)'
 
@@ -76,11 +77,14 @@ export function providerActivity(provider: Row, attempt?: Row, messages: Row[] =
   const rejected = leads.length > 0 && leads.every(lead => lead.qualification_status === 'rejected')
   const message = messages.find(realAccepted) ?? messages[0]
   const draft = attempt ? acquisitionInvitation(attempt) : null
+  const historical = attempt?.status === 'skipped' && attempt.reason_code ? attempt
+    : rows(attempt?.admin_acquisition_attempt_history)[0]
   return {
     id: String(provider.id), name: String(provider.canonical_name), domain: String(provider.canonical_domain),
     qualification: qualified ? 'Qualified' : review ? 'Review required' : rejected ? 'Rejected' : 'Pending',
     reason: provider.status === 'do_not_contact' ? 'Do Not Contact' : provider.status === 'rejected' ? 'Provider rejected'
-      : attempt?.reason_code ? label(attempt.reason_code) : rejected ? string(leads[0]?.fit_reason) : null,
+      : rejected ? string(leads[0]?.fit_reason) : null,
+    historical_skip: historical ? { reason: label(historical.reason_code), at: String(historical.updated_at) } : null,
     invitation: message ? invitationStatus(message) : draft ? draft.status === 'Simulated' ? 'Prepared · simulated' : 'Prepared' : '—',
     delivery: message ? delivery(message) : draft ? draft.delivery : '—',
     has_invitation: !!message || !!draft,
@@ -152,7 +156,8 @@ export async function getWorkerDashboard(page = 0, db = createServiceClient()): 
   const ids = latest.map(item => item.id)
   const providers = ids.length ? checked(await db.from('worker_providers').select(PROVIDER_SELECT).in('id', ids)) : []
   const [attemptResult, threadResult] = ids.length ? await Promise.all([
-    db.from('admin_acquisition_attempts').select(ATTEMPT_SELECT.replace(',recipient_email,subject,body', ',subject,body')).in('provider_id', ids),
+    db.from('admin_acquisition_attempts').select(`${ATTEMPT_SELECT.replace(',recipient_email,subject,body', ',subject,body')},admin_acquisition_attempt_history(${HISTORY_SELECT})`).in('provider_id', ids)
+      .order('updated_at', { referencedTable: 'admin_acquisition_attempt_history', ascending: false }).limit(1, { referencedTable: 'admin_acquisition_attempt_history' }),
     db.from('admin_outreach_threads').select(`provider_id,admin_outreach_messages(${MESSAGE_SUMMARY_SELECT})`).in('provider_id', ids)
       .eq('admin_outreach_messages.direction', 'outbound').is('admin_outreach_messages.reply_to_message_id', null)
       .order('created_at', { referencedTable: 'admin_outreach_messages', ascending: false }).limit(1, { referencedTable: 'admin_outreach_messages' }),
@@ -180,8 +185,9 @@ export async function getWorkerProviderDetail(id: string, page = 0, db = createS
   if (providerResult.error) throw new Error('worker_dashboard_unavailable')
   if (!providerResult.data) return null
   const provider = providerResult.data as unknown as Row
-  const [attemptResult, threadResult, researchResult, activity, contactsResult] = await Promise.all([
-    db.from('admin_acquisition_attempts').select(ATTEMPT_SELECT).eq('provider_id', id),
+  const [attemptResult, threadResult, researchResult, activity, contactsResult, historyResult] = await Promise.all([
+    db.from('admin_acquisition_attempts').select(`${ATTEMPT_SELECT},admin_acquisition_attempt_history(${HISTORY_SELECT})`).eq('provider_id', id)
+      .order('updated_at', { referencedTable: 'admin_acquisition_attempt_history', ascending: false }).limit(1, { referencedTable: 'admin_acquisition_attempt_history' }),
     db.from('admin_outreach_threads').select('id').eq('provider_id', id),
     db.from('worker_leads').select('id,qualification_status,fit_reason,qualified_at,contactability_status,contact_research_state,contact_checked_at,contact_researched_at,preferred_contact_url,preferred_email,traction_summary,worker_sources(id,source_role,url,factual_summary,checked_at)')
       .eq('provider_id', id).order('updated_at', { ascending: false }).order('id').range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
@@ -189,6 +195,8 @@ export async function getWorkerProviderDetail(id: string, page = 0, db = createS
     db.from('worker_contacts').select('id,contact_type,value,purpose,source_url,form_state,verified_at')
       .eq('provider_id', id).eq('verification_status', 'verified').order('verified_at', { ascending: false }).order('id')
       .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    db.from('admin_acquisition_attempt_history').select(HISTORY_SELECT).eq('provider_id', id)
+      .order('updated_at', { ascending: false }).order('id').range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
   ])
   const attempt = checked(attemptResult)[0]
   const threadIds = checked(threadResult).map(thread => String(thread.id))
@@ -199,9 +207,11 @@ export async function getWorkerProviderDetail(id: string, page = 0, db = createS
   const acquisition = attempt ? acquisitionInvitation(attempt) : null
   const research = checked(researchResult)
   const contacts = checked(contactsResult)
+  const history = checked(historyResult)
   return { provider: providerActivity(provider, attempt, messages), invitations: [
     ...(page === 0 && acquisition ? [acquisition] : []), ...messages.slice(0, PAGE_SIZE).map(outreachInvitation),
-  ], page, has_more: messages.length > PAGE_SIZE || research.length > PAGE_SIZE || contacts.length > PAGE_SIZE, activity,
+  ], page, has_more: messages.length > PAGE_SIZE || research.length > PAGE_SIZE || contacts.length > PAGE_SIZE || history.length > PAGE_SIZE, activity,
+    acquisition_history: history.slice(0, PAGE_SIZE).map(row => ({ id: String(row.id), reason: label(row.reason_code), at: String(row.updated_at) })),
     contacts: contacts.slice(0, PAGE_SIZE).map(row => ({ id: String(row.id), type: String(row.contact_type),
       value: String(row.value), purpose: label(row.purpose), source_url: String(row.source_url),
       form_state: row.form_state === 'available' || row.form_state === 'manual_required' ? row.form_state : null,

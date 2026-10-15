@@ -109,7 +109,7 @@ export function DashboardContent({ dashboard, status, page, onPage, unavailable 
           <td data-label="Provider / API"><strong>{provider.name}</strong><small>{provider.domain}</small></td>
           <td data-label="Discovered"><span>{time(provider.discovered_at)}</span><small>Latest: {time(provider.latest_activity_at)}</small></td>
           <td data-label="Qualification"><span className={styles.badge}>{provider.qualification}</span>{provider.reason && <small>{provider.reason}</small>}</td>
-          <td data-label="Contact"><span>{provider.contact}</span></td>
+          <td data-label="Contact"><span>{provider.contact}</span>{provider.historical_skip && <small>Historical acquisition skip: {provider.historical_skip.reason} · {time(provider.historical_skip.at)}</small>}</td>
           <td data-label="Invitation"><span>{provider.invitation}</span><small>{provider.delivery}</small></td>
           <td data-label="Action"><button type="button" className={styles.detailsButton} onClick={() => void view(provider.id)} aria-label={`View ${provider.name}`}>View</button></td>
         </tr>)}</tbody>
@@ -138,6 +138,9 @@ export function DashboardContent({ dashboard, status, page, onPage, unavailable 
           {result.evidence.map(evidence => <div key={evidence.id}><strong>{evidence.role}</strong><p>{evidence.summary ?? 'No evidence summary recorded.'}</p><p>{evidence.url}</p><time dateTime={evidence.checked_at}>{time(evidence.checked_at)}</time></div>)}
         </article>)}</CompactRecords>
         <h3>Saved invitations and delivery</h3>
+        {detail.provider.historical_skip && <p>Historical acquisition skip: {detail.provider.historical_skip.reason} · {time(detail.provider.historical_skip.at)}. Current contact readiness is shown separately.</p>}
+        {!!detail.acquisition_history?.length && <section><h3>Historical acquisition skips</h3><CompactRecords records={detail.acquisition_history} label="Historical acquisition skips">{records => records.map(record =>
+          <article className={styles.invitation} key={record.id}><p>{record.reason}</p><time dateTime={record.at}>{time(record.at)}</time></article>)}</CompactRecords></section>}
         {!detail.invitations.length && <p>No saved initial invitation on this page.</p>}
         <CompactRecords records={detail.invitations} label="Saved invitations">{invitations => invitations.map(invitation => <InvitationRecord key={`${invitation.source}:${invitation.id}`} invitation={invitation}/>)}</CompactRecords>
         <div className={styles.pagination}><button className={styles.detailsButton} disabled={detail.page === 0} onClick={() => void view(detail.provider.id, detail.page - 1, selectedEvent)}>Previous records</button><span>Page {detail.page + 1}</span><button className={styles.detailsButton} disabled={!detail.has_more} onClick={() => void view(detail.provider.id, detail.page + 1, selectedEvent)}>Next records</button></div>

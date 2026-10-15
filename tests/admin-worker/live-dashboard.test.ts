@@ -27,7 +27,7 @@ function database(tables: Record<string, Row[]>) {
       assert.ok(!url.pathname.includes('/rpc/'))
       let data = [...(tables[url.pathname.split('/').pop()!] ?? [])]
       for (const [key, filter] of url.searchParams) {
-        if (['select', 'order', 'limit', 'offset'].includes(key)) continue
+        if (['select', 'order', 'limit', 'offset'].includes(key) || /\.(order|limit)$/.test(key)) continue
         if (key === 'or') {
           const match = /^\((\w+)\.lt\.(.*),and\(\1\.eq\.(.*),id\.lt\.([^,)]+)\)\)$/.exec(filter)
           assert.ok(match, `supported cursor filter: ${filter}`)
@@ -156,4 +156,26 @@ test('provider View returns saved research text and scoped timeline without Work
   assert.equal(result.research[0].evidence[0].summary, 'Exact saved evidence')
   assert.ok(result.activity.events.every(event => event.provider_id === provider.id))
   assert.ok(!queries.some(url => url.pathname.endsWith('worker_runs')))
+})
+
+test('prepared Groq draft and immutable historical skips are returned by scoped read-only View', async () => {
+  const provider = { ...api(1), worker_leads: [{ qualification_status: 'qualified', email_ready: true }] }
+  const historical = { id: uuid(7), provider_id: provider.id, reason_code: 'no_email', updated_at: '2026-10-15T09:13:12Z' }
+  const attempt = { id: uuid(2), provider_id: provider.id, status: 'prepared', subject: 'Exact prepared subject',
+    body: 'Exact English invitation', draft_generator: 'groq', draft_prepared_at: at, updated_at: at,
+    admin_acquisition_attempt_history: [historical] }
+  const { client, queries } = database({ worker_providers: [provider], admin_acquisition_attempts: [attempt],
+    admin_acquisition_attempt_history: [historical, { ...historical, id: uuid(9), provider_id: uuid(8) }] })
+  const detail = await getWorkerProviderDetail(provider.id, 0, client)
+  assert.equal(detail!.provider.contact, 'Email ready')
+  assert.equal(detail!.provider.reason, null)
+  assert.deepEqual(detail!.provider.historical_skip, { reason: 'No email', at: historical.updated_at })
+  assert.deepEqual(detail!.acquisition_history, [{ id: historical.id, reason: 'No email', at: historical.updated_at }])
+  assert.equal(detail!.invitations[0].generator, 'groq')
+  assert.equal(detail!.invitations[0].status, 'Prepared')
+  assert.equal(detail!.invitations[0].delivery, 'Not sent')
+  assert.equal(detail!.invitations[0].body, attempt.body)
+  const history = queries.find(url => url.pathname.endsWith('/admin_acquisition_attempt_history'))!
+  assert.equal(history.searchParams.get('provider_id'), `eq.${provider.id}`)
+  assert.equal(history.searchParams.get('limit'), '26')
 })

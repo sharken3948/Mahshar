@@ -13,18 +13,28 @@ export type AcquisitionCandidate = {
   channelApproved: boolean
   evidence: string[]
   savedDraft?: AcquisitionDraft
+  draftContext?: import('./acquisition-evidence').DraftEvidenceContext
+  claimToken?: string
 }
 
 export type AcquisitionDraft = { subject: string; body: string }
 export type AcquisitionOutcome = 'no_email' | 'invalid_email' | 'unverified_contact' |
   'recipient_ineligible' | 'channel_not_approved' | 'prior_outreach' | 'draft_invalid' |
-  'stopped' | 'reserved' | 'sent' | 'ambiguous_delivery' | 'provider_failed'
+  'stopped' | 'reserved' | 'sent' | 'ambiguous_delivery' | 'provider_failed' |
+  'prepared' | 'provider_identity_unverified' | 'api_documentation_missing' | 'provider_suppressed'
 
 export class AcquisitionBudgetPause extends Error {
   constructor() { super('acquisition_budget_pause') }
 }
 
+export class AcquisitionPreparationSkip extends Error {
+  constructor(public readonly outcome: 'provider_identity_unverified' | 'api_documentation_missing' | 'unverified_contact' | 'provider_suppressed') {
+    super(outcome)
+  }
+}
+
 export type AcquisitionPort = {
+  draftOnly?: boolean
   next(): Promise<AcquisitionCandidate | null>
   running(): Promise<boolean>
   priorOutreach(providerId: string): Promise<boolean>
@@ -67,13 +77,14 @@ export async function processAcquisitionBatch(port: AcquisitionPort, limit: numb
       if (!candidate.email || !candidate.emailObserved) outcome = 'no_email'
       else if (!candidate.emailValid) outcome = 'invalid_email'
       else if (!candidate.evidenceVerified) outcome = 'unverified_contact'
-      else if (!candidate.recipientEligible) outcome = 'recipient_ineligible'
-      else if (!candidate.channelApproved) outcome = 'channel_not_approved'
+      else if (!port.draftOnly && !candidate.recipientEligible) outcome = 'recipient_ineligible'
+      else if (!port.draftOnly && !candidate.channelApproved) outcome = 'channel_not_approved'
       else if (await port.priorOutreach(candidate.providerId)) outcome = 'prior_outreach'
       else {
         const draft = await port.draft(candidate)
         if (!validAcquisitionDraft(candidate, draft)) outcome = 'draft_invalid'
         else if (!await port.running()) outcome = 'stopped'
+        else if (port.draftOnly) outcome = 'prepared'
         else {
           // The adapter's atomic reservation must recheck provider history, suppression,
           // eligibility, run status and quotas. A reservation is never retried.
@@ -94,9 +105,13 @@ export async function processAcquisitionBatch(port: AcquisitionPort, limit: numb
       }
     } catch (error) {
       if (error instanceof AcquisitionBudgetPause) break
-      outcome = 'provider_failed'
+      outcome = error instanceof AcquisitionPreparationSkip ? error.outcome : 'provider_failed'
     }
-    await port.record(candidate, outcome)
+    try { await port.record(candidate, outcome) }
+    catch (error) {
+      if (error instanceof AcquisitionBudgetPause) break
+      throw error
+    }
     results.push(outcome)
   }
   return results

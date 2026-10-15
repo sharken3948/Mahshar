@@ -28,6 +28,7 @@ AUDIT_IDENTITY = ROOT / 'supabase/migrations/20261014000500_admin_outreach_inbou
 CONTINUOUS = ROOT / 'supabase/migrations/20261014000600_admin_acquisition_continuous.sql'
 DRAFT_PROVENANCE = ROOT / 'supabase/migrations/20261014000700_admin_acquisition_draft_provenance.sql'
 CONTACT_COVERAGE = ROOT / 'supabase/migrations/20261015000100_admin_worker_contact_coverage.sql'
+DRAFT_ONLY = ROOT / 'supabase/migrations/20261015000200_admin_acquisition_draft_only.sql'
 configured_bin = os.environ.get('MAHSHAR_PG_BIN')
 if configured_bin:
     BIN = pathlib.Path(configured_bin)
@@ -96,10 +97,10 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
             '20261001000100', '20261001000110',
             '20261002000100', '20261004000100', '20261005000100', '20261005000200', '20261005000300',
             '20261007000100', '20261007000200', '20261008000100', '20261008000200',
-            '20261014000100', '20261014000200', '20261014000300', '20261014000400', '20261014000500', '20261014000600', '20261014000700', '20261015000100',
+            '20261014000100', '20261014000200', '20261014000300', '20261014000400', '20261014000500', '20261014000600', '20261014000700', '20261015000100', '20261015000200',
         ]
         for migration in migrations:
-            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2, ADMIN_OUTREACH_DELIVERY, ADMIN_ACQUISITION, AUDIT_LIFECYCLE, AUDIT_SEND, AUDIT_INBOUND, AUDIT_IDENTITY, CONTINUOUS, DRAFT_PROVENANCE, CONTACT_COVERAGE):
+            if migration not in (MIGRATION, PRIVILEGE_REPAIR, DISCOVERY, REVIEW_BAND, QUALIFIED_TARGET, RETRY_IDEMPOTENCY, CONTACT_DISCOVERY, CONTACT_REENRICHMENT, ADMIN_OUTREACH, ADMIN_OUTREACH_V2, ADMIN_OUTREACH_DELIVERY, ADMIN_ACQUISITION, AUDIT_LIFECYCLE, AUDIT_SEND, AUDIT_INBOUND, AUDIT_IDENTITY, CONTINUOUS, DRAFT_PROVENANCE, CONTACT_COVERAGE, DRAFT_ONLY):
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         # Model Supabase projects whose default ACLs expose new objects. The
@@ -2370,6 +2371,7 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-test-') as temporary:
         assert sql("SELECT canary_used_at FROM admin_acquisition_control;")
         expect_failure(f"SET ROLE service_role; SELECT mahshar_acquisition_set_state(true,true,'{grandchild['id']}');",'acquisition_canary_unavailable')
         exec(compile((ROOT / 'tests/admin-worker/contact-coverage-postgres.py').read_text(), 'contact-coverage-postgres.py', 'exec'))
+        exec(compile((ROOT / 'tests/admin-worker/draft-only-postgres.py').read_text(), 'draft-only-postgres.py', 'exec'))
         print('PASS: Worker, Admin Outreach, Acquisition and Continuous migrations, privileges, history, retries and lifecycle; Groq provenance history, atomicity, replay and content binding')
     finally:
         if started:

@@ -48,6 +48,19 @@ test('saved invitation view escapes full exact historical content and distinguis
   assert.doesNotMatch(html, /<script>|Approve|Send invitation/)
 })
 
+test('current Email ready is separate from timestamped historical No email skip', () => {
+  const dashboard: WorkerDashboard = { metrics: { found: 1, qualified: 1, prepared: 1, sent: 0, replies: null, inbound_received: 0 },
+    providers: [{ id: 'provider', name: 'Deep Art Effects', domain: 'deeparteffects.com', qualification: 'Qualified', reason: null,
+      contact: 'Email ready', historical_skip: { reason: 'No email', at: '2026-10-15T09:13:12Z' },
+      invitation: 'Prepared', delivery: 'Not sent', has_invitation: true, discovered_at: null, latest_activity_at: null }],
+    recent: [], activity_next_cursor: null, page: 0, total: 1, as_of: '2026-10-15' }
+  const html = renderToStaticMarkup(createElement(DashboardContent, { dashboard, status: null, page: 0, onPage: () => {}, unavailable: false }))
+  assert.match(html, /Email ready/)
+  assert.match(html, /Historical acquisition skip:.*No email/)
+  assert.match(html, /Not sent/)
+  assert.doesNotMatch(html, /<form|type="submit"/)
+})
+
 test('invitation details display recorded Groq checkpoint separately from simulated dispatch', () => {
   const html = renderToStaticMarkup(createElement(InvitationRecord, { invitation: { id: 'a', source: 'acquisition', generator: 'groq', recipient: 'sales@fixture.example', subject: 'Saved subject', body: 'Saved body', status: 'Simulated', prepared_at: '2026-10-15T01:00:00Z', reserved_at: null, sent_at: '2026-10-15T01:01:00Z', delivery: 'Simulated · no email sent', events: [] } }))
   assert.match(html, /Groq · recorded provenance/)
