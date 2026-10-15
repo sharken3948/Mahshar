@@ -51,7 +51,7 @@ test('read pagination rejects unbounded and malformed inputs', () => {
   assert.equal(parseDashboardPage(new URL('https://fixture/?page=2')), 2)
 })
 
-function offlineClient(fail = false, preparedCount = 1) {
+function offlineClient(fail = false, preparedCount = 1, templateCount = 2) {
   const queries: URL[] = []
   const client = createClient('https://fixture.supabase.co', 'fixture-only', {
     realtime: { transport: class ForbiddenRealtime { constructor() { throw new Error('Realtime forbidden in offline tests') } } as unknown as typeof WebSocket },
@@ -73,9 +73,13 @@ function offlineClient(fail = false, preparedCount = 1) {
     if (table === 'admin_acquisition_attempts') {
       data = [attempt]
       if (init?.method === 'HEAD') {
-        assert.equal(url.searchParams.get('draft_generator'), 'eq.groq')
+        assert.ok(['eq.groq', 'eq.template'].includes(url.searchParams.get('draft_generator')!))
+        if (url.searchParams.get('draft_generator') === 'eq.template') {
+          assert.equal(url.searchParams.get('draft_template_version'), 'eq.mahshar-provider-invitation-v1')
+          assert.equal(url.searchParams.get('draft_variables'), 'not.is.null')
+        }
         for (const field of ['draft_prepared_at', 'subject', 'body']) assert.equal(url.searchParams.get(field), 'not.is.null')
-        total = preparedCount
+        total = url.searchParams.get('draft_generator') === 'eq.template' ? templateCount : preparedCount
       }
     }
     if (table === 'admin_outreach_threads') data = [{ id: 't1', provider_id: 'p1', admin_outreach_messages: [sent] }]
@@ -96,14 +100,16 @@ function offlineClient(fail = false, preparedCount = 1) {
   return { client, queries }
 }
 
-test('dashboard uses exact parent counts and explicit Groq provenance, and keeps trusted replies unavailable', async () => {
+test('dashboard uses exact parent counts and distinct template/Groq provenance, and keeps trusted replies unavailable', async () => {
   const { client, queries } = offlineClient()
   const result = await getWorkerDashboard(0, client)
   assert.equal(result.metrics.found, 1)
   assert.equal(result.metrics.qualified, 1, 'one provider, two qualified products')
   assert.equal(result.metrics.sent, 1)
-  assert.equal(result.metrics.prepared, 1)
-  assert.equal((await getWorkerDashboard(0, offlineClient(false, 0).client)).metrics.prepared, 0, 'unmarked historical/mock drafts are excluded, not inferred from their text')
+  assert.equal(result.metrics.prepared, 3)
+  assert.equal(result.metrics.prepared_template, 2)
+  assert.equal(result.metrics.prepared_groq, 1)
+  assert.equal((await getWorkerDashboard(0, offlineClient(false, 0, 0).client)).metrics.prepared, 0, 'unmarked historical/mock drafts are excluded, not inferred from their text')
   assert.equal(result.metrics.replies, null)
   assert.equal(result.metrics.inbound_received, 2)
   assert.equal(result.providers[0].delivery, 'Delivered')

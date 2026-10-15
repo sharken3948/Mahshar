@@ -1,6 +1,7 @@
 import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
 import type { WorkerActivity, WorkerActivityCursor, WorkerActivityHistory } from './dashboard-types'
+import { INVITATION_TEMPLATE_VERSION } from './invitation-template'
 
 type Row = Record<string, unknown>
 type Db = ReturnType<typeof createServiceClient>
@@ -17,7 +18,7 @@ type ReadQuery = PromiseLike<{ data: unknown; error: unknown }> & {
 }
 const PROVIDER = 'worker_providers(id,canonical_name)'
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
-const SOURCES = ['found', 'research', 'lead', 'contact', 'verified', 'draft', 'reserved', 'attempt', 'message', 'stopped', 'completed', 'failed']
+const SOURCES = ['found', 'research', 'lead', 'contact', 'verified', 'draft', 'template', 'reserved', 'attempt', 'message', 'stopped', 'completed', 'failed']
 
 function label(value: unknown) { return String(value ?? 'Unknown').replace(/_/g, ' ') }
 function object(value: unknown): Row { return value && typeof value === 'object' ? value as Row : {} }
@@ -80,6 +81,10 @@ export async function getWorkerActivity(cursor: WorkerActivityCursor | null = nu
     read('verified', 'verified_at', select('worker_contacts', `id,verified_at,${PROVIDER}`).eq('verification_status', 'verified'), 'Contact', () => 'Official contact verified · eligibility separate'),
     read('draft', 'draft_prepared_at', select('admin_acquisition_attempts', `id,draft_prepared_at,${PROVIDER}`)
       .eq('draft_generator', 'groq').not('subject', 'is', null).not('body', 'is', null), 'Groq Drafting', () => 'Groq invitation saved · draft checkpoint'),
+    read('template', 'draft_prepared_at', select('admin_acquisition_attempts', `id,draft_prepared_at,${PROVIDER}`)
+      .eq('draft_generator', 'template').eq('draft_template_version', INVITATION_TEMPLATE_VERSION)
+      .not('draft_variables', 'is', null).not('subject', 'is', null).not('body', 'is', null),
+      'Template Rendering', () => 'Standard invitation template saved · immutable draft checkpoint'),
     read('reserved', 'reserved_at', select('admin_acquisition_attempts', `id,reserved_at,${PROVIDER}`), 'Reservation', () => 'Simulated send slot reserved · no email sent'),
     read('attempt', 'updated_at', select('admin_acquisition_attempts', `id,status,reason_code,updated_at,${PROVIDER}`), null,
       row => `${row.status === 'simulated_sent' ? 'Invitation simulated · no email sent' : `Acquisition ${label(row.status)} · last saved state`}${row.reason_code ? ` · ${label(row.reason_code)}` : ''}`),

@@ -24,11 +24,11 @@ test('saved forms show manual status, safe read-only links and escaped complete 
 import { CompactRecords } from '../../src/app/admin/worker/compact-records'
 
 test('dashboard renders accurate counters, simulations and actionable provider rows without performing requests', () => {
-  const dashboard: WorkerDashboard = { metrics: { found: 10, qualified: 4, prepared: 3, sent: 1, replies: null, inbound_received: 2 },
+  const dashboard: WorkerDashboard = { metrics: { found: 10, qualified: 4, prepared: 3, prepared_template: 2, prepared_groq: 1, sent: 1, replies: null, inbound_received: 2 },
     activity_next_cursor: null, providers: [{ discovered_at: '2026-10-01', latest_activity_at: '2026-10-15', contact: 'Email ready', id: 'p1', name: '<malicious provider>', domain: 'fixture.example', qualification: 'Qualified', reason: 'No eligible recipient', invitation: 'Prepared · simulated', delivery: 'Simulated · no email sent', has_invitation: true }], recent: [], page: 0, total: 10, as_of: '2026-10-14' }
   const html = renderToStaticMarkup(createElement(DashboardContent, { dashboard, status: null, page: 0, onPage: () => {}, unavailable: false }))
   for (const name of ['APIs Found', 'Qualified APIs', 'Invitations Prepared', 'Invitations Sent', 'Replies Received', 'Provider Activity', 'Live Activity']) assert.ok(html.includes(name))
-  assert.match(html, /Recorded Groq invitations/)
+  assert.match(html, /2 template · 1 Groq/)
   assert.match(html, /excludes mock and unknown-origin drafts/)
   assert.match(html, /2 inbound messages/)
   assert.match(html, /no email sent/)
@@ -133,4 +133,13 @@ test('one provider card replaces recent activity and Live Activity follows the c
   assert.doesNotMatch(html, /Recent activity/)
   assert.ok(html.indexOf('Run the Worker') < html.indexOf('<h2>Live Activity</h2>'))
   assert.ok(html.indexOf('<h2>Live Activity</h2>') < html.indexOf('Acquisition results'))
+})
+
+test('template details show immutable version and exact saved text without sending controls', () => {
+  const html = renderToStaticMarkup(createElement(InvitationRecord, { invitation: { id: 'template', source: 'acquisition', generator: 'template', template_version: 'mahshar-provider-invitation-v1', recipient: 'sales@fixture.example', subject: 'Invitation to list your API on Mahshar', body: 'Exact saved template', status: 'Prepared', prepared_at: '2026-10-15', reserved_at: null, sent_at: null, delivery: 'Not sent', events: [] } }))
+  assert.match(html, /Standard template/)
+  assert.match(html, /mahshar-provider-invitation-v1/)
+  assert.match(html, /immutable/)
+  assert.match(html, /Exact saved template/)
+  assert.doesNotMatch(html, /<form|type="submit"|Send invitation/)
 })

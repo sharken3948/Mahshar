@@ -1,3 +1,5 @@
+import { renderInvitationTemplate, INVITATION_TEMPLATE_VERSION, type InvitationVariables, type TemplateSkipReason } from './invitation-template'
+
 /** Bounded, sequential acquisition coordinator. The production adapter must persist each operation. */
 export type AcquisitionCandidate = {
   attemptId?: string
@@ -15,20 +17,21 @@ export type AcquisitionCandidate = {
   savedDraft?: AcquisitionDraft
   draftContext?: import('./acquisition-evidence').DraftEvidenceContext
   claimToken?: string
+  templateVariables?: InvitationVariables
 }
 
-export type AcquisitionDraft = { subject: string; body: string }
+export type AcquisitionDraft = { subject: string; body: string; generator?: 'template'; templateVersion?: string }
 export type AcquisitionOutcome = 'no_email' | 'invalid_email' | 'unverified_contact' |
   'recipient_ineligible' | 'channel_not_approved' | 'prior_outreach' | 'draft_invalid' |
   'stopped' | 'reserved' | 'sent' | 'ambiguous_delivery' | 'provider_failed' |
-  'prepared' | 'provider_identity_unverified' | 'api_documentation_missing' | 'provider_suppressed'
+  'prepared' | 'provider_identity_unverified' | 'api_documentation_missing' | 'provider_suppressed' | TemplateSkipReason
 
 export class AcquisitionBudgetPause extends Error {
   constructor() { super('acquisition_budget_pause') }
 }
 
 export class AcquisitionPreparationSkip extends Error {
-  constructor(public readonly outcome: 'provider_identity_unverified' | 'api_documentation_missing' | 'unverified_contact' | 'provider_suppressed') {
+  constructor(public readonly outcome: 'provider_identity_unverified' | 'api_documentation_missing' | 'unverified_contact' | 'provider_suppressed' | TemplateSkipReason) {
     super(outcome)
   }
 }
@@ -50,6 +53,11 @@ const REQUIRED = ['Mahshar', 'API marketplace', 'AI agents', 'developers', 'indi
   'pay-per-call', 'USDC', 'Arc', 'choose', 'Seller onboarding']
 
 export function validAcquisitionDraft(candidate: AcquisitionCandidate, draft: AcquisitionDraft): boolean {
+  if (draft.generator === 'template') {
+    if (!candidate.templateVariables || draft.templateVersion !== INVITATION_TEMPLATE_VERSION) return false
+    const rendered = renderInvitationTemplate(candidate.templateVariables)
+    return rendered.ok && draft.subject === rendered.draft.subject && draft.body === rendered.draft.body
+  }
   if (!draft.subject.trim() || draft.subject.length > 200 || !draft.body.trim() || draft.body.length > 5000) return false
   if (!candidate.evidence.length || !candidate.product.trim()) return false
   const body = draft.body.toLowerCase()
@@ -116,3 +124,4 @@ export async function processAcquisitionBatch(port: AcquisitionPort, limit: numb
   }
   return results
 }
+

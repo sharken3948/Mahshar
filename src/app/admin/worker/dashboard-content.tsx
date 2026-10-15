@@ -93,7 +93,9 @@ export function DashboardContent({ dashboard, status, page, onPage, unavailable 
   const cards = [
     { name: 'APIs Found', value: metrics?.found, note: 'Distinct discovered providers' },
     { name: 'Qualified APIs', value: metrics?.qualified, note: 'Providers with a qualified API' },
-    { name: 'Invitations Prepared', value: metrics?.prepared, note: 'Recorded Groq invitations · excludes mock and unknown-origin drafts' },
+    { name: 'Invitations Prepared', value: metrics?.prepared, note: metrics?.prepared_template !== undefined && metrics.prepared_groq !== undefined
+      ? `${metrics.prepared_template} template · ${metrics.prepared_groq} Groq · excludes mock and unknown-origin drafts`
+      : 'Validated saved invitations · excludes mock and unknown-origin drafts' },
     { name: 'Invitations Sent', value: metrics?.sent, note: 'Real initial invitations accepted · excludes simulation' },
     { name: 'Replies Received', value: metrics?.replies, note: metrics ? `${metrics.inbound_received} inbound messages · provider sender identity unverified` : 'Verified provider reply count unavailable' },
   ]
@@ -212,8 +214,8 @@ export function InvitationRecord({ invitation }: { invitation: WorkerInvitation 
   return <article className={styles.invitation}>
           <div className={styles.invitationMeta}><span className={styles.badge}>{invitation.status}</span><span>{invitation.source === 'acquisition' ? 'Acquisition · mock transport only' : 'Admin Outreach'}</span></div>
           <dl><div><dt>Recipient</dt><dd>{invitation.recipient ?? 'Not recorded'}</dd></div>
-            <div><dt>Generator</dt><dd>{invitation.generator === 'groq' ? 'Groq · recorded provenance' : 'Unknown · origin not recorded'}</dd></div>
-            <div><dt>Prepared</dt><dd>{time(invitation.prepared_at)}{invitation.source === 'outreach' ? ' · original draft creation' : invitation.generator === 'groq' ? ' · draft checkpoint' : ' · exact preparation time unavailable'}</dd></div>
+            <div><dt>Generator</dt><dd>{invitation.generator === 'template' ? `Standard template · ${invitation.template_version} · immutable saved draft` : invitation.generator === 'groq' ? 'Groq · recorded provenance' : 'Unknown · origin not recorded'}</dd></div>
+            <div><dt>Prepared</dt><dd>{time(invitation.prepared_at)}{invitation.source === 'outreach' ? ' · original draft creation' : invitation.generator ? ' · draft checkpoint' : ' · exact preparation time unavailable'}</dd></div>
             <div><dt>Reserved</dt><dd>{time(invitation.reserved_at)}</dd></div><div><dt>{invitation.source === 'acquisition' ? 'Simulated dispatch' : 'Sent'}</dt><dd>{time(invitation.sent_at)}</dd></div><div><dt>Delivery</dt><dd>{invitation.delivery}</dd></div></dl>
           <h3>{invitation.subject}</h3><pre>{invitation.body}</pre>
           {invitation.events.length > 0 && <ul>{invitation.events.map((event, index) => <li key={index}>{event.label} · {time(event.at)}</li>)}</ul>}

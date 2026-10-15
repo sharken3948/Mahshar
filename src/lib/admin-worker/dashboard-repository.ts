@@ -3,12 +3,13 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { activityTimestamp, getWorkerActivity } from './activity-repository'
 import type { WorkerDashboard, WorkerInvitation, WorkerProviderActivity, WorkerProviderDetail } from './dashboard-types'
 import { contactCoverageLabel } from './contact-coverage'
+import { INVITATION_TEMPLATE_VERSION } from './invitation-template'
 
 type Row = Record<string, unknown>
 type Result = { data: unknown; error: unknown; count?: number | null }
 const PAGE_SIZE = 25
 const PROVIDER_SELECT = 'id,canonical_name,canonical_domain,status,created_at,updated_at,worker_leads(id,qualification_status,fit_reason,contactability_status,contact_research_state,email_ready,updated_at)'
-const ATTEMPT_SELECT = 'id,provider_id,status,reason_code,recipient_email,subject,body,draft_generator,draft_prepared_at,reserved_at,dispatched_at,created_at,updated_at'
+const ATTEMPT_SELECT = 'id,provider_id,status,reason_code,recipient_email,subject,body,draft_generator,draft_prepared_at,draft_template_version,draft_variables,reserved_at,dispatched_at,created_at,updated_at'
 const HISTORY_SELECT = 'id,reason_code,updated_at'
 const MESSAGE_SELECT = 'id,status,recipient_email,subject,body,provider_message_id,send_reserved_at,send_uncertain_at,sent_at,created_at,updated_at,admin_outreach_delivery_events(event_type,provider_occurred_at)'
 const MESSAGE_SUMMARY_SELECT = 'id,status,provider_message_id,send_reserved_at,send_uncertain_at,sent_at,created_at,updated_at,admin_outreach_delivery_events(event_type,provider_occurred_at)'
@@ -46,11 +47,14 @@ function delivery(row: Row): string {
 
 export function acquisitionInvitation(row: Row): WorkerInvitation | null {
   if (typeof row.subject !== 'string' || typeof row.body !== 'string') return null
+  const generator = row.draft_generator === 'groq' && typeof row.draft_prepared_at === 'string' ? 'groq'
+    : row.draft_generator === 'template' && row.draft_template_version === INVITATION_TEMPLATE_VERSION
+      && typeof row.draft_prepared_at === 'string' && row.draft_variables != null ? 'template' : null
   return {
     id: String(row.id), source: 'acquisition', recipient: string(row.recipient_email), subject: row.subject, body: row.body,
     status: row.status === 'simulated_sent' ? 'Simulated' : row.status === 'investigating' ? 'Draft' : label(row.status),
-    generator: row.draft_generator === 'groq' && typeof row.draft_prepared_at === 'string' ? 'groq' : null,
-    prepared_at: row.draft_generator === 'groq' ? string(row.draft_prepared_at) : null,
+    generator, template_version: generator === 'template' ? string(row.draft_template_version) : null,
+    prepared_at: generator ? string(row.draft_prepared_at) : null,
     reserved_at: string(row.reserved_at), sent_at: string(row.dispatched_at),
     delivery: row.status === 'simulated_sent' ? 'Simulated · no email sent' : row.status === 'uncertain' ? 'Uncertain · do not resend' : 'Not sent',
     events: row.reason_code ? [{ label: label(row.reason_code), at: String(row.updated_at) }] : [],
@@ -142,7 +146,7 @@ async function latestProviderActivity(page: number, db: ReturnType<typeof create
 }
 
 export async function getWorkerDashboard(page = 0, db = createServiceClient()): Promise<WorkerDashboard> {
-  const [providersResult, qualifiedResult, sentResult, inboundResult, preparedResult, latest] = await Promise.all([
+  const [providersResult, qualifiedResult, sentResult, inboundResult, preparedResult, templateResult, latest] = await Promise.all([
     db.from('worker_providers').select('id', { count: 'exact', head: true }),
     // Parent rows are counted once by PostgREST's inner existence filter, even with several qualified products.
     db.from('worker_providers').select('id,worker_leads!inner(id)', { count: 'exact', head: true }).eq('worker_leads.qualification_status', 'qualified'),
@@ -150,6 +154,9 @@ export async function getWorkerDashboard(page = 0, db = createServiceClient()): 
       .is('reply_to_message_id', null).not('provider_message_id', 'is', null).not('provider_message_id', 'imatch', '^[[:space:]]*<?simulated:').not('provider_message_id', 'match', '^[[:space:]]*$').not('sent_at', 'is', null),
     db.from('admin_outreach_messages').select('id', { count: 'exact', head: true }).eq('direction', 'inbound'),
     db.from('admin_acquisition_attempts').select('id', { count: 'exact', head: true }).eq('draft_generator', 'groq')
+      .not('draft_prepared_at', 'is', null).not('subject', 'is', null).not('body', 'is', null),
+    db.from('admin_acquisition_attempts').select('id', { count: 'exact', head: true }).eq('draft_generator', 'template')
+      .eq('draft_template_version', INVITATION_TEMPLATE_VERSION).not('draft_variables', 'is', null)
       .not('draft_prepared_at', 'is', null).not('subject', 'is', null).not('body', 'is', null),
     latestProviderActivity(page, db),
   ])
@@ -173,7 +180,8 @@ export async function getWorkerDashboard(page = 0, db = createServiceClient()): 
     return [{ ...providerActivity(provider, attempt, messages), latest_activity_at: item.at }]
   })
   const activity = await getWorkerActivity(null, 3, db)
-  return { metrics: { found: count(providersResult), qualified: count(qualifiedResult), prepared: count(preparedResult),
+  return { metrics: { found: count(providersResult), qualified: count(qualifiedResult), prepared: count(preparedResult) + count(templateResult),
+    prepared_groq: count(preparedResult), prepared_template: count(templateResult),
     sent: count(sentResult), replies: null, inbound_received: count(inboundResult) }, providers: providerRows,
     recent: activity.events, activity_next_cursor: activity.next_cursor,
     page, total: count(providersResult), as_of: new Date().toISOString() }

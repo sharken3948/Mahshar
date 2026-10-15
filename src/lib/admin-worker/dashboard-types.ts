@@ -6,7 +6,8 @@ export type WorkerInvitation = {
   body: string
   status: string
   prepared_at: string | null
-  generator: 'groq' | null
+  generator: 'groq' | 'template' | null
+  template_version?: string | null
   reserved_at: string | null
   sent_at: string | null
   delivery: string
@@ -32,14 +33,14 @@ export type WorkerActivity = {
   id: string
   provider: string
   provider_id: string | null
-  stage: 'Discovery' | 'Research' | 'Qualification' | 'Contact' | 'Groq Drafting' | 'Reservation' | 'Stopped' | null
+  stage: 'Discovery' | 'Research' | 'Qualification' | 'Contact' | 'Groq Drafting' | 'Template Rendering' | 'Reservation' | 'Stopped' | null
   label: string
   at: string
 }
 export type WorkerActivityCursor = { at: string; id: string }
 export type WorkerActivityHistory = { events: WorkerActivity[]; next_cursor: WorkerActivityCursor | null }
 export type WorkerDashboard = {
-  metrics: { found: number; qualified: number; prepared: number; sent: number; replies: null; inbound_received: number }
+  metrics: { found: number; qualified: number; prepared: number; prepared_template?: number; prepared_groq?: number; sent: number; replies: null; inbound_received: number }
   providers: WorkerProviderActivity[]
   recent: WorkerActivity[]
   activity_next_cursor: WorkerActivityCursor | null
