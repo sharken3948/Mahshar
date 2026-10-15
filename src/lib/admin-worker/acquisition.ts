@@ -38,6 +38,7 @@ export class AcquisitionPreparationSkip extends Error {
 
 export type AcquisitionPort = {
   draftOnly?: boolean
+  deliverPrepared?(limit: number): Promise<AcquisitionOutcome[]>
   next(): Promise<AcquisitionCandidate | null>
   running(): Promise<boolean>
   priorOutreach(providerId: string): Promise<boolean>
@@ -122,6 +123,7 @@ export async function processAcquisitionBatch(port: AcquisitionPort, limit: numb
     }
     results.push(outcome)
   }
+  if (port.deliverPrepared) results.push(...await port.deliverPrepared(limit))
   return results
 }
 

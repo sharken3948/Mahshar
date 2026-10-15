@@ -11,8 +11,9 @@ const PAGE_SIZE = 25
 const PROVIDER_SELECT = 'id,canonical_name,canonical_domain,status,created_at,updated_at,worker_leads(id,qualification_status,fit_reason,contactability_status,contact_research_state,email_ready,updated_at)'
 const ATTEMPT_SELECT = 'id,provider_id,status,reason_code,recipient_email,subject,body,draft_generator,draft_prepared_at,draft_template_version,draft_variables,reserved_at,dispatched_at,created_at,updated_at'
 const HISTORY_SELECT = 'id,reason_code,updated_at'
-const MESSAGE_SELECT = 'id,status,recipient_email,subject,body,provider_message_id,send_reserved_at,send_uncertain_at,sent_at,created_at,updated_at,admin_outreach_delivery_events(event_type,provider_occurred_at)'
-const MESSAGE_SUMMARY_SELECT = 'id,status,provider_message_id,send_reserved_at,send_uncertain_at,sent_at,created_at,updated_at,admin_outreach_delivery_events(event_type,provider_occurred_at)'
+const DELIVERY_SELECT = 'acquisition_attempt_id,acquisition_dispatch_started_at,acquisition_failure_at,acquisition_failure_code'
+const MESSAGE_SELECT = `id,status,recipient_email,subject,body,provider_message_id,send_reserved_at,send_uncertain_at,sent_at,created_at,updated_at,${DELIVERY_SELECT},admin_acquisition_attempts(draft_generator,draft_template_version,draft_prepared_at),admin_outreach_delivery_events(event_type,provider_occurred_at)`
+const MESSAGE_SUMMARY_SELECT = `id,status,provider_message_id,send_reserved_at,send_uncertain_at,sent_at,created_at,updated_at,${DELIVERY_SELECT},admin_outreach_delivery_events(event_type,provider_occurred_at)`
 
 function rows(value: unknown): Row[] { return Array.isArray(value) ? value as Row[] : [] }
 function string(value: unknown): string | null { return typeof value === 'string' ? value : null }
@@ -31,6 +32,7 @@ function realAccepted(row: Row): boolean {
 }
 function invitationStatus(row: Row): string {
   if (/^<?simulated:/i.test(String(row.provider_message_id ?? '').trim())) return 'Simulated'
+  if (!realAccepted(row) && row.acquisition_failure_at) return row.acquisition_failure_code === 'dispatch_blocked' ? 'Dispatch blocked' : 'Brevo rejected'
   return realAccepted(row) ? 'Sent' : row.status === 'sent' ? 'Unconfirmed' : label(row.status)
 }
 
@@ -38,7 +40,11 @@ function invitationStatus(row: Row): string {
 function delivery(row: Row): string {
   const events = rows(row.admin_outreach_delivery_events)
   if (invitationStatus(row) === 'Simulated') return 'Simulated · no real delivery confirmed'
-  if (!realAccepted(row)) return row.send_uncertain_at ? 'Uncertain · do not resend' : row.send_reserved_at ? 'Reserved' : row.status === 'sent' ? 'Delivery unconfirmed' : 'Not sent'
+  if (!realAccepted(row)) {
+    if (row.acquisition_failure_at) return `${row.acquisition_failure_code === 'dispatch_blocked' ? 'Dispatch blocked' : 'Brevo rejected'} · no automatic retry`
+    if (row.send_uncertain_at || row.acquisition_dispatch_started_at) return 'Uncertain · do not resend'
+    return row.send_reserved_at ? 'Reserved' : row.status === 'sent' ? 'Delivery unconfirmed' : 'Not sent'
+  }
   for (const [type, text] of [['hard_bounce', 'Hard bounce'], ['blocked', 'Blocked'], ['delivered', 'Delivered'], ['soft_bounce', 'Soft bounce']]) {
     if (events.some(event => event.event_type === type)) return text
   }
@@ -63,10 +69,14 @@ export function acquisitionInvitation(row: Row): WorkerInvitation | null {
 
 export function outreachInvitation(row: Row): WorkerInvitation {
   const accepted = realAccepted(row)
+  const draft = row.acquisition_attempt_id && row.admin_acquisition_attempts ? row.admin_acquisition_attempts as Row : null
+  const template = draft && draft.draft_generator === 'template' && draft.draft_template_version === 'mahshar-provider-invitation-v2'
   return {
     id: String(row.id), source: 'outreach', recipient: string(row.recipient_email), subject: String(row.subject), body: String(row.body),
     status: accepted && delivery(row) === 'Delivered' ? 'Delivered' : invitationStatus(row),
-    generator: null, prepared_at: string(row.created_at), reserved_at: string(row.send_reserved_at), sent_at: accepted ? string(row.sent_at) : null,
+    ...(row.acquisition_attempt_id ? { transport: 'brevo' as const } : {}),
+    generator: template ? 'template' : null, template_version: template ? string(draft.draft_template_version) : null,
+    prepared_at: template ? string(draft.draft_prepared_at) : string(row.created_at), reserved_at: string(row.send_reserved_at), sent_at: accepted ? string(row.sent_at) : null,
     delivery: delivery(row), events: rows(row.admin_outreach_delivery_events).map(event => ({
       label: event.event_type === 'opened' ? 'Opened / proxy event · engagement unverified' : label(event.event_type),
       at: String(event.provider_occurred_at),

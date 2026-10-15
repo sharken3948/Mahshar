@@ -1,5 +1,6 @@
 import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
+import { brevoAcquisitionEnabled } from './acquisition-delivery-config'
 import { canonicalExternalUrl } from './discovery/sanitize'
 import { isOperationalWorkerLead } from './contact-readiness'
 import { isResumableWorkerRun, parseWorkerCheckpoint } from './checkpoint'
@@ -286,7 +287,7 @@ export async function getWorkerStatus(): Promise<WorkerStatusDto> {
     last_completed_at: completed ? safeTimestamp(completed.completed_at) : null,
     latest_run: latest,
     ...(acquisitionEnabled ? { acquisition: {
-      running: acquisitionRunning, simulated_only: true as const,
+      running: acquisitionRunning, simulated_only: !brevoAcquisitionEnabled(), brevo_requested: brevoAcquisitionEnabled(),
       canary_mode: process.env.ADMIN_ACQUISITION_CANARY === 'true',
       continuous_mode: process.env.ADMIN_ACQUISITION_CONTINUOUS === 'true' && process.env.ADMIN_ACQUISITION_CANARY !== 'true',
       waiting: acquisitionRunning && !active,

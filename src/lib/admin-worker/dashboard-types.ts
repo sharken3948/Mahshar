@@ -1,6 +1,7 @@
 export type WorkerInvitation = {
   id: string
   source: 'acquisition' | 'outreach'
+  transport?: 'brevo'
   recipient: string | null
   subject: string
   body: string

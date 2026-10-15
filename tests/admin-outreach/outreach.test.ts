@@ -169,7 +169,7 @@ test('mock acquisition attempts cannot enter either Admin approval or send API p
 test('Brevo transport sends one validated plain-text message with a stable idempotency key', async () => {
   const priorIntegrity=boundary.rpcOverride
   const template=renderInvitationTemplate({company:null,product:null,companyVerified:false,productVerified:false});assert.ok(template.ok)
-  boundary.rpcOverride=async(name,args)=>{assert.equal(name,'mahshar_admin_outreach_assert_invitation_integrity');assert.equal(args.p_body,template.draft.body);return {data:true,error:null}}
+  boundary.rpcOverride=async(name,args)=>{assert.equal(name,'mahshar_admin_outreach_begin_transport');assert.equal(args.p_body,template.draft.body);return {data:true,error:null}}
   const previousMode = process.env.MAINNET_MODE
   const previousKey = process.env.BREVO_API_KEY
   process.env.MAINNET_MODE = 'true'; process.env.BREVO_API_KEY = 'synthetic-test-key'

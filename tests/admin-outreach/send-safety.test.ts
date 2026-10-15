@@ -25,7 +25,7 @@ beforeEach(() => {
       if (blocked || reserved || integrityBlocked) return { data:null,error:{message:'admin_outreach_lead_blocked'} }
       reserved=true; return { data:true,error:null }
     }
-    if (name==='mahshar_admin_outreach_assert_invitation_integrity') {
+    if (name==='mahshar_admin_outreach_begin_transport') {
       const current=state.tables.admin_outreach_messages[0]
       if (integrityBlocked || !reserved || args.p_recipient!==current.recipient_email || args.p_subject!==current.subject || args.p_body!==current.body) return {data:null,error:{message:'invitation_integrity_unverified_names'}}
       return {data:true,error:null}

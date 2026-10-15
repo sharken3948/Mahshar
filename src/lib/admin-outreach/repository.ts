@@ -16,7 +16,7 @@ type DbError = { message?: string; code?: string } | null
 type DbResult = { data: unknown; error: DbError }
 type DbCountResult = DbResult & { count: number | null }
 
-const MESSAGE_SELECT = 'id,thread_id,direction,status,recipient_email,sender_email,subject,body,provider_message_id,in_reply_to,reference_ids,received_at,classification,classification_confidence,classification_reason,processing_state,matched_by,reply_to_message_id,approved_at,sent_at,created_at,updated_at,send_reserved_at,send_uncertain_at'
+const MESSAGE_SELECT = 'id,thread_id,direction,status,recipient_email,sender_email,subject,body,provider_message_id,in_reply_to,reference_ids,received_at,classification,classification_confidence,classification_reason,processing_state,matched_by,reply_to_message_id,approved_at,sent_at,created_at,updated_at,send_reserved_at,send_uncertain_at,acquisition_failure_at,acquisition_failure_code'
 
 function dbFailure(scope: string, error: DbError): never {
   console.error(`[admin-outreach] ${scope} unavailable`, error?.code ?? error?.message ?? 'unknown database error')
@@ -79,6 +79,8 @@ function messageDto(row: Record<string, unknown>, deliveryRows: Record<string, u
     ...(direction === 'inbound' ? { sender_identity_status: 'unverified' as const } : {}),
     ...(status !== 'sent' && timestamp(row.send_uncertain_at) ? { delivery_uncertain: true } : {}),
     ...(status === 'ready_to_send' && timestamp(row.send_reserved_at) ? { delivery_reserved: true } : {}),
+    ...(status !== 'sent' && timestamp(row.acquisition_failure_at) && typeof row.acquisition_failure_code === 'string'
+      ? { acquisition_failure_code: row.acquisition_failure_code } : {}),
   }
 }
 

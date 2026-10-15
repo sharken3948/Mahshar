@@ -3,6 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { AcquisitionBudgetPause, AcquisitionPreparationSkip, mockCanaryAcquisitionDraft, processAcquisitionBatch, validAcquisitionDraft, type AcquisitionCandidate, type AcquisitionDraft, type AcquisitionPort } from './acquisition'
 import type { DraftEvidenceContext } from './acquisition-evidence'
 import { renderInvitationTemplate, type InvitationVariables } from './invitation-template'
+import { deliverPreparedAcquisition } from './acquisition-delivery'
 type TemplateContext = DraftEvidenceContext & { templateVariables: InvitationVariables }
 
 type Row = Record<string, unknown>
@@ -51,6 +52,7 @@ export function acquisitionPort(runId: string, epoch: string, canary = false): A
   const db = createServiceClient()
   const port: AcquisitionPort = {
     draftOnly: !canary,
+    ...(!canary ? { deliverPrepared: (limit: number) => deliverPreparedAcquisition(runId, epoch, limit) } : {}),
     running: async () => {
       const [control, run, worker] = await Promise.all([
         db.from('admin_acquisition_control').select('desired_state,epoch').eq('id', 1).single(),

@@ -65,6 +65,7 @@ export type OutreachMessageDto = {
   sender_identity_status?: 'unverified'
   delivery_uncertain?: boolean
   delivery_reserved?: boolean
+  acquisition_failure_code?: string
 }
 
 export type OutreachInboxItemDto = {

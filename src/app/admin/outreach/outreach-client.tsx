@@ -54,7 +54,7 @@ function DeliveryStatus({ message, detailed = false }: { message: OutreachMessag
     return <section className={styles.deliveryStatus}><strong>Sender identity unverified</strong><p>Automatic reply actions are paused. Review the original email in the human mailbox.</p></section>
   }
   if (message.direction === 'outbound' && (message.delivery_uncertain || message.delivery_reserved)) {
-    return <section className={styles.deliveryStatus}><strong>{message.delivery_uncertain ? 'Delivery uncertain' : 'Delivery reserved'}</strong><p>Do not resend. Review the delivery outcome before taking another action.</p></section>
+    return <section className={styles.deliveryStatus}><strong>{message.acquisition_failure_code ? message.acquisition_failure_code === 'dispatch_blocked' ? 'Dispatch blocked' : 'Brevo rejected' : message.delivery_uncertain ? 'Delivery uncertain' : 'Delivery reserved'}</strong><p>Do not resend. Review the delivery outcome before taking another action.</p></section>
   }
   if (message.direction !== 'outbound' || !message.delivery_state) return null
   return <section className={styles.deliveryStatus}>

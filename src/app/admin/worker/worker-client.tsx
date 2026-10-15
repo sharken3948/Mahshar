@@ -176,7 +176,7 @@ export function WorkerClient() {
   const checkpoint = status?.checkpoint
   return <div className={styles.page}>
     <section className={styles.heading}>
-      <div><span className={styles.eyebrow}>API provider acquisition</span><h1>Admin Worker</h1><p>Discover APIs. Prepare invitations. Track results.{status?.acquisition ? ' Autonomous acquisition is simulated only.' : ''}</p></div>
+      <div><span className={styles.eyebrow}>API provider acquisition</span><h1>Admin Worker</h1><p>Discover APIs. Prepare invitations. Track results.{status?.acquisition ? status.acquisition.brevo_requested ? ' Brevo requires current channel and recipient approval.' : ' Real acquisition delivery is disabled.' : ''}</p></div>
       <div className={`${styles.overallStatus} ${styles[`overall_${status?.status ?? 'stopped'}`]}`}>
         <i/><div><span>Worker status</span><strong>{phase === 'loading' ? 'Loading' : dashboardStatus(status)}</strong></div>
       </div>
@@ -199,14 +199,14 @@ export function WorkerClient() {
       <summary>Technical Details <span>Quotas, checkpoints, Discovery and run history</span></summary>
       <div className={styles.technicalBody}>
     {status?.acquisition && <section className={styles.panel} aria-label="Acquisition progress">
-      <header><div><span>{status.acquisition.continuous_mode ? 'Continuous acquisition' : 'Acquisition canary'} · simulated transport</span><h2>Acquisition progress</h2></div></header>
+      <header><div><span>{status.acquisition.continuous_mode ? 'Continuous acquisition' : 'Acquisition canary'} · {status.acquisition.brevo_requested ? 'Brevo gated by channel and recipient approval' : 'real delivery disabled'}</span><h2>Acquisition progress</h2></div></header>
       <div className={styles.countGrid}>
         <div><span>Providers investigated</span><strong>{status.acquisition.investigated}</strong></div>
         <div><span>Investigations pending</span><strong>{status.acquisition.investigating ?? 0}</strong></div>
         <div><span>Research retries exhausted</span><strong>{status.acquisition.research_retries_exhausted ?? 0}</strong></div>
         {status.acquisition.waiting && <div><span>Cloud continuation</span><strong>Waiting for next bounded batch</strong></div>}
         <div><span>Verified emails</span><strong>{status.acquisition.verified_emails}</strong></div>
-        <div><span>Channel eligible</span><strong>{status.acquisition.eligible_recipients}</strong></div>
+        <div><span>Mock channel eligible</span><strong>{status.acquisition.eligible_recipients}</strong></div>
         <div><span>Saved acquisition drafts</span><strong>{status.acquisition.drafts}</strong></div>
         <div><span>Simulated sends</span><strong>{status.acquisition.simulated_sent}</strong></div>
         <div><span>Skipped</span><strong>{status.acquisition.skipped}</strong></div>
@@ -214,7 +214,7 @@ export function WorkerClient() {
         <div><span>Failed</span><strong>{status.acquisition.failed}</strong></div>
         <WorkerDailyRunQuota used={status.acquisition.daily_runs}/>
         <div><span>Groq calls today</span><strong>{status.acquisition.daily_groq} / 600</strong></div>
-        <div><span>Simulated send slots today</span><strong>{status.acquisition.daily_sends} / 25</strong></div>
+        <div><span>Acquisition send slots today</span><strong>{status.acquisition.daily_sends} / 25</strong></div>
         <div><span>Simulated dispatches today</span><strong>{status.acquisition.daily_simulated_sent}</strong></div>
         <div><span>One-session canary</span><strong>{status.acquisition.canary_used ? 'Used · history preserved' : 'Available'}</strong></div>
         {status.acquisition.canary_required && <div><span>Operating mode</span><strong>Configuration required</strong></div>}
@@ -230,7 +230,9 @@ export function WorkerClient() {
 
     <section className={styles.notice}>
       <div aria-hidden="true">i</div><p><strong>{status?.acquisition ? 'Acquisition review mode' : 'Discovery V1'}</strong>{status?.acquisition
-        ? ' Discovery, contact research and eligibility checks run in bounded batches. The only outbound adapter records simulated delivery; no email is sent.'
+        ? status.acquisition.brevo_requested
+          ? ' Bounded acquisition can deliver through Brevo only with current channel approval, recipient permission and validated saved invitations. Reserved or uncertain deliveries are never retried automatically.'
+          : ' Discovery, contact research and template preparation run in bounded batches. Real acquisition delivery is disabled; canary deliveries are simulated.'
         : ' Bounded public API discovery, technical Fit, and official contact research are enabled. Leads remain Admin-only; no outreach, account creation, or Marketplace listing occurs.'}</p>
     </section>
 

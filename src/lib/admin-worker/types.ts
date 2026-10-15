@@ -82,7 +82,7 @@ export type WorkerStatusDto = {
   can_resume: boolean
   last_completed_at: string | null
   latest_run: WorkerRunDto | null
-  acquisition?: { running: boolean; simulated_only: true; investigated: number; verified_emails: number;
+  acquisition?: { running: boolean; simulated_only: boolean; brevo_requested?: boolean; investigated: number; verified_emails: number;
     eligible_recipients: number; drafts: number; reserved: number; simulated_sent: number;
     skipped: number; uncertain: number; failed: number; daily_runs: number; daily_groq: number; daily_sends: number;
     daily_simulated_sent: number; canary_mode?: boolean; canary_used?: boolean; canary_required?: boolean;
