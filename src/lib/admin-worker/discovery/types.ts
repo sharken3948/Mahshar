@@ -42,6 +42,7 @@ export type CandidateOutcome = {
 }
 
 export type ProvenanceFact = {
+  namingEvidence?: import('../invitation-names').OfficialNameProof[]
   sourceType: 'website' | 'api_directory'
   sourceRole: 'directory_assertion' | 'official_site' | 'official_docs' | 'official_pricing' | 'official_contact'
   url: string

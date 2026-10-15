@@ -1,0 +1,351 @@
+{
+  "provenance": "Exact saved names, two saved v1 bodies and public source metadata from the scoped read-only 18-draft review. Directory records are not official naming evidence. No fresh network research.",
+  "providers": [
+    {
+      "domain": "geneea.com",
+      "company": "geneea.com",
+      "product": "Geneea Natural Language Processing",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://geneea.com/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/geneea.com/1.0/swagger.json",
+        "title": "Geneea Natural Language Processing",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 7 path(s) and supported methods GET, POST. <div class=\"api-description\"> <h2>Authentication</h2> <p>For all calls, supply your API key. <a href=\"https://www.geneea.com/pricing\">Sign up to <em>obtain the key</em></a>.</p> <p> Our API supports both <em>unencrypted (HTTP)</em> and <em>encrypted (HTTPS)</em> protocols. However, for security reasons, we strongly encourage using only the encrypted version."
+      }
+    },
+    {
+      "domain": "mailboxvalidator.com",
+      "company": "mailboxvalidator.com",
+      "product": "MailboxValidator Email Validation",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://www.mailboxvalidator.com/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/mailboxvalidator.com/validation/0.1/openapi.json",
+        "title": "MailboxValidator Email Validation",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 1 path(s) and supported methods GET. The Single Validation API does validation on a single email address and returns all the validation results in either JSON or XML format. Refer to https://www.mailboxvalidator.com for further information."
+      }
+    },
+    {
+      "domain": "medcorder.com",
+      "company": "medcorder.com",
+      "product": "Medcorder Nearby Doctor API",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://medcorder.com/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/medcorder.com/1.0.0/swagger.json",
+        "title": "Medcorder Nearby Doctor API",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 1 path(s) and supported methods GET. Returns doctors near a client given a lat/lon and autocomplete text."
+      }
+    },
+    {
+      "domain": "opencagedata.com",
+      "company": "opencagedata.com",
+      "product": "OpenCage Geocoder",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_docs",
+        "url": "https://opencagedata.com/api",
+        "title": null,
+        "factual_summary": "Provider-owned documentation linked from the directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/opencagedata.com/1/swagger.json",
+        "title": "OpenCage Geocoder",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 1 path(s) and supported methods GET. Worldwide forward and reverse geocoding"
+      }
+    },
+    {
+      "domain": "pdfblocks.com",
+      "company": "pdfblocks.com",
+      "product": "PDF Blocks API",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://www.pdfblocks.com/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/pdfblocks.com/1.5.0/openapi.json",
+        "title": "PDF Blocks API",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 12 path(s) and supported methods POST. PDF Blocks is a secure, reliable, and fast API to work with PDF documents. Actions include: Merge PDF documents, add or remove passwords, add watermarks, remove, extract, reverse, and rotate pages, and more."
+      }
+    },
+    {
+      "domain": "ritekit.com",
+      "company": "ritekit.com",
+      "product": "RiteKit API",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://ritekit.com/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/ritekit.com/1.0.0/openapi.json",
+        "title": "RiteKit API",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 13 path(s) and supported methods GET. RiteKit API is based on REST principles. Authentication uses standard OAuth 2.0 process ##Getting started 1. Sign up for [RiteKit](https://ritekit.com/) 1. Go to [developer dashboard](https://ritekit.com/developer/dashboard/) 1. Click \"Create a token\" button to get your **Client ID** and **Client secret** 1. When you reach your free limit of calls per month,"
+      }
+    },
+    {
+      "domain": "shotstack.io",
+      "company": "shotstack.io",
+      "product": "Shotstack",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://shotstack.io/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/shotstack.io/v1/openapi.json",
+        "title": "Shotstack",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 4 path(s) and supported methods DELETE, GET, POST. Shotstack is a video, image and audio editing service that allows for the automated generation of videos, images and audio using JSON and a RESTful API. You arrange and configure an edit and POST it to the API which will render your media and provide a file location when complete. For more details visit [shotstack.io](https://shotstack.io) or checkout our [g"
+      }
+    },
+    {
+      "domain": "tradematic.com",
+      "company": "tradematic.com",
+      "product": "Tradematic Cloud API",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://tradematic.com/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/tradematic.com/1.0.2/swagger.json",
+        "title": "Tradematic Cloud API",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 58 path(s) and supported methods DELETE, GET, POST, PUT. ### Overview Tradematic Cloud is a trading infrastructure for building investment services. It’s a trading engine + API + ready-made adapters to stock and forex brokers, crypto exchanges, and market data providers. You can use it as a cloud API, or you can deploy it on your servers. ### How to use Tradematic Cloud API Sign up at [tradematic.cloud](https://tr"
+      }
+    },
+    {
+      "domain": "wordassociations.net",
+      "company": "wordassociations.net",
+      "product": "Word Associations API",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://wordassociations.net/en",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/wordassociations.net/1.0/swagger.json",
+        "title": "Word Associations API",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 1 path(s) and supported methods GET, POST. The Word Associations Network API allows developers to embed the ability to find associations for a word or phrase into their mobile apps or web services. Words are grouped by semantics, meaning, and psychological perception. The Word Associations Network API currently supports English, French, Spanish, German, Italian, Portuguese, and Russian vocabulary. Pl"
+      }
+    },
+    {
+      "domain": "browshot.com",
+      "company": "browshot.com",
+      "product": "Browshot API",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://browshot.com/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/browshot.com/1.17.0/swagger.json",
+        "title": "Browshot API",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 17 path(s) and supported methods GET, POST. Take screenshots of any website in real time"
+      }
+    },
+    {
+      "domain": "deeparteffects.com",
+      "company": "deeparteffects.com",
+      "product": "Deep Art Effects",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://www.deeparteffects.com/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/deeparteffects.com/2017-02-10T162446Z/swagger.json",
+        "title": "Deep Art Effects",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 3 path(s) and supported methods GET, POST."
+      }
+    },
+    {
+      "domain": "hubhopper.com",
+      "company": "hubhopper.com",
+      "product": "Hubhopper Partner Integration API(s) - Production",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://hubhopper.com/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/hubhopper.com/v5/swagger.json",
+        "title": "Hubhopper Partner Integration API(s) - Production",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 7 path(s) and supported methods GET. This is an interactive document explaining the API(s) that could be used to fetch data from [Hubhopper](https://hubhopper.com). Use the api key provided to authorize `x-api-key` and test the API(s). The output data models are also available for reference."
+      },
+      "savedSubject": "Invitation to list your API on Mahshar",
+      "savedBody": "Hello hubhopper.com team,\n\nI'm reaching out from Mahshar, an API marketplace built on Arc Mainnet.\n\nMahshar enables developers, individual users, and autonomous AI agents to discover and access APIs through pay-per-call USDC payments.\n\nWe'd like to invite hubhopper.com to explore listing Hubhopper Partner Integration API(s) - Production on Mahshar.\n\nYou can choose which APIs or endpoints to make available, with no need to migrate your existing infrastructure.\n\nYou can learn more at https://mahshar.xyz/providers.\n\nBest regards,\nMahshar Team\nsupport@mahshar.xyz"
+    },
+    {
+      "domain": "nowpayments.io",
+      "company": "nowpayments.io",
+      "product": "NOWPayments API",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://nowpayments.io/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/nowpayments.io/1.0.0/openapi.json",
+        "title": "NOWPayments API",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 14 path(s) and supported methods DELETE, GET, POST. NOWPayments is a non-custodial cryptocurrency payment processing platform. Accept payments in a wide range of cryptos and get them instantly converted into a coin of your choice and sent to your wallet. Keeping it simple – no excess. # Sandbox Before production usage, you can test our API using the Sandbox. Details can be found [here](https://documenter.getp"
+      }
+    },
+    {
+      "domain": "netlicensing.io",
+      "company": "netlicensing.io",
+      "product": "Labs64 NetLicensing RESTful API Test Center",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://netlicensing.io/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/netlicensing.io/2.x/openapi.json",
+        "title": "Labs64 NetLicensing RESTful API Test Center",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 20 path(s) and supported methods DELETE, GET, POST. The Labs64 <a href='https://netlicensing.io/wiki/restful-api' target='_blank'>NetLicensing RESTful API</a> gives you access to NetLicensing’s core features.<br/><br/><strong>Authentication</strong><br/>You authenticate to the NetLicensing API by providing your account credentials or simply use our demo account - <code>demo:demo</code><br/><br/>Find out more"
+      },
+      "savedSubject": "Invitation to list your API on Mahshar",
+      "savedBody": "Hello netlicensing.io team,\n\nI'm reaching out from Mahshar, an API marketplace built on Arc Mainnet.\n\nMahshar enables developers, individual users, and autonomous AI agents to discover and access APIs through pay-per-call USDC payments.\n\nWe'd like to invite netlicensing.io to explore listing Labs64 NetLicensing RESTful API Test Center on Mahshar.\n\nYou can choose which APIs or endpoints to make available, with no need to migrate your existing infrastructure.\n\nYou can learn more at https://mahshar.xyz/providers.\n\nBest regards,\nMahshar Team\nsupport@mahshar.xyz"
+    },
+    {
+      "domain": "selectpdf.com",
+      "company": "selectpdf.com",
+      "product": "SelectPdf HTML To PDF API",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://selectpdf.com/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/selectpdf.com/1.0.0/swagger.json",
+        "title": "SelectPdf HTML To PDF API",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 1 path(s) and supported methods POST. SelectPdf HTML To PDF Online REST API is a professional solution that lets you create PDF from web pages and raw HTML code in your applications. The API is easy to use and the integration takes only a few lines of code."
+      }
+    },
+    {
+      "domain": "thebluealliance.com",
+      "company": "thebluealliance.com",
+      "product": "The Blue Alliance API v3",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://www.thebluealliance.com/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/thebluealliance.com/3.8.2/openapi.json",
+        "title": "The Blue Alliance API v3",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 65 path(s) and supported methods GET. # Overview Information and statistics about FIRST Robotics Competition teams and events. # Authentication All endpoints require an Auth Key to be passed in the header `X-TBA-Auth-Key`. If you do not have an auth key yet, you can obtain one from your [Account Page](/account)."
+      }
+    },
+    {
+      "domain": "openfigi.com",
+      "company": "openfigi.com",
+      "product": "OpenFIGI API",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://www.openfigi.com/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/openfigi.com/1.4.0/openapi.json",
+        "title": "OpenFIGI API",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 2 path(s) and supported methods GET, POST. A free & open API for FIGI discovery."
+      }
+    },
+    {
+      "domain": "spinitron.com",
+      "company": "spinitron.com",
+      "product": "Spinitron v2 API",
+      "official": {
+        "source_type": "website",
+        "source_role": "official_site",
+        "url": "https://spinitron.com/",
+        "title": null,
+        "factual_summary": "Provider-owned site independently verified for this directory contract."
+      },
+      "directory": {
+        "source_type": "api_directory",
+        "source_role": "directory_assertion",
+        "url": "https://api.apis.guru/v2/specs/spinitron.com/1.0.0/openapi.json",
+        "title": "Spinitron v2 API",
+        "factual_summary": "Structured contract observed via directory; this is not official provider documentation. Structured OpenAPI contract verified with 8 path(s) and supported methods GET, POST. ## Notes **Tutorial demo** using this API is at [https://spinitron.com/v2-api-demo/](https://spinitron.com/v2-api-demo/). For web integration using iframes and/or JavaScript instead of an API, see [https://spinitron.github.io/v2-web-integration/](https://spinitron.github.io/v2-web-integration/). **Your API key** is found in the Spinitron web app. Log in to S"
+      }
+    }
+  ]
+}

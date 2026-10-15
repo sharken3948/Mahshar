@@ -75,7 +75,7 @@ function offlineClient(fail = false, preparedCount = 1, templateCount = 2) {
       if (init?.method === 'HEAD') {
         assert.ok(['eq.groq', 'eq.template'].includes(url.searchParams.get('draft_generator')!))
         if (url.searchParams.get('draft_generator') === 'eq.template') {
-          assert.equal(url.searchParams.get('draft_template_version'), 'eq.mahshar-provider-invitation-v1')
+          assert.equal(url.searchParams.get('draft_template_version'), 'in.(mahshar-provider-invitation-v1,mahshar-provider-invitation-v2)')
           assert.equal(url.searchParams.get('draft_variables'), 'not.is.null')
         }
         for (const field of ['draft_prepared_at', 'subject', 'body']) assert.equal(url.searchParams.get(field), 'not.is.null')

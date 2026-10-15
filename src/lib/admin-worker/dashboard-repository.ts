@@ -3,7 +3,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { activityTimestamp, getWorkerActivity } from './activity-repository'
 import type { WorkerDashboard, WorkerInvitation, WorkerProviderActivity, WorkerProviderDetail } from './dashboard-types'
 import { contactCoverageLabel } from './contact-coverage'
-import { INVITATION_TEMPLATE_VERSION } from './invitation-template'
+import { INVITATION_TEMPLATE_VERSIONS } from './invitation-template'
 
 type Row = Record<string, unknown>
 type Result = { data: unknown; error: unknown; count?: number | null }
@@ -48,7 +48,7 @@ function delivery(row: Row): string {
 export function acquisitionInvitation(row: Row): WorkerInvitation | null {
   if (typeof row.subject !== 'string' || typeof row.body !== 'string') return null
   const generator = row.draft_generator === 'groq' && typeof row.draft_prepared_at === 'string' ? 'groq'
-    : row.draft_generator === 'template' && row.draft_template_version === INVITATION_TEMPLATE_VERSION
+    : row.draft_generator === 'template' && INVITATION_TEMPLATE_VERSIONS.includes(row.draft_template_version as typeof INVITATION_TEMPLATE_VERSIONS[number])
       && typeof row.draft_prepared_at === 'string' && row.draft_variables != null ? 'template' : null
   return {
     id: String(row.id), source: 'acquisition', recipient: string(row.recipient_email), subject: row.subject, body: row.body,
@@ -156,7 +156,7 @@ export async function getWorkerDashboard(page = 0, db = createServiceClient()): 
     db.from('admin_acquisition_attempts').select('id', { count: 'exact', head: true }).eq('draft_generator', 'groq')
       .not('draft_prepared_at', 'is', null).not('subject', 'is', null).not('body', 'is', null),
     db.from('admin_acquisition_attempts').select('id', { count: 'exact', head: true }).eq('draft_generator', 'template')
-      .eq('draft_template_version', INVITATION_TEMPLATE_VERSION).not('draft_variables', 'is', null)
+      .in('draft_template_version', [...INVITATION_TEMPLATE_VERSIONS]).not('draft_variables', 'is', null)
       .not('draft_prepared_at', 'is', null).not('subject', 'is', null).not('body', 'is', null),
     latestProviderActivity(page, db),
   ])

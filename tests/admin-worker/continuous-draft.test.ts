@@ -55,15 +55,18 @@ test('template drafting works without Groq configuration or sending eligibility 
   await assert.rejects(port.ambiguous('none'), /draft_only/)
 }))
 
-test('all four saved provider examples use their exact verified labels with no brand guessing or invitation inference', async () => offline(async (_events, item, saved) => {
+test('saved directory-only providers receive neutral generic drafts without title or domain leakage', async () => offline(async (_events, item, saved) => {
   for (const provider of providers) {
     saved.templateVariables = { company: provider.domain, product: provider.product, companyVerified: true, productVerified: true }
     const rendered = renderInvitationTemplate(saved.templateVariables); assert.ok(rendered.ok)
     assert.deepEqual(await acquisitionPort('run', 'epoch').draft(item), rendered.draft)
+    assert.match(rendered.draft.body, /^Hello team,/)
+    assert.ok(rendered.draft.body.includes('listing one of your APIs'))
+    assert.ok(!rendered.draft.body.includes(provider.domain) && !rendered.draft.body.includes(provider.product))
   }
 }))
 
-test('invalid variables save a clear reason and processing continues to the next provider', async () => offline(async (_events, item, saved) => {
+test('missing names use the generic fallback and continue to the next provider without skip or inference', async () => offline(async (_events, item, saved) => {
   const port = acquisitionPort('run', 'epoch'), skipped: string[] = []
   const original = boundary.rpcOverride!; let index = 0
   port.next = async () => index++ < 2 ? { ...item, attemptId: `attempt-${index}` } : null
@@ -72,17 +75,14 @@ test('invalid variables save a clear reason and processing continues to the next
     if (name === 'mahshar_acquisition_record_draft') { skipped.push(String(args.p_reason)); return { data: true, error: null } }
     return original(name, args)
   }
-  assert.deepEqual(await processAcquisitionBatch(port, 10), ['template_company_missing', 'prepared'])
-  assert.deepEqual(skipped, ['template_company_missing'])
+  assert.deepEqual(await processAcquisitionBatch(port, 10), ['prepared', 'prepared'])
+  assert.deepEqual(skipped, [])
 }))
 
-test('current suppression, identity/contact failure and unsupported names never save a draft', async () => offline(async (events, item, saved) => {
+test('current suppression and identity/contact failure never save a draft', async () => offline(async (events, item, saved) => {
   const port = acquisitionPort('run', 'epoch')
   for (const key of ['allowed', 'identityVerified', 'contactVerified'] as const) {
     saved[key] = false; await assert.rejects(port.draft(item), AcquisitionPreparationSkip); saved[key] = true
-  }
-  for (const key of ['companyVerified', 'productVerified'] as const) {
-    saved.templateVariables[key] = false; await assert.rejects(port.draft(item), AcquisitionPreparationSkip); saved.templateVariables[key] = true
   }
   assert.ok(!events.includes('mahshar_acquisition_save_template_draft'))
   state.tables.admin_outreach_threads = [{ id: 'thread', provider_id: item.providerId }]

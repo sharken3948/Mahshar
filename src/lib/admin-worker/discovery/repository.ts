@@ -354,7 +354,7 @@ export async function claimDeferredCandidates(runId: string, batchId: string, li
 
 export async function getReusableProvenance(leadId: string, maxAgeMs = 30 * 24 * 60 * 60 * 1000): Promise<ProvenanceFact[]> {
   const result = await createServiceClient().from('worker_sources')
-    .select('source_type,source_role,url,title,factual_summary,checked_at').eq('lead_id', leadId)
+    .select('source_type,source_role,url,title,factual_summary,checked_at,naming_evidence').eq('lead_id', leadId)
     .order('checked_at', { ascending: false }).limit(5) as DbResult
   if (result.error) fail('worker_sources_lookup', result.error)
   const cutoff = Date.now() - maxAgeMs
@@ -371,6 +371,7 @@ export async function getReusableProvenance(leadId: string, maxAgeMs = 30 * 24 *
       url, title: typeof item.title === 'string' ? item.title : undefined,
       factualSummary: durableExternalSummary(typeof item.factual_summary === 'string' ? item.factual_summary : undefined, 1000),
       checkedAt: item.checked_at,
+      namingEvidence: Array.isArray(item.naming_evidence) ? item.naming_evidence as import('../invitation-names').OfficialNameProof[] : undefined,
     }]
   })
 }
@@ -385,9 +386,10 @@ export async function saveProvenance(leadId: string, facts: ProvenanceFact[]): P
 
 export function provenanceRecords(leadId: string, facts: ProvenanceFact[]): Array<{
   lead_id: string; source_type: ProvenanceFact['sourceType']; source_role: ProvenanceFact['sourceRole'];
-  url: string; title: string | null; factual_summary: string | null; checked_at: string
+  url: string; title: string | null; factual_summary: string | null; checked_at: string; naming_evidence?: import('../invitation-names').OfficialNameProof[]
 }> {
   return facts.slice(0, 5).map(fact => ({
+    ...(fact.namingEvidence ? { naming_evidence: fact.namingEvidence.slice(0, 8) } : {}),
     lead_id: leadId, source_type: fact.sourceType, source_role: fact.sourceRole,
     url: canonicalExternalUrl(fact.url), title: durableExternalSummary(fact.title, 256) ?? null,
     factual_summary: durableExternalSummary(fact.factualSummary, 1000) ?? null, checked_at: fact.checkedAt,

@@ -1,4 +1,5 @@
 import 'server-only'
+import { createServiceClient } from '@/lib/supabase/server'
 
 export type OutreachDelivery = {
   id: string
@@ -17,6 +18,14 @@ export async function sendOutreachEmail(
 ): Promise<{ providerMessageId: string }> {
   const apiKey = process.env.BREVO_API_KEY?.trim()
   if (process.env.MAINNET_MODE !== 'true' || !apiKey) throw new Error('admin_outreach_transport_unavailable')
+  if (![message.id, message.recipient, message.subject, message.body].every(value => typeof value === 'string' && value.length > 0)) {
+    throw new Error('admin_outreach_invitation_integrity_required')
+  }
+  // A direct adapter call or historical approval cannot bypass current naming proof.
+  const integrity = await createServiceClient().rpc('mahshar_admin_outreach_assert_invitation_integrity', {
+    p_message_id: message.id, p_recipient: message.recipient, p_subject: message.subject, p_body: message.body,
+  })
+  if (integrity.error || integrity.data !== true) throw new Error('admin_outreach_invitation_integrity_required')
   const response = await request('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
     headers: {

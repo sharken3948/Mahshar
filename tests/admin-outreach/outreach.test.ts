@@ -5,6 +5,8 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ProviderMessageId } from '../../src/app/admin/outreach/provider-message-id'
 import { generateGroundedOutreachDraft, isEmailOutreachEligible, providerDisplayName } from '../../src/lib/admin-outreach/draft'
+import { boundary } from '../admin/fixture'
+import { renderInvitationTemplate } from '../../src/lib/admin-worker/invitation-template'
 import { sendOutreachEmail } from '../../src/lib/admin-outreach/transport'
 
 const migration = readFileSync('supabase/migrations/20261007000200_admin_outreach_v1.sql', 'utf8')
@@ -164,14 +166,17 @@ test('mock acquisition attempts cannot enter either Admin approval or send API p
   assert.match(repository, /from\('admin_outreach_messages'\)[\s\S]+\.eq\('id', messageId\)\.single\(\)/)
 })
 
-test('Brevo transport sends one plain-text message with a stable idempotency key', async () => {
+test('Brevo transport sends one validated plain-text message with a stable idempotency key', async () => {
+  const priorIntegrity=boundary.rpcOverride
+  const template=renderInvitationTemplate({company:null,product:null,companyVerified:false,productVerified:false});assert.ok(template.ok)
+  boundary.rpcOverride=async(name,args)=>{assert.equal(name,'mahshar_admin_outreach_assert_invitation_integrity');assert.equal(args.p_body,template.draft.body);return {data:true,error:null}}
   const previousMode = process.env.MAINNET_MODE
   const previousKey = process.env.BREVO_API_KEY
   process.env.MAINNET_MODE = 'true'; process.env.BREVO_API_KEY = 'synthetic-test-key'
   const calls: Array<{ url: string; init: RequestInit }> = []
   try {
     const result = await sendOutreachEmail({ id: '4a3b3b55-327d-4674-9587-d1d88fc3dd53', recipient: 'team@example.com',
-      subject: 'Example API on Mahshar', body: 'Grounded plain text.' }, async (input, init) => {
+      subject: template.draft.subject, body: template.draft.body }, async (input, init) => {
       calls.push({ url: String(input), init: init ?? {} })
       return new Response(JSON.stringify({ messageId: 'provider-message-1' }), { status: 201 })
     })
@@ -183,10 +188,11 @@ test('Brevo transport sends one plain-text message with a stable idempotency key
     const payload = JSON.parse(String(calls[0]?.init.body))
     assert.deepEqual(payload.to, [{ email: 'team@example.com' }])
     assert.deepEqual(payload.sender, { name: 'Mahshar', email: 'support@mahshar.xyz' })
-    assert.equal(payload.textContent, 'Grounded plain text.')
+    assert.equal(payload.textContent, template.draft.body)
     assert.deepEqual(payload.headers, { idempotencyKey: '4a3b3b55-327d-4674-9587-d1d88fc3dd53' })
     assert.equal('htmlContent' in payload, false)
   } finally {
+    boundary.rpcOverride=priorIntegrity
     if (previousMode === undefined) delete process.env.MAINNET_MODE; else process.env.MAINNET_MODE = previousMode
     if (previousKey === undefined) delete process.env.BREVO_API_KEY; else process.env.BREVO_API_KEY = previousKey
   }

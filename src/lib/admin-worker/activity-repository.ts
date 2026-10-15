@@ -1,7 +1,7 @@
 import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
 import type { WorkerActivity, WorkerActivityCursor, WorkerActivityHistory } from './dashboard-types'
-import { INVITATION_TEMPLATE_VERSION } from './invitation-template'
+import { INVITATION_TEMPLATE_VERSIONS } from './invitation-template'
 
 type Row = Record<string, unknown>
 type Db = ReturnType<typeof createServiceClient>
@@ -82,7 +82,7 @@ export async function getWorkerActivity(cursor: WorkerActivityCursor | null = nu
     read('draft', 'draft_prepared_at', select('admin_acquisition_attempts', `id,draft_prepared_at,${PROVIDER}`)
       .eq('draft_generator', 'groq').not('subject', 'is', null).not('body', 'is', null), 'Groq Drafting', () => 'Groq invitation saved · draft checkpoint'),
     read('template', 'draft_prepared_at', select('admin_acquisition_attempts', `id,draft_prepared_at,${PROVIDER}`)
-      .eq('draft_generator', 'template').eq('draft_template_version', INVITATION_TEMPLATE_VERSION)
+      .eq('draft_generator', 'template').in('draft_template_version', [...INVITATION_TEMPLATE_VERSIONS])
       .not('draft_variables', 'is', null).not('subject', 'is', null).not('body', 'is', null),
       'Template Rendering', () => 'Standard invitation template saved · immutable draft checkpoint'),
     read('reserved', 'reserved_at', select('admin_acquisition_attempts', `id,reserved_at,${PROVIDER}`), 'Reservation', () => 'Simulated send slot reserved · no email sent'),

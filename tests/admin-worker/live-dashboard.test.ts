@@ -183,25 +183,29 @@ test('prepared Groq draft and immutable historical skips are returned by scoped 
 test('template checkpoints appear as template activity, count alongside Groq, and retain saved View details', async () => {
   const provider = api(1)
   const template = { id: uuid(2), provider_id: provider.id, status: 'prepared', updated_at: at,
-    draft_generator: 'template', draft_template_version: 'mahshar-provider-invitation-v1', draft_variables: { company: provider.canonical_name, product: 'Saved API' },
+    draft_generator: 'template', draft_template_version: 'mahshar-provider-invitation-v2', draft_variables: { company: null, product: null },
     draft_prepared_at: at, subject: 'Invitation to list your API on Mahshar', body: 'Exact saved template', worker_providers: provider }
   const historicalProvider = api(5)
   const groq = { ...template, id: uuid(3), provider_id: historicalProvider.id, worker_providers: historicalProvider, draft_generator: 'groq', draft_template_version: null, draft_variables: null, body: 'Historical Groq draft' }
-  const { client } = database({ worker_providers: [provider, historicalProvider, api(6)], admin_acquisition_attempts: [template, groq, { ...template, id: uuid(4), provider_id: uuid(6), worker_providers: api(6), draft_generator: null, draft_prepared_at: null }] })
+  const v1 = { ...template, id: uuid(7), provider_id: uuid(8), worker_providers: api(8), draft_template_version: 'mahshar-provider-invitation-v1', body: 'Unchanged historical v1 template' }
+  const { client } = database({ worker_providers: [provider, historicalProvider, api(6), api(8)], admin_acquisition_attempts: [template, groq, v1, { ...template, id: uuid(4), provider_id: uuid(6), worker_providers: api(6), draft_generator: null, draft_prepared_at: null }] })
   const dashboard = await getWorkerDashboard(0, client)
-  assert.equal(dashboard.metrics.prepared, 2)
-  assert.equal(dashboard.metrics.prepared_template, 1)
+  assert.equal(dashboard.metrics.prepared, 3)
+  assert.equal(dashboard.metrics.prepared_template, 2)
   assert.equal(dashboard.metrics.prepared_groq, 1)
   const activity = await getWorkerActivity(null, 25, client)
-  assert.equal(activity.events.filter(event => event.stage === 'Template Rendering').length, 1)
+  assert.equal(activity.events.filter(event => event.stage === 'Template Rendering').length, 2)
   assert.equal(activity.events.filter(event => event.stage === 'Groq Drafting').length, 1)
   const event = activity.events.find(event => event.stage === 'Template Rendering')!
   assert.deepEqual(parseActivityCursor(new URL(`https://fixture/?${new URLSearchParams({ before: event.at!, id: event.id })}`)), { at: event.at, id: event.id })
   const detail = await getWorkerProviderDetail(provider.id, 0, client)
   const draft = detail!.invitations.find(item => item.generator === 'template')!
-  assert.equal(draft.template_version, 'mahshar-provider-invitation-v1')
+  assert.equal(draft.template_version, 'mahshar-provider-invitation-v2')
   assert.equal(draft.body, 'Exact saved template')
   assert.equal(draft.delivery, 'Not sent')
+  const legacy = await getWorkerProviderDetail(uuid(8), 0, client)
+  assert.equal(legacy!.invitations[0].body, 'Unchanged historical v1 template')
+  assert.equal(legacy!.invitations[0].template_version, 'mahshar-provider-invitation-v1')
   const historical = await getWorkerProviderDetail(historicalProvider.id, 0, client)
   assert.ok(historical!.invitations.some(item => item.generator === 'groq' && item.body === 'Historical Groq draft'))
 })

@@ -1,4 +1,5 @@
 import 'server-only'
+import { officialNamingMetadata } from '../invitation-names'
 import { normalizeWorkerIdentity } from '../normalization'
 import { boundedDiscoveryFetch, type DiscoveryFetcher } from './fetch'
 import { canonicalExternalUrl, durableExternalSummary } from './sanitize'
@@ -187,7 +188,7 @@ export async function researchCandidate(input: {
     if (!inspection.valid) return { facts, docsVerified: false, failureCode: inspection.failureCode, compatibilityFailure: inspection.failureCode }
     const endpointIsProviderOwned = Boolean(inspection.endpointUrl && providerOwnsUrl(inspection.endpointUrl, input.normalizedDomain))
     facts.push(contractIsProviderOwned ? {
-      sourceType: 'website', sourceRole: 'official_docs', url: finalUrl,
+      sourceType: 'website', sourceRole: 'official_docs', url: finalUrl, namingEvidence: [],
       title: input.candidate.discoveredProduct?.slice(0, 200), factualSummary: inspection.summary, checkedAt,
     } : {
       sourceType: 'api_directory', sourceRole: 'directory_assertion', url: finalUrl,
@@ -208,7 +209,7 @@ export async function researchCandidate(input: {
         if (officialUrl && providerOwnsUrl(officialUrl, input.normalizedDomain) && docsResponse.status >= 200 && docsResponse.status < 300
           && providerIdentityEstablished(docsResponse.body, input.candidate, input.normalizedDomain)) {
           facts.push({ sourceType: 'website', sourceRole: 'official_docs', url: officialUrl,
-            factualSummary: 'Provider-owned documentation linked from the directory contract.', checkedAt })
+            factualSummary: 'Provider-owned documentation linked from the directory contract.', ...officialNamingMetadata(officialUrl, docsResponse.body, input.normalizedDomain), checkedAt })
           ownershipVerified = true
         }
       } catch { /* Continue to the bounded provider-root fallback. */ }
@@ -228,7 +229,7 @@ export async function researchCandidate(input: {
           && rootResponse.status >= 200 && rootResponse.status < 300
           && providerIdentityEstablished(rootResponse.body, input.candidate, input.normalizedDomain)) {
           facts.push({ sourceType: 'website', sourceRole: 'official_site', url: finalRoot,
-            factualSummary: 'Provider-owned site independently verified for this directory contract.', checkedAt })
+            factualSummary: 'Provider-owned site independently verified for this directory contract.', ...officialNamingMetadata(finalRoot, rootResponse.body, input.normalizedDomain), checkedAt })
           ownershipVerified = true
         }
       } catch { /* Ambiguous ownership remains non-terminal in the processor. */ }

@@ -1,3 +1,4 @@
+import { officialNamingMetadata } from './invitation-names'
 import { canonicalExternalUrl, durableExternalSummary } from './discovery/sanitize'
 import type { ProvenanceFact } from './discovery/types'
 import { inspectOpenApiDocument } from './discovery/research'
@@ -44,7 +45,7 @@ export function documentationFact(url: string, body: string, domain: string, che
   if (body.trimStart().startsWith('{')) {
     const contract = inspectOpenApiDocument(body, url)
     if (contract.valid && contract.endpointUrl && ownsDocumentationUrl(contract.endpointUrl, domain)) return {
-      sourceType: 'website', sourceRole: 'official_docs', url, factualSummary: contract.summary, checkedAt,
+      sourceType: 'website', sourceRole: 'official_docs', url, namingEvidence: [], factualSummary: contract.summary, checkedAt,
     }
     return null
   }
@@ -58,6 +59,7 @@ export function documentationFact(url: string, body: string, domain: string, che
   const endpoint = officialEndpoint || relativeEndpoint
   if (!/\bAPI\b|OpenAPI|Swagger/i.test(text) || !methods.length || !endpoint) return null
   return { sourceType: 'website', sourceRole: 'official_docs', url,
+    ...officialNamingMetadata(url, body, domain),
     factualSummary: durableExternalSummary(`Provider-owned API documentation observed with HTTP methods ${methods.join(', ')}. Request example: ${canonicalExternalUrl(new URL(endpoint, url).href) ?? 'documented relative endpoint'}.`, 700), checkedAt }
 }
 
