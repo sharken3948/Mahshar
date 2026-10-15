@@ -1,11 +1,12 @@
 import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
-import type { WorkerActivity, WorkerDashboard, WorkerInvitation, WorkerProviderActivity, WorkerProviderDetail } from './dashboard-types'
+import { activityTimestamp, getWorkerActivity } from './activity-repository'
+import type { WorkerDashboard, WorkerInvitation, WorkerProviderActivity, WorkerProviderDetail } from './dashboard-types'
 
 type Row = Record<string, unknown>
 type Result = { data: unknown; error: unknown; count?: number | null }
 const PAGE_SIZE = 25
-const PROVIDER_SELECT = 'id,canonical_name,canonical_domain,status,created_at,updated_at,worker_leads(id,qualification_status,fit_reason,updated_at)'
+const PROVIDER_SELECT = 'id,canonical_name,canonical_domain,status,created_at,updated_at,worker_leads(id,qualification_status,fit_reason,contactability_status,email_ready,updated_at)'
 const ATTEMPT_SELECT = 'id,provider_id,status,reason_code,recipient_email,subject,body,draft_generator,draft_prepared_at,reserved_at,dispatched_at,created_at,updated_at'
 const MESSAGE_SELECT = 'id,status,recipient_email,subject,body,provider_message_id,send_reserved_at,send_uncertain_at,sent_at,created_at,updated_at,admin_outreach_delivery_events(event_type,provider_occurred_at)'
 const MESSAGE_SUMMARY_SELECT = 'id,status,provider_message_id,send_reserved_at,send_uncertain_at,sent_at,created_at,updated_at,admin_outreach_delivery_events(event_type,provider_occurred_at)'
@@ -82,6 +83,10 @@ export function providerActivity(provider: Row, attempt?: Row, messages: Row[] =
     invitation: message ? invitationStatus(message) : draft ? draft.status === 'Simulated' ? 'Prepared · simulated' : 'Prepared' : '—',
     delivery: message ? delivery(message) : draft ? draft.delivery : '—',
     has_invitation: !!message || !!draft,
+    discovered_at: string(provider.created_at), latest_activity_at: string(provider.updated_at),
+    contact: leads.some(lead => lead.email_ready === true) ? 'Email ready'
+      : leads.some(lead => ['verified_email', 'verified_official_contact', 'official_contact_page', 'official_sales_channel'].includes(String(lead.contactability_status))) ? 'Official contact available'
+        : leads.some(lead => ['none_found', 'contact_unavailable'].includes(String(lead.contactability_status))) ? 'Contact unavailable' : 'Not confirmed',
   }
 }
 
@@ -90,9 +95,48 @@ export function parseDashboardPage(url: URL): number | null {
   return /^(0|[1-9][0-9]{0,4})$/.test(value) ? Number(value) : null
 }
 
+// A provider's own updated_at does not change when research, drafts or delivery change.
+// Read only timestamp/identity projections, stopping each ordered stream after enough
+// distinct providers (including timestamp ties) to determine the requested page.
+async function latestProviderActivity(page: number, db: ReturnType<typeof createServiceClient>) {
+  const needed = (page + 1) * PAGE_SIZE
+  const streams = [
+    { table: 'worker_providers', select: 'id,updated_at', at: 'updated_at', id: (row: Row) => row.id },
+    { table: 'worker_leads', select: 'id,provider_id,updated_at', at: 'updated_at', id: (row: Row) => row.provider_id },
+    { table: 'worker_sources', select: 'id,checked_at,worker_leads!inner(provider_id)', at: 'checked_at', id: (row: Row) => (row.worker_leads as Row | null)?.provider_id },
+    { table: 'worker_contacts', select: 'id,provider_id,updated_at', at: 'updated_at', id: (row: Row) => row.provider_id },
+    { table: 'admin_acquisition_attempts', select: 'id,provider_id,updated_at', at: 'updated_at', id: (row: Row) => row.provider_id },
+    { table: 'admin_outreach_messages', select: 'id,updated_at,admin_outreach_threads!inner(provider_id)', at: 'updated_at', id: (row: Row) => (row.admin_outreach_threads as Row | null)?.provider_id },
+    { table: 'admin_outreach_delivery_events', select: 'id,provider_occurred_at,admin_outreach_messages!inner(admin_outreach_threads!inner(provider_id))', at: 'provider_occurred_at', id: (row: Row) => ((row.admin_outreach_messages as Row | null)?.admin_outreach_threads as Row | null)?.provider_id },
+  ]
+  const groups = await Promise.all(streams.map(async stream => {
+    const found = new Map<string, string>()
+    for (let offset = 0; ; offset += 100) {
+      const batch = checked(await db.from(stream.table).select(stream.select).not(stream.at, 'is', null)
+        .order(stream.at, { ascending: false }).order('id', { ascending: false }).range(offset, offset + 99))
+      for (const row of batch) {
+        const id = stream.id(row), at = string(row[stream.at])
+        if (typeof id === 'string' && at && Number.isFinite(Date.parse(at)) && !found.has(id)) found.set(id, at)
+      }
+      if (batch.length < 100) break
+      const cutoff = [...found.values()][needed - 1]
+      const last = string(batch.at(-1)?.[stream.at])
+      if (cutoff && last && activityTimestamp(last) < activityTimestamp(cutoff)) break
+    }
+    return found
+  }))
+  const latest = new Map<string, string>()
+  for (const group of groups) for (const [id, at] of group) {
+    if (!latest.has(id) || activityTimestamp(at) > activityTimestamp(latest.get(id)!)) latest.set(id, at)
+  }
+  return [...latest].map(([id, at]) => ({ id, at }))
+    .sort((a, b) => activityTimestamp(b.at).localeCompare(activityTimestamp(a.at)) || b.id.localeCompare(a.id))
+    .slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+}
+
 export async function getWorkerDashboard(page = 0, db = createServiceClient()): Promise<WorkerDashboard> {
-  const [providersResult, qualifiedResult, sentResult, inboundResult, preparedResult] = await Promise.all([
-    db.from('worker_providers').select(PROVIDER_SELECT, { count: 'exact' }).order('updated_at', { ascending: false }).order('id').range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1),
+  const [providersResult, qualifiedResult, sentResult, inboundResult, preparedResult, latest] = await Promise.all([
+    db.from('worker_providers').select('id', { count: 'exact', head: true }),
     // Parent rows are counted once by PostgREST's inner existence filter, even with several qualified products.
     db.from('worker_providers').select('id,worker_leads!inner(id)', { count: 'exact', head: true }).eq('worker_leads.qualification_status', 'qualified'),
     db.from('admin_outreach_messages').select('id', { count: 'exact', head: true }).eq('direction', 'outbound').eq('status', 'sent')
@@ -100,9 +144,10 @@ export async function getWorkerDashboard(page = 0, db = createServiceClient()): 
     db.from('admin_outreach_messages').select('id', { count: 'exact', head: true }).eq('direction', 'inbound'),
     db.from('admin_acquisition_attempts').select('id', { count: 'exact', head: true }).eq('draft_generator', 'groq')
       .not('draft_prepared_at', 'is', null).not('subject', 'is', null).not('body', 'is', null),
+    latestProviderActivity(page, db),
   ])
-  const providers = checked(providersResult)
-  const ids = providers.map(provider => String(provider.id))
+  const ids = latest.map(item => item.id)
+  const providers = ids.length ? checked(await db.from('worker_providers').select(PROVIDER_SELECT).in('id', ids)) : []
   const [attemptResult, threadResult] = ids.length ? await Promise.all([
     db.from('admin_acquisition_attempts').select(ATTEMPT_SELECT.replace(',recipient_email,subject,body', ',subject,body')).in('provider_id', ids),
     db.from('admin_outreach_threads').select(`provider_id,admin_outreach_messages(${MESSAGE_SUMMARY_SELECT})`).in('provider_id', ids)
@@ -111,53 +156,33 @@ export async function getWorkerDashboard(page = 0, db = createServiceClient()): 
   ]) : [{ data: [], error: null }, { data: [], error: null }]
   const attempts = checked(attemptResult)
   const threads = checked(threadResult)
-  const providerRows = providers.map(provider => {
+  const providerRows = latest.flatMap(item => {
+    const provider = providers.find(row => row.id === item.id)
+    if (!provider) return []
     const attempt = attempts.find(row => row.provider_id === provider.id)
     const messages = threads.filter(row => row.provider_id === provider.id).flatMap(row => rows(row.admin_outreach_messages))
       .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
-    return providerActivity(provider, attempt, messages)
+    return [{ ...providerActivity(provider, attempt, messages), latest_activity_at: item.at }]
   })
-  const recent = await recentActivity(db)
+  const activity = await getWorkerActivity(null, 3, db)
   return { metrics: { found: count(providersResult), qualified: count(qualifiedResult), prepared: count(preparedResult),
     sent: count(sentResult), replies: null, inbound_received: count(inboundResult) }, providers: providerRows,
-    recent: recent.filter(event => Number.isFinite(Date.parse(event.at))).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 10),
+    recent: activity.events, activity_next_cursor: activity.next_cursor,
     page, total: count(providersResult), as_of: new Date().toISOString() }
 }
 
-async function recentActivity(db: ReturnType<typeof createServiceClient>): Promise<WorkerActivity[]> {
-  const [discovered, investigated, qualified, contacts, messages] = await Promise.all([
-    db.from('worker_providers').select('id,canonical_name,created_at').order('created_at', { ascending: false }).limit(10),
-    db.from('admin_acquisition_attempts').select('id,status,reason_code,updated_at,worker_providers(canonical_name)').order('updated_at', { ascending: false }).limit(10),
-    db.from('worker_leads').select('id,qualification_status,updated_at,worker_providers(canonical_name)').in('qualification_status', ['qualified', 'rejected', 'review_candidate']).order('updated_at', { ascending: false }).limit(10),
-    db.from('worker_contacts').select('id,verified_at,worker_providers(canonical_name)').eq('verification_status', 'verified').not('verified_at', 'is', null).order('verified_at', { ascending: false }).limit(10),
-    db.from('admin_outreach_messages').select('id,direction,status,provider_message_id,sent_at,created_at,admin_outreach_threads(worker_leads(worker_providers(canonical_name)))').order('created_at', { ascending: false }).limit(10),
-  ])
-  const name = (row: Row) => string((row.worker_providers as Row | null)?.canonical_name) ?? 'Unknown provider'
-  const recent: WorkerActivity[] = [
-    ...checked(discovered).map(row => ({ id: `found:${row.id}`, provider: String(row.canonical_name), label: 'Provider discovered', at: String(row.created_at) })),
-    ...checked(investigated).map(row => ({ id: `attempt:${row.id}`, provider: name(row), label: row.status === 'simulated_sent' ? 'Invitation simulated · no email sent'
-      : `Acquisition ${label(row.status).toLowerCase()}${row.reason_code ? ` · ${label(row.reason_code)}` : ''}`, at: String(row.updated_at) })),
-    ...checked(qualified).map(row => ({ id: `lead:${row.id}`, provider: name(row), label: `${label(row.qualification_status)} · last saved lead state`, at: String(row.updated_at) })),
-    ...checked(contacts).map(row => ({ id: `contact:${row.id}`, provider: name(row), label: 'Official contact verified · eligibility separate', at: String(row.verified_at) })),
-    ...checked(messages).map(row => {
-      const thread = row.admin_outreach_threads as Row | null
-      const lead = thread?.worker_leads as Row | null
-      return { id: `message:${row.id}`, provider: lead ? name(lead) : 'Unmatched inbound',
-        label: row.direction === 'inbound' ? 'Inbound message received · sender unverified' : realAccepted(row) ? 'Invitation accepted by sending provider' : 'Outreach message saved',
-        at: String(row.sent_at ?? row.created_at) }
-    }),
-  ]
-  return recent
-}
 
 export async function getWorkerProviderDetail(id: string, page = 0, db = createServiceClient()): Promise<WorkerProviderDetail | null> {
   const providerResult = await db.from('worker_providers').select(PROVIDER_SELECT).eq('id', id).maybeSingle()
   if (providerResult.error) throw new Error('worker_dashboard_unavailable')
   if (!providerResult.data) return null
   const provider = providerResult.data as unknown as Row
-  const [attemptResult, threadResult] = await Promise.all([
+  const [attemptResult, threadResult, researchResult, activity] = await Promise.all([
     db.from('admin_acquisition_attempts').select(ATTEMPT_SELECT).eq('provider_id', id),
     db.from('admin_outreach_threads').select('id').eq('provider_id', id),
+    db.from('worker_leads').select('id,qualification_status,fit_reason,qualified_at,contactability_status,contact_researched_at,preferred_email,traction_summary,worker_sources(id,source_role,url,factual_summary,checked_at)')
+      .eq('provider_id', id).order('updated_at', { ascending: false }).order('id').range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    getWorkerActivity(null, 25, db, id),
   ])
   const attempt = checked(attemptResult)[0]
   const threadIds = checked(threadResult).map(thread => String(thread.id))
@@ -166,7 +191,14 @@ export async function getWorkerProviderDetail(id: string, page = 0, db = createS
     .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE) : { data: [], error: null }
   const messages = checked(result)
   const acquisition = attempt ? acquisitionInvitation(attempt) : null
+  const research = checked(researchResult)
   return { provider: providerActivity(provider, attempt, messages), invitations: [
     ...(page === 0 && acquisition ? [acquisition] : []), ...messages.slice(0, PAGE_SIZE).map(outreachInvitation),
-  ], page, has_more: messages.length > PAGE_SIZE }
+  ], page, has_more: messages.length > PAGE_SIZE || research.length > PAGE_SIZE, activity,
+    research: research.slice(0, PAGE_SIZE).map(row => ({ id: String(row.id), qualification: label(row.qualification_status),
+      summary: string(row.fit_reason), qualified_at: string(row.qualified_at), contact: label(row.contactability_status),
+      contact_researched_at: string(row.contact_researched_at), email: string(row.preferred_email), traction: string(row.traction_summary),
+      evidence: rows(row.worker_sources).map(source => ({ id: String(source.id), role: label(source.source_role),
+        url: String(source.url), summary: string(source.factual_summary), checked_at: String(source.checked_at) })),
+    })) }
 }

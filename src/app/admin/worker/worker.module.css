@@ -1,28 +1,39 @@
 .page { display: grid; min-width: 0; gap: 24px; }
 .metricGrid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
-.metricGrid article { min-width: 0; padding: 22px 18px; border: 1px solid rgba(146,169,211,.15); border-radius: 14px; background: #0f1828; }
+.metricGrid article { min-width: 0; min-height: 196px; box-sizing: border-box; padding: 22px 18px; border: 1px solid rgba(146,169,211,.15); border-radius: 14px; background: #0f1828; }
 .metricGrid span { color: #b0bfd7; font-size: 13px; font-weight: 600; }
 .metricGrid strong { display: block; margin: 16px 0 10px; color: #f2f6ff; font-size: 34px; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
-.metricGrid small { display: block; color: #8393ad; font-size: 12px; line-height: 1.5; }
-.currentActivity { display: grid; gap: 7px; padding-left: 16px; border-left: 2px solid #6b9de9; }
+.metricGrid small { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; color: #8393ad; font-size: 12px; line-height: 1.5; }
+.currentActivity { display: grid; min-width: 0; gap: 7px; margin: 22px 25px; padding-left: 16px; border-left: 2px solid #6b9de9; }
 .currentActivity > span { color: #879ab7; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
 .currentActivity strong { color: #dae6f8; font-size: 15px; font-weight: 550; overflow-wrap: anywhere; }
 .currentActivity small { color: #8697b1; font-size: 12px; }
+.providerTable th:nth-child(n) { width: 17%; }
+.providerTable th:first-child { width: 22%; }
 .providerTable th:last-child { width: 10%; }
-.providerTable td { overflow-wrap: anywhere; }
-.pagination { display: flex; align-items: center; justify-content: flex-end; gap: 15px; padding: 15px 22px; color: #90a2bf; font-size: 12px; }
+.providerTable td > *, .currentActivity strong, .currentActivity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.providerTable td > .badge { display: inline-block; box-sizing: border-box; }
+.historyViewport { max-height: 28rem; min-width: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.historyViewport:focus-visible { outline: 2px solid #8bb7ff; outline-offset: -3px; }
+.tableViewport.providerViewport { max-height: 30rem; overflow: auto; }
+.detailTimeline { padding-left: 20px; font-size: 13px; }
+.detailTimeline li { margin: 16px 0; }
+.detailTimeline p { margin: 5px 0; }
+.pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 15px; padding: 15px 22px; color: #90a2bf; font-size: 12px; }
 .detailsButton:disabled { cursor: not-allowed; opacity: .4; }
 .activityList { margin: 0; padding: 0 25px; list-style: none; }
 .activityList li { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 17px 0; border-bottom: 1px solid rgba(146,169,211,.1); color: #a6b5cd; }
 .activityList li:last-child { border: 0; }
 .activityList strong, .activityList span { display: block; font-size: 13px; line-height: 1.65; }
+.activityList li > div { flex: 1; min-width: 0; }
+.activityList strong, .activityList span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .activityList strong { color: #dce7f8; font-weight: 550; }
 .activityList time { flex-shrink: 0; color: #7f90aa; font-size: 12px; }
 .technical { min-width: 0; border-top: 1px solid rgba(146,169,211,.16); }
 .technical > summary { padding: 22px 0; color: #b0c1dc; cursor: pointer; font-size: 14px; font-weight: 600; }
 .technical > summary span { margin-left: 12px; color: #798aa4; font-size: 12px; font-weight: 400; }
 .technicalBody { display: grid; gap: 22px; }
-.invitationDialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); box-sizing: border-box; padding: 26px; border: 1px solid #344b6d; border-radius: 18px; color: #aebdd4; background: #101a2b; box-shadow: 0 30px 100px rgba(0,0,0,.5); }
+.invitationDialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; overflow-wrap: anywhere; box-sizing: border-box; padding: 26px; border: 1px solid #344b6d; border-radius: 18px; color: #aebdd4; background: #101a2b; box-shadow: 0 30px 100px rgba(0,0,0,.5); }
 .invitationDialog::backdrop { background: rgba(3,7,14,.75); backdrop-filter: blur(4px); }
 .invitationDialog header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .invitationDialog header span { color: #8195b5; font-size: 12px; }
@@ -44,6 +55,7 @@
   .metricGrid article { padding: 18px 15px; }
   .technical > summary span { display: block; margin: 8px 0 0 18px; }
   .activityList li { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .activityList li > div { width: 100%; }
   .invitationDialog { padding: 18px; }
   .invitation { padding: 14px; }
   .invitation dl > div { grid-template-columns: 90px minmax(0,1fr); }
@@ -134,6 +146,7 @@
 .leadsTable td:first-child { max-width: 290px; min-width: 240px; }
 .leadsTable td:first-child strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .leadsTable td:first-child strong span { color: #8393ab; font-weight: 500; }
+.leadsTable td > span, .leadsTable td > a { display: block; max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .leadsTable a { color: #8db8ff; text-decoration: none; }
 .leadsTable a:hover { text-decoration: underline; }
 .leadRow:hover { background: rgba(76, 141, 255, .035); }

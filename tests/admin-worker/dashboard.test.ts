@@ -115,7 +115,7 @@ test('detail returns exact stored initial messages and simulation with no mutati
   assert.equal(result!.invitations[0].body, attempt.body)
   assert.equal(result!.invitations[1].body, sent.body)
   assert.equal(result!.invitations[1].status, 'Delivered')
-  assert.ok(queries.filter(url => url.pathname.endsWith('admin_outreach_messages')).every(url => url.searchParams.get('reply_to_message_id') === 'is.null'))
+  assert.ok(queries.filter(url => url.pathname.endsWith('admin_outreach_messages') && url.searchParams.has('thread_id')).every(url => url.searchParams.get('reply_to_message_id') === 'is.null'))
   assert.ok(!JSON.stringify(result).includes('real-provider-id'), 'transport identifier not exposed')
   await assert.rejects(getWorkerDashboard(0, offlineClient(true).client), /worker_dashboard/)
 })

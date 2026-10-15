@@ -8,6 +8,7 @@ import type { WorkerQualifiedLeadDto, WorkerQualifiedLeadsDto, WorkerRunDto, Wor
 import { workerLeadContactLabel } from './lead-presentation'
 import { QualificationLabel } from './qualification-label'
 import { DashboardContent, dashboardStatus } from './dashboard-content'
+import { CompactRecords } from './compact-records'
 import type { WorkerDashboard } from '@/lib/admin-worker/dashboard-types'
 import styles from './worker.module.css'
 
@@ -242,9 +243,9 @@ export function WorkerClient() {
       </div>}
       {leadsPhase === 'loading' ? <div className={styles.empty} role="status">Loading qualified leads…</div>
         : leadsPhase === 'failed' ? <div className={styles.empty} role="alert">Qualified leads are temporarily unavailable.</div>
-          : leads.length === 0 ? <div className={styles.empty}>No contact-ready Qualified or Review Candidate leads are available.</div> : <div className={`${styles.tableViewport} ${styles.leadsTable}`}><table>
+          : leads.length === 0 ? <div className={styles.empty}>No contact-ready Qualified or Review Candidate leads are available.</div> : <CompactRecords records={leads} label="Available contact-ready leads">{visibleLeads => <div className={`${styles.tableViewport} ${styles.leadsTable}`}><table>
         <thead><tr><th>API</th><th>Provider</th><th>Category</th><th>Fit</th><th>Status</th><th>Preferred Email</th><th>Official Contact</th><th>Email-ready</th><th>Activity</th><th>Last Evidence</th><th>Details</th></tr></thead>
-        <tbody>{leads.map(lead => {
+        <tbody>{visibleLeads.map(lead => {
           const expanded = expandedLeadId === lead.id
           return <Fragment key={lead.id}><tr className={styles.leadRow}>
             <td data-label="API"><strong title={lead.product}>{lead.product}</strong></td>
@@ -261,7 +262,7 @@ export function WorkerClient() {
             <td data-label="Details"><button type="button" className={styles.detailsButton} aria-expanded={expanded} aria-controls={`lead-${lead.id}`} onClick={() => setExpandedLeadId(expanded ? null : lead.id)}>{expanded ? 'Close' : 'Details'}</button></td>
           </tr>{expanded && <tr className={styles.detailRow}><td id={`lead-${lead.id}`} colSpan={11}><LeadDetails lead={lead}/></td></tr>}</Fragment>
         })}</tbody>
-      </table></div>}
+      </table></div>}</CompactRecords>}
     </section>
 
     <section className={styles.panel}>
@@ -271,16 +272,16 @@ export function WorkerClient() {
 
     <section className={styles.panel}>
       <header><div><span>Bounded to 10 rows</span><h2>Recent runs</h2></div><button type="button" className={styles.refreshButton} onClick={() => void refresh()} disabled={phase === 'loading'}>Refresh</button></header>
-      {runs.length === 0 ? <div className={styles.empty}>No run history is available.</div> : <div className={styles.tableViewport}><table>
+      {runs.length === 0 ? <div className={styles.empty}>No run history is available.</div> : <CompactRecords records={runs} label="Available recent runs">{visibleRuns => <div className={styles.tableViewport}><table>
         <thead><tr><th>Run</th><th>Status</th><th>Progress</th><th>Started</th><th>Finished</th></tr></thead>
-        <tbody>{runs.map(run => <tr key={run.id}>
+        <tbody>{visibleRuns.map(run => <tr key={run.id}>
           <td data-label="Run"><strong>#{run.run_number}</strong><code title={run.id}>{run.id}</code></td>
           <td data-label="Status"><RunStatus status={run.status}/>{run.error_code && <small>{run.error_code.replace(/_/g, ' ')}</small>}</td>
           <td data-label="Progress"><span>{run.processed_count} / {run.batch_size}</span></td>
           <td data-label="Started"><span>{timeLabel(run.started_at)}</span></td>
           <td data-label="Finished"><span>{timeLabel(run.completed_at ?? run.stopped_at)}</span></td>
         </tr>)}</tbody>
-      </table></div>}
+      </table></div>}</CompactRecords>}
     </section>
       </div>
     </details>

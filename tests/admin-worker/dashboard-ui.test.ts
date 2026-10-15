@@ -2,16 +2,18 @@ import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { test } from 'node:test'
-import { DashboardContent, InvitationRecord, dashboardStatus } from '../../src/app/admin/worker/dashboard-content'
+import { DashboardContent, InvitationRecord, LiveActivity, confirmedActivityLabel, dashboardStatus } from '../../src/app/admin/worker/dashboard-content'
 import { WorkerClient } from '../../src/app/admin/worker/worker-client'
 import type { WorkerDashboard } from '../../src/lib/admin-worker/dashboard-types'
 import type { WorkerStatusDto } from '../../src/lib/admin-worker/types'
+import type { WorkerActivity } from '../../src/lib/admin-worker/dashboard-types'
+import { CompactRecords } from '../../src/app/admin/worker/compact-records'
 
 test('dashboard renders accurate counters, simulations and actionable provider rows without performing requests', () => {
   const dashboard: WorkerDashboard = { metrics: { found: 10, qualified: 4, prepared: 3, sent: 1, replies: null, inbound_received: 2 },
-    providers: [{ id: 'p1', name: '<malicious provider>', domain: 'fixture.example', qualification: 'Qualified', reason: 'No eligible recipient', invitation: 'Prepared · simulated', delivery: 'Simulated · no email sent', has_invitation: true }], recent: [], page: 0, total: 10, as_of: '2026-10-14' }
+    activity_next_cursor: null, providers: [{ discovered_at: '2026-10-01', latest_activity_at: '2026-10-15', contact: 'Email ready', id: 'p1', name: '<malicious provider>', domain: 'fixture.example', qualification: 'Qualified', reason: 'No eligible recipient', invitation: 'Prepared · simulated', delivery: 'Simulated · no email sent', has_invitation: true }], recent: [], page: 0, total: 10, as_of: '2026-10-14' }
   const html = renderToStaticMarkup(createElement(DashboardContent, { dashboard, status: null, page: 0, onPage: () => {}, unavailable: false }))
-  for (const name of ['APIs Found', 'Qualified APIs', 'Invitations Prepared', 'Invitations Sent', 'Replies Received', 'Provider activity', 'Recent activity']) assert.ok(html.includes(name))
+  for (const name of ['APIs Found', 'Qualified APIs', 'Invitations Prepared', 'Invitations Sent', 'Replies Received', 'Provider Activity', 'Live Activity']) assert.ok(html.includes(name))
   assert.match(html, /Recorded Groq invitations/)
   assert.match(html, /excludes mock and unknown-origin drafts/)
   assert.match(html, /2 inbound messages/)
@@ -59,4 +61,49 @@ test('status distinguishes durable wait, running intent, errors and stopped stat
   assert.equal(dashboardStatus({ ...status, acquisition: undefined, status: 'failed' }), 'Error')
   assert.equal(dashboardStatus({ ...status, acquisition: undefined }), 'Stopped')
   assert.equal(dashboardStatus(null), 'Unavailable')
+})
+
+const savedEvent: WorkerActivity = { id: 'found:p1', provider: 'Saved API', provider_id: 'p1', stage: 'Research', label: '<saved evidence>', at: '2026-10-15T10:00:00Z' }
+
+test('live stage is explicitly last confirmed; Waiting, Stopped and unknown stages are never invented', () => {
+  const status = { status: 'running', acquisition: { running: true, waiting: false } } as WorkerStatusDto
+  assert.equal(confirmedActivityLabel(status, savedEvent), 'Last confirmed: Research')
+  assert.equal(confirmedActivityLabel(status, { ...savedEvent, stage: null }), 'Waiting for update')
+  assert.equal(confirmedActivityLabel(status), 'Waiting for update')
+  assert.equal(confirmedActivityLabel({ ...status, acquisition: { ...status.acquisition!, waiting: true } }, savedEvent), 'Waiting')
+  assert.equal(confirmedActivityLabel({ ...status, status: 'stopped', acquisition: undefined }, savedEvent), 'Stopped')
+})
+
+test('live history defaults to three, preserves failure and Stop notices, and offers read-only details', () => {
+  const events = Array.from({ length: 8 }, (_, i) => ({ ...savedEvent, id: `event:${i}`, provider: `Saved API ${i}` }))
+  const dashboard = { recent: events, activity_next_cursor: { id: events[2].id, at: events[2].at } } as WorkerDashboard
+  const status = { status: 'stop_requested', acquisition: { running: true, waiting: false } } as WorkerStatusDto
+  const html = renderToStaticMarkup(createElement(LiveActivity, { dashboard, status, unavailable: true, onView: () => {} }))
+  assert.match(html, /Live Activity/)
+  assert.match(html, /Stop requested/)
+  assert.match(html, /Activity refresh failed/)
+  assert.match(html, /View All/)
+  assert.match(html, /&lt;saved evidence&gt;/)
+  assert.equal((html.match(/aria-label="View activity for/g) ?? []).length, 3)
+  assert.doesNotMatch(html, /Saved API 3/)
+  const failed = renderToStaticMarkup(createElement(LiveActivity, { dashboard: null, status: { status: 'failed', latest_run: { error_code: 'fixture_error' } } as WorkerStatusDto, unavailable: false, onView: () => {} }))
+  assert.match(failed, /role="alert">Worker error: fixture_error/)
+})
+
+test('compact lists show only the latest three and keep their expansion accessible', () => {
+  const html = renderToStaticMarkup(createElement(CompactRecords<number>, {
+    records: [1, 2, 3, 4, 5], label: 'Fixture records', children: visible => createElement('ul', null, visible.map(id => createElement('li', { key: id }, `Record ${id}`))),
+  }))
+  assert.match(html, /Record 3/)
+  assert.doesNotMatch(html, /Record 4/)
+  assert.match(html, /aria-expanded="false" aria-controls=/)
+  assert.match(html, /3 of 5 available records/)
+})
+
+test('one provider card replaces recent activity and Live Activity follows the controls', () => {
+  const html = renderToStaticMarkup(createElement(WorkerClient))
+  assert.equal((html.match(/<h2>Provider Activity<\/h2>/g) ?? []).length, 1)
+  assert.doesNotMatch(html, /Recent activity/)
+  assert.ok(html.indexOf('Run the Worker') < html.indexOf('<h2>Live Activity</h2>'))
+  assert.ok(html.indexOf('<h2>Live Activity</h2>') < html.indexOf('Acquisition results'))
 })

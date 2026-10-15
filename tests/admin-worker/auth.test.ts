@@ -8,6 +8,7 @@ import * as runs from '../../src/app/api/admin/worker/runs/route'
 import * as leads from '../../src/app/api/admin/worker/leads/route'
 import * as dashboard from '../../src/app/api/admin/worker/dashboard/route'
 import * as provider from '../../src/app/api/admin/worker/providers/[id]/route'
+import * as activity from '../../src/app/api/admin/worker/activity/route'
 import * as start from '../../src/app/api/admin/worker/start/route'
 import * as stop from '../../src/app/api/admin/worker/stop/route'
 import * as resume from '../../src/app/api/admin/worker/resume/route'
@@ -32,6 +33,7 @@ test('every Worker endpoint enforces the existing wallet-session Admin allowlist
     { route: leads.GET, path: '/api/admin/worker/leads', method: 'GET' as const },
     { route: dashboard.GET, path: '/api/admin/worker/dashboard', method: 'GET' as const },
     { route: provider.GET, path: '/api/admin/worker/providers/00000000-0000-0000-0000-000000000001', method: 'GET' as const },
+    { route: activity.GET, path: '/api/admin/worker/activity', method: 'GET' as const },
     { route: start.POST, path: '/api/admin/worker/start', method: 'POST' as const },
     { route: stop.POST, path: '/api/admin/worker/stop', method: 'POST' as const },
     { route: resume.POST, path: '/api/admin/worker/resume', method: 'POST' as const },
@@ -44,7 +46,7 @@ test('every Worker endpoint enforces the existing wallet-session Admin allowlist
 })
 
 test('Worker routes expose only their intended HTTP method', () => {
-  for (const route of [status, runs, leads, dashboard, provider]) {
+  for (const route of [status, runs, leads, dashboard, provider, activity]) {
     assert.equal('GET' in route, true)
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) assert.equal(method in route, false)
   }
@@ -55,6 +57,8 @@ test('Worker routes expose only their intended HTTP method', () => {
 })
 
 test('read-only dashboard validates pagination and provider IDs after authorization', async () => {
+  assert.equal((await activity.GET(request('/api/admin/worker/activity?before=invalid&id=invalid', 'GET', alice))).status, 400)
+  assert.equal((await activity.GET(request('/api/admin/worker/activity?provider=invalid', 'GET', alice))).status, 400)
   assert.equal((await dashboard.GET(request('/api/admin/worker/dashboard?page=-1', 'GET', alice))).status, 400)
   assert.equal((await provider.GET(request('/api/admin/worker/providers/not-a-uuid', 'GET', alice))).status, 400)
   assert.equal((await provider.GET(request('/api/admin/worker/providers/00000000-0000-0000-0000-000000000001', 'GET', alice))).status, 404)
@@ -62,6 +66,21 @@ test('read-only dashboard validates pagination and provider IDs after authorizat
   const response = await dashboard.GET(request('/api/admin/worker/dashboard', 'GET', alice))
   assert.equal(response.status, 503)
   assert.deepEqual(await response.json(), { error: 'worker_dashboard_unavailable' })
+  assert.equal(boundary.external, 0)
+})
+
+test('authorized activity GET stays read-only and sanitizes unavailable history errors', async () => {
+  const authorizedRequest = request('/api/admin/worker/activity', 'GET', alice)
+  const before = JSON.stringify(state.tables)
+  const response = await activity.GET(authorizedRequest)
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { events: [], next_cursor: null })
+  assert.equal(response.headers.get('Cache-Control'), 'no-store')
+  assert.equal(JSON.stringify(state.tables), before)
+  boundary.unavailableTable = 'worker_providers'
+  const failed = await activity.GET(request('/api/admin/worker/activity', 'GET', alice))
+  assert.equal(failed.status, 503)
+  assert.deepEqual(await failed.json(), { error: 'worker_activity_unavailable' })
   assert.equal(boundary.external, 0)
 })
 
