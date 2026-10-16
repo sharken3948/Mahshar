@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { NextRequest } from 'next/server.js'
-import { state } from './integration-fixture'
+import { BatchFacilitatorClient, state } from './integration-fixture'
 import { apiId, MemoryStore, payer, payment, seller } from './fixture'
 import { build402Response, verifyAndSettlePayment } from '../../src/lib/gateway'
 import { POST } from '../../src/app/api/proxy/route'
@@ -33,6 +33,33 @@ test('real gateway pricing and normal paid proxy retain authoritative amount and
   const replay = await POST(paid()); assert.equal(replay.status, 200); assert.equal(state.settled, 1); assert.equal(state.proxied, 1)
   assert.equal(replay.headers.get('cache-control'), 'no-store')
   assert.equal(typeof (await replay.json()).purchase_access_token, 'string')
+})
+test('malformed settlement acknowledgment blocks provider/accounting and concurrent original-proof retries', async () => {
+  const settle = BatchFacilitatorClient.prototype.settle
+  try {
+    for (const ack of [
+      { success: true, payer: true, network: 'eip155:5042', transaction: 'synthetic-ack' },
+      { success: true },
+    ]) {
+      reset()
+      BatchFacilitatorClient.prototype.settle = async () => {
+        state.settled++
+        return ack as unknown as Awaited<ReturnType<BatchFacilitatorClient['settle']>>
+      }
+      const response = await POST(paid())
+      assert.equal(response.status, 409)
+      const body = await response.json()
+      assert.equal(body.error, 'settlement_requires_review')
+      assert.match(body.message, /Do not approve another payment/)
+      assert.doesNotMatch(body.message, /No payment was submitted/)
+      assert.equal(response.headers.get('payment-response'), null)
+      assert.equal([...state.store.rows.values()][0].state, 'SETTLEMENT_UNKNOWN')
+      const retries = await Promise.all([POST(paid()), POST(paid())])
+      assert.ok(retries.every(r => r.status === 409))
+      assert.equal(state.settled, 1); assert.equal(state.proxied, 0)
+      assert.equal(state.store.purchases.size, 0)
+    }
+  } finally { BatchFacilitatorClient.prototype.settle = settle }
 })
 test('Ioscope-style POST charges the fee-inclusive total and forwards the actual fixture body', async () => {
   reset(); state.listingPrice = 0.1; state.listingBodyRequired = true; state.listingRequestSchema = ioscopeSchema

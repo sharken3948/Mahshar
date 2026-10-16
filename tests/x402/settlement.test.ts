@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { PaymentStorageUnavailableError, parsePayment, paymentIdentity, recoverSettlement, settleDurably, type Facilitator } from '../../src/lib/payments/settlement'
 import { apiId, MemoryStore, payer, payment, requirements, seller } from './fixture'
+import { paymentErrorMessage } from '../../src/lib/payments/errors'
 
 function setup() {
   const store = new MemoryStore()
@@ -22,7 +23,7 @@ test('normal settlement persists exactly once; retry skips verify/settle and ret
 test('prepared-before-settlement and simultaneous retries cannot both submit', async () => {
   const t = setup(); let release!: () => void
   const wait = new Promise<void>(resolve => { release = resolve })
-  t.facilitator.settle = async () => { t.counts.settle++; assert.equal([...t.store.rows.values()][0].state, 'SETTLEMENT_SUBMITTED'); await wait; return { success: true, payer } }
+  t.facilitator.settle = async () => { t.counts.settle++; assert.equal([...t.store.rows.values()][0].state, 'SETTLEMENT_SUBMITTED'); await wait; return { success: true, payer, network: requirements.network, transaction: '' } }
   const first = t.run(); while (!t.counts.settle) await new Promise(resolve => setImmediate(resolve))
   const second = await t.run(); assert.equal(second.success, false); assert.equal(second.status, 409)
   release(); assert.equal((await first).success, true); assert.equal(t.counts.settle, 1)
@@ -56,7 +57,7 @@ test('process-style interruption after confirmation recovers from only the persi
   assert.equal(result.success, true); assert.equal(t.counts.settle, 1)
 })
 test('missing transaction uses stable authorization fingerprint; batch transaction does not collapse payments', async () => {
-  const t = setup(); t.facilitator.settle = async () => ({ success: true, transaction: '' })
+  const t = setup(); t.facilitator.settle = async () => ({ success: true, network: requirements.network, transaction: '' })
   await t.run(); const a = [...t.store.rows.values()][0]
   assert.equal(a.settlement_identity, `x402:${paymentIdentity(payment, requirements).fingerprint}`)
   assert.equal((await t.run()).success, true); assert.equal(t.store.purchases.size, 1)
@@ -121,5 +122,76 @@ test('upstream timeout/4xx/5xx occurs after durable accounting and cannot erase 
     const t = setup(); assert.equal((await t.run()).success, true)
     await Promise.reject(new Error(`upstream ${status}`)).catch(() => undefined)
     assert.equal([...t.store.rows.values()][0].state, 'ACCOUNTING_COMPLETE'); assert.equal(t.store.purchases.size, 1)
+  }
+})
+
+test('malformed settlement acknowledgments remain uncertain, never confirm or resubmit', async () => {
+  const valid = { success: true, payer, network: requirements.network, transaction: 'synthetic-ack' }
+  const missing = (field: string) => Object.fromEntries(Object.entries(valid).filter(([key]) => key !== field))
+  const malformed: unknown[] = [
+    null, undefined, true, [], {}, missing('success'), missing('network'), missing('transaction'),
+    { ...valid, success: 'true' },
+    ...[true, false, 1, null, {}, [], '', 'not-an-address'].map(payer => ({ ...valid, payer })),
+    ...[true, null, {}, '', 'wrong-chain'].map(network => ({ ...valid, network })),
+    ...[true, null, {}, 1].map(transaction => ({ ...valid, transaction })),
+  ]
+  for (const ack of malformed) {
+    const t = setup()
+    t.facilitator.settle = async () => { t.counts.settle++; return ack as Awaited<ReturnType<Facilitator['settle']>> }
+    const result = await t.run()
+    assert.equal(result.success, false)
+    assert.equal(result.error, 'settlement_requires_review')
+    assert.equal(result.status, 409)
+    assert.equal([...t.store.rows.values()][0].state, 'SETTLEMENT_UNKNOWN')
+    assert.equal(t.store.purchases.size, 0)
+    const message = paymentErrorMessage(result.error, undefined, result.attemptId)
+    assert.match(message, /Do not approve another payment/)
+    assert.doesNotMatch(message, /No payment was submitted/)
+    const retries = await Promise.all([t.run(), t.run()])
+    assert.ok(retries.every(r => !r.success))
+    assert.equal(t.counts.verify, 1); assert.equal(t.counts.settle, 1)
+    assert.equal(t.store.purchases.size, 0)
+  }
+})
+
+test('unexpected acknowledgment exception after dispatch cannot claim no submission or reopen payment', async () => {
+  const t = setup()
+  t.facilitator.settle = async () => {
+    t.counts.settle++
+    return { get success(): boolean { throw new Error('PRIVATE_ACK_FAILURE') } }
+  }
+  const result = await t.run()
+  assert.equal(result.error, 'settlement_unknown'); assert.equal(result.status, 409)
+  assert.equal([...t.store.rows.values()][0].state, 'SETTLEMENT_SUBMITTED')
+  assert.equal(t.store.purchases.size, 0)
+  const message = paymentErrorMessage(result.error)
+  assert.match(message, /uncertain.*Do not approve another payment/)
+  assert.doesNotMatch(message, /No payment was submitted|PRIVATE_ACK_FAILURE/)
+  assert.equal((await t.run()).success, false)
+  assert.equal(t.counts.settle, 1); assert.equal(t.counts.verify, 1)
+})
+
+test('uncertainty persistence failure cannot authorize another settlement', async () => {
+  const t = setup()
+  t.facilitator.settle = async () => { t.counts.settle++; return { success: true, payer: true } as unknown as Awaited<ReturnType<Facilitator['settle']>> }
+  t.store.unknown = async () => { throw new Error('DB acknowledgment unavailable') }
+  const result = await t.run()
+  assert.equal(result.error, 'settlement_requires_review')
+  assert.equal([...t.store.rows.values()][0].state, 'SETTLEMENT_SUBMITTED')
+  assert.equal((await t.run()).success, false)
+  assert.equal(t.counts.settle, 1); assert.equal(t.store.purchases.size, 0)
+})
+
+test('pre-submission unexpected/storage/verification failures retain no-submission messages', async () => {
+  for (const mode of ['unexpected', 'storage', 'verification']) {
+    const t = setup()
+    if (mode === 'unexpected') t.store.prepare = async () => { throw new Error('DB unavailable') }
+    if (mode === 'storage') t.store.find = async () => { throw new PaymentStorageUnavailableError() }
+    if (mode === 'verification') t.facilitator.verify = async () => { throw new Error('verification unavailable') }
+    const result = await t.run()
+    assert.equal(result.error, mode === 'unexpected' ? 'payment_processing_unavailable' : mode === 'storage' ? 'payment_storage_unavailable' : 'payment_verification_service_unavailable')
+    assert.equal(result.status, 503)
+    assert.match(paymentErrorMessage(result.error), /No payment was submitted/)
+    assert.equal(t.counts.settle, 0); assert.equal(t.store.purchases.size, 0)
   }
 })

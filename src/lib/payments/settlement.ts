@@ -83,6 +83,7 @@ export async function settleDurably(input: {
 }): Promise<SettlementResult> {
   const { payment, store } = input
   let attempt: Attempt | null = null
+  let submissionMayHaveOccurred = false
   try {
     // Before /verify: used authorizations may no longer verify, but confirmed
     // local evidence can still be accounted. Listing and proof must match.
@@ -122,13 +123,19 @@ export async function settleDurably(input: {
     const claimed = await store.claim(attempt.id, token)
     if (!claimed) return recoverSettlement(store, attempt)
     let result: Awaited<ReturnType<Facilitator['settle']>>
+    // Once dispatch can start, an unexpected exception cannot prove no payment.
+    submissionMayHaveOccurred = true
     try { result = await input.facilitator(verified.network).settle(payment, verified) }
     catch {
       await store.unknown(attempt.id, token, 'settlement_transport_uncertain').catch(() => undefined)
       return { success: false, error: 'settlement_unknown', attemptId: attempt.id, status: 409 }
     }
-    if (result.success !== true || (result.payer && result.payer.toLowerCase() !== attempt.binding.payer) || (result.network && result.network !== verified.network)) {
-      await store.unknown(attempt.id, token, result.success === false ? 'facilitator_rejected_or_authorization_used' : 'settlement_result_conflict').catch(() => undefined)
+    // The SDK does not validate acknowledgment field types at runtime.
+    // Empty transaction references retain the existing fingerprint fallback.
+    if (!result || typeof result !== 'object' || Array.isArray(result) || result.success !== true ||
+        (result.payer !== undefined && (typeof result.payer !== 'string' || result.payer.toLowerCase() !== attempt.binding.payer)) ||
+        result.network !== verified.network || typeof result.transaction !== 'string') {
+      await store.unknown(attempt.id, token, result?.success === false ? 'facilitator_rejected_or_authorization_used' : 'settlement_result_conflict').catch(() => undefined)
       return { success: false, error: 'settlement_requires_review', attemptId: attempt.id, status: 409 }
     }
     // No signature or payment payload is stored; the immutable binding survives
@@ -142,6 +149,7 @@ export async function settleDurably(input: {
     const recovered = await recoverSettlement(store, attempt)
     return recovered.success ? { ...recovered, replayed: false } : recovered
   } catch (error) {
+    if (submissionMayHaveOccurred) return { success: false, error: 'settlement_unknown', attemptId: attempt?.id, status: 409 }
     return {
       success: false,
       error: error instanceof PaymentStorageUnavailableError ? 'payment_storage_unavailable' : 'payment_processing_unavailable',
