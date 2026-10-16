@@ -119,7 +119,7 @@ paths:
         - { name: x-mahshar-purchase-access, in: header, required: false, schema: { type: string } }
       responses:
         '200':
-          description: Stored response and optionally a newly issued capability
+          description: Stored response and optionally a newly issued capability; response_body is null when no retained response is available
           content:
             application/json:
               schema:
@@ -130,6 +130,17 @@ paths:
         '401': { $ref: '#/components/responses/Error' }
         '403': { $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
+        '503':
+          description: Response storage unavailable; retry only recovery with the same capability, without another payment or API execution
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string, const: response_storage_unavailable }
+                  warning: { type: string }
   /api/payments/reconcile:
     post:
       tags: [Recovery]

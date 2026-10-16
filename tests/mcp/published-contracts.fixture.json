@@ -1,0 +1,113 @@
+{
+  "source": "GET https://mahshar.xyz/api/apis?limit=100",
+  "retrieved_at": "2026-10-16T11:28:25.732Z",
+  "apis": [
+    {
+      "id": "c8b2dc17-9beb-4e6f-bd47-aa468c6ceca1",
+      "name": "TxLens Transaction Lookup",
+      "method": "POST",
+      "price_per_call": 0.003,
+      "auth_type": "bearer",
+      "dynamic_path_supported": false,
+      "path_parameters": [],
+      "query_parameters": [],
+      "request_schema": null,
+      "body_required": true,
+      "is_active": true
+    },
+    {
+      "id": "77022234-a62d-466b-9e18-08b00bcd3733",
+      "name": "TxLens Transaction Analyzer",
+      "method": "POST",
+      "price_per_call": 0.002,
+      "auth_type": "bearer",
+      "dynamic_path_supported": false,
+      "path_parameters": [],
+      "query_parameters": [],
+      "request_schema": null,
+      "body_required": true,
+      "is_active": true
+    },
+    {
+      "id": "2f3dda9e-0cbc-4c62-9f4a-996356bc2c9e",
+      "name": "0xFUTURE Oracle Reading",
+      "method": "POST",
+      "price_per_call": 0.6,
+      "auth_type": "bearer",
+      "dynamic_path_supported": false,
+      "path_parameters": [],
+      "query_parameters": [],
+      "request_schema": null,
+      "body_required": true,
+      "is_active": true
+    },
+    {
+      "id": "591e7135-d93e-4068-985d-05ecc02d2399",
+      "name": "Anewone Token Data & Bot Integration API",
+      "method": "GET",
+      "price_per_call": 0.001,
+      "auth_type": "public",
+      "dynamic_path_supported": false,
+      "path_parameters": [],
+      "query_parameters": [
+        {
+          "name": "limit",
+          "type": "integer",
+          "example": "1",
+          "maximum": 500,
+          "minimum": 1,
+          "required": false,
+          "description": "How many coins to return, 1 to 500 (default 100)"
+        },
+        {
+          "enum": [
+            "volume24h",
+            "volumeAll",
+            "marketCap",
+            "fdv",
+            "liquidity",
+            "trades24h",
+            "holders",
+            "age",
+            "created"
+          ],
+          "name": "sort",
+          "type": "string",
+          "example": "volume24h",
+          "required": false,
+          "description": "Sort key, descending (default volume24h)"
+        },
+        {
+          "name": "graduated",
+          "type": "boolean",
+          "example": "false",
+          "required": false,
+          "description": "Only graduated coins (true) or only coins still on their curve (false); omit for all"
+        },
+        {
+          "name": "q",
+          "type": "string",
+          "example": "NOAH",
+          "required": false,
+          "description": "Name or symbol substring to search for"
+        }
+      ],
+      "request_schema": null,
+      "body_required": false,
+      "is_active": true
+    },
+    {
+      "id": "34c7a931-81de-4b8b-81ac-0916b4316989",
+      "name": "Ioscope Wallet Risk Scoring",
+      "method": "POST",
+      "price_per_call": 0.1,
+      "auth_type": "public",
+      "dynamic_path_supported": false,
+      "path_parameters": null,
+      "query_parameters": null,
+      "request_schema": null,
+      "body_required": false,
+      "is_active": true
+    }
+  ]
+}

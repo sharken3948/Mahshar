@@ -7,13 +7,13 @@ export const alice = privateKeyToAccount(`0x${'11'.repeat(32)}`)
 export const bob = privateKeyToAccount(`0x${'22'.repeat(32)}`)
 export const origin = 'https://mahshar.xyz'
 export const state = { tables: {} as Record<string, Record<string, any>[]>, upstream: 0, settled: 0,
-  rateLimitError: false, rateLimitAllowed: true, failApiCallInsert: false, pruneCalls: 0, pruneResult: 0,
+  rateLimitError: false, rateLimitAllowed: true, failApiCallInsert: false, failApiCallRead: false, pruneCalls: 0, pruneResult: 0,
   failListingInsert: false, urlValidationCalls: 0,
   authPruneCalls: 0, authPruneResult: { challenges: 0, sessions: 0 } }
 export function reset() {
   state.upstream = 0; state.settled = 0; state.urlValidationCalls = 0
   state.rateLimitError = false; state.rateLimitAllowed = true
-  state.failApiCallInsert = false; state.failListingInsert = false
+  state.failApiCallInsert = false; state.failApiCallRead = false; state.failListingInsert = false
   state.pruneCalls = 0; state.pruneResult = 0
   state.authPruneCalls = 0; state.authPruneResult = { challenges: 0, sessions: 0 }
   state.tables = { api_listings: [], api_calls: [], purchases: [], credit_balances: [], seller_withdrawals: [],
@@ -73,6 +73,9 @@ class Query {
   delete() { this.mutation = { kind: 'delete' }; return this }
   insert(value: Record<string, any>) { this.mutation = { kind: 'insert', value }; return this }
   then(resolve: (value: any) => unknown) {
+    if (this.table === 'api_calls' && !this.mutation && state.failApiCallRead) {
+      return Promise.resolve({ data: null, error: { code: 'XX000', message: 'sensitive storage detail' } }).then(resolve)
+    }
     let table = state.tables[this.table] ?? []
     if (this.mutation?.kind === 'insert') {
       if (this.table === 'api_listings' && state.failListingInsert) {

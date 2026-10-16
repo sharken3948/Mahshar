@@ -47,9 +47,16 @@ export const GET = marketplaceErrors(async (request: NextRequest) => {
     .not('response_body', 'is', null)
     .gte('response_expires_at', new Date().toISOString())
     .limit(1)
-    .single()
+    .maybeSingle()
 
-  if (error || !data) {
+  if (error) {
+    return NextResponse.json({
+      error: 'response_storage_unavailable',
+      warning: 'Retry only purchased-response recovery with the same capability. Do not make another payment.',
+    }, { status: 503, headers: { 'Cache-Control': 'no-store' } })
+  }
+
+  if (!data) {
     return NextResponse.json({
       response_body: null,
       purchase_access_token: issuePurchaseAccess({ purchaseId: purchase.id, apiId, buyerWallet }),

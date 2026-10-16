@@ -140,7 +140,26 @@ export function createPaidClient(options: DiscoveryClientOptions = {}) {
       const fetched = await selfFetch(request.url, request.init, signed)
       if ('transportError' in fetched) return fetched.result
       const response = fetched
-      const body = await boundedBody(response)
+      let body
+      try { body = await boundedBody(response) }
+      catch {
+        if (!signed) return { status: 'request_rejected', http_status: response.status, error: 'proxy_response_interrupted' }
+        // Headers can acknowledge payment even when no complete body arrived.
+        // Keep only the existing validated acknowledgement, never partial data.
+        const raw = response.headers.get('payment-response')
+        let acknowledgement = {}
+        if (raw) {
+          try {
+            acknowledgement = { payment_response: raw, settlement: paymentResponseSchema.parse(decodeHeader(raw, MAX_PAYMENT_RESPONSE_BYTES)) }
+          } catch { /* An invalid header is not evidence of accepted payment. */ }
+        }
+        return {
+          status: 'transport_outcome_unknown',
+          http_status: response.status,
+          ...acknowledgement,
+          warning: 'Payment-Signature was submitted but the response was interrupted. Do not create a fresh authorization or automatically repeat execution. If you retained a purchase capability, use get_purchase_response with it; otherwise retain the original call and authorization for review.',
+        }
+      }
       if (body.oversized) return { status: 'mcp_response_too_large', http_status: response.status }
 
       if (!signed && response.status === 402) {
@@ -204,7 +223,16 @@ export function createPaidClient(options: DiscoveryClientOptions = {}) {
       }, false)
       if ('transportError' in fetched) return fetched.result
       const response = fetched
-      const body = await boundedBody(response)
+      let body
+      try { body = await boundedBody(response) }
+      catch {
+        return {
+          status: 'request_rejected',
+          http_status: response.status,
+          error: 'purchase_response_interrupted',
+          warning: 'Retry only get_purchase_response with the same purchase capability. Do not make another payment or repeat execute_api_call.',
+        }
+      }
       if (body.oversized) return { status: 'mcp_response_too_large', http_status: response.status }
       const status = response.ok ? 'paid_result' : response.status === 429 ? 'rate_limited' :
         response.status === 404 ? 'recovery_not_found' : [401, 403].includes(response.status) ? 'recovery_denied' : 'request_rejected'

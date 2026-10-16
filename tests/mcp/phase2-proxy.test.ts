@@ -5,8 +5,9 @@ import { POST as proxyPost } from '../../src/app/api/proxy/route'
 import type { AgentListing } from '../../src/lib/mcp/discovery-client'
 import { createPaidClient } from '../../src/lib/mcp/paid-client'
 import { buildProxyRequest, normalizePreparedCall } from '../../src/lib/mcp/request-builder'
+import { issuePreparedCallToken } from '../../src/lib/mcp/prepared-call'
 import { state } from '../x402/integration-fixture'
-import { apiId, MemoryStore, payer } from '../x402/fixture'
+import { apiId, MemoryStore, payer, payment } from '../x402/fixture'
 
 const listing: AgentListing = {
   id: apiId, name: 'Fixture', description: 'No-money route fixture', category: 'test', price_per_call_usdc: 0.001,
@@ -39,6 +40,9 @@ function reset() {
   state.listingDynamicPath = false
   state.listingPathParameters = null
   state.listingQueryParameters = null
+  state.upstreamStatus = 200
+  state.deliveryOutcome = undefined
+  state.proxyBody = { fixture: true }
 }
 
 function client(onProxy?: (request: NextRequest) => void) {
@@ -68,6 +72,33 @@ test('unsigned MCP Stage A receives the actual proxy 402 without financial, deli
   assert.equal(state.proxied, 0)
   assert.equal(state.store.rows.size, 0)
   assert.equal(state.store.purchases.size, 0)
+})
+
+test('interrupted signed MCP delivery and concurrent exact retries keep one settlement and one provider execution', async () => {
+  reset()
+  const call = normalizePreparedCall({ api_id: apiId, buyer_wallet: payer, body: { input: true } }, true)
+  const input = { prepared_call_token: issuePreparedCallToken(call, listing), payment_signature: Buffer.from(JSON.stringify(payment)).toString('base64') }
+  let interrupt = true
+  const adapter = createPaidClient({ origin: 'https://mahshar.xyz', fetcher: async (target, init) => {
+    const response = await proxyPost(new NextRequest(String(target), init ? { ...init, signal: init.signal ?? undefined } : undefined))
+    if (!interrupt) return response
+    interrupt = false
+    await response.body?.cancel()
+    return new Response(new ReadableStream({ start(controller) { controller.error(new Error('lost paid response')) } }), {
+      status: response.status, headers: response.headers,
+    })
+  } })
+  const lost = await adapter.execute(listing, call, input)
+  assert.equal(lost.status, 'transport_outcome_unknown')
+  assert.equal(typeof (lost as Record<string, unknown>).payment_response, 'string')
+  assert.equal('proxy_result' in lost, false)
+  assert.equal(state.settled, 1); assert.equal(state.proxied, 1)
+  // Explicit test replays, never an adapter-initiated retry or fresh signature.
+  const replayed = await Promise.all(Array.from({ length: 8 }, () => adapter.execute(listing, call, input)))
+  for (const result of replayed) assert.equal(result.status, 'paid_result')
+  assert.equal(state.settled, 1); assert.equal(state.proxied, 1)
+  assert.equal(state.store.purchases.size, 1)
+  assert.equal([...state.store.rows.values()][0].delivery_state, 'SUCCEEDED')
 })
 test('structured dynamic values stay single-valued and the actual proxy rejects traversal and constraints before payment', async () => {
   reset()

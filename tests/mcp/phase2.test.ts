@@ -411,3 +411,29 @@ test('MCP Phase 2 imports are isolated and sensitive bearer values are never log
   } finally { console.error = original }
   for (const sentinel of privateSentinels) assert.equal(captured.join('\n').includes(sentinel), false, sentinel)
 })
+
+test('MCP tool envelopes mark interrupted reads and recovery storage outages as errors without partial content', async () => {
+  const interrupted = () => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"response":"PARTIAL_SENTINEL'))
+      controller.error(new Error('private interruption detail'))
+    },
+  }))
+  const prepared = normalizePreparedCall({ api_id: API_ID, buyer_wallet: WALLET, query_values: { city: 'Istanbul' } }, false)
+  const signed = await call(handlerWith(interrupted), 'execute_api_call', {
+    api_id: API_ID, buyer_wallet: WALLET, query_values: { city: 'Istanbul' },
+    prepared_call_token: issuePreparedCallToken(prepared, listing), payment_signature: PAYMENT_SIGNATURE,
+  })
+  assert.equal(signed.result.isError, true)
+  assert.equal(signed.result.structuredContent.status, 'transport_outcome_unknown')
+  assert.equal(JSON.stringify(signed).includes('PARTIAL_SENTINEL'), false)
+  const input = { api_id: API_ID, buyer_wallet: WALLET, purchase_access_token: PURCHASE_TOKEN }
+  const recovered = await call(handlerWith(interrupted), 'get_purchase_response', input)
+  assert.equal(recovered.result.isError, true)
+  assert.equal(recovered.result.structuredContent.error, 'purchase_response_interrupted')
+  assert.equal(JSON.stringify(recovered).includes('PARTIAL_SENTINEL'), false)
+  const unavailable = await call(handlerWith(() => Response.json({ error: 'response_storage_unavailable' }, { status: 503 })), 'get_purchase_response', input)
+  assert.equal(unavailable.result.isError, true)
+  assert.equal(unavailable.result.structuredContent.http_status, 503)
+  assert.equal(unavailable.result.structuredContent.status, 'request_rejected')
+})

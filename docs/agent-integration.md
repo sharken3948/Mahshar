@@ -68,6 +68,23 @@ the private response for that exact purchase from
 exchange a legacy purchase without a capability; ownership is checked against
 the purchase row before issuing the capability.
 
+A response-storage query failure returns HTTP 503 with
+`error=response_storage_unavailable` and `Cache-Control: no-store`. Retry only
+recovery with the same capability; it neither pays nor executes the provider.
+An absent, expired or pruned response still returns the legacy HTTP 200 payload
+with `response_body: null`. This does not establish payment failure or prove
+non-delivery. Retention and purchase authorization are unchanged.
+
+An interrupted MCP body read never returns partial response data. After a signed
+call, `transport_outcome_unknown` preserves a validated `PAYMENT-RESPONSE` header
+when present, without claiming final settlement or successful service delivery.
+Do not create a fresh authorization or automatically repeat execution. Use
+`get_purchase_response` if you retained the purchase capability; otherwise retain
+the original call and authorization for manual review. Interrupted recovery
+returns `request_rejected` with `error=purchase_response_interrupted`; retry only
+`get_purchase_response` with the same capability. No wallet-based recovery or
+capability bootstrap has been added.
+
 `POST /api/payments/reconcile` requires the payer's wallet session and an exact
 `{ "attemptId": "..." }` body. It can finish durable accounting only. It
 does not settle again, refund, or execute upstream.
