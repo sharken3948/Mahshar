@@ -182,6 +182,8 @@ The Admin Worker dashboard separates distinct discovered/qualified providers, va
 
 See [Admin Acquisition controls and activation boundaries](docs/admin-acquisition.md).
 
+Pending Emails is a separate Admin-only Automation page at `/admin/operations/pending-emails` for tracking emails sent externally. It uses verified, qualified Worker contacts independently of invitation drafts and preserves permanent manual-sending history without sending email or fabricating delivery receipts. The new registry migration and historical backfill require separate review and application; see [Admin Pending Emails](docs/admin-pending-emails.md).
+
 ## Wallet Funding
 
 Mahshar supports Circle Onramp funding for a connected Arc Mainnet wallet. It is available from the dashboard Wallet workspace and from the Buyer application when additional Arc USDC is needed.

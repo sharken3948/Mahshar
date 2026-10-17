@@ -103,6 +103,7 @@ export type WorkerTraction = {
 }
 
 export type DurableCandidate = RawCandidate & {
+  mailRecoveryKind?: 'legacy' | 'contact'
   id: string
   discoveryBatchId: string
   ordinal: number

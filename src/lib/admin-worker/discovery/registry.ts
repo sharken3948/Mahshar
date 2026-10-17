@@ -2,6 +2,8 @@ import 'server-only'
 import { boundedDiscoveryFetch, type DiscoveryFetcher } from './fetch'
 import { fetchApisGuruCandidates, fetchApisGuruProviderNames } from './sources/apis-guru'
 import type { RawCandidate } from './types'
+import { normalizeWorkerIdentity } from '../normalization'
+import type { ProviderHistory } from './provider-history'
 
 export type SourceWorkKind = 'provider_plan' | 'provider_window' | 'candidate'
 export type SourceWorkLoader = (claimKey: string) => Promise<unknown | null>
@@ -37,6 +39,7 @@ export async function discoverApiDirectoryRange(input: {
   end: number
   loadSourceWork: SourceWorkLoader
   materializeSourceWork: SourceWorkMaterializer
+  providerHistory?: (domains: string[]) => Promise<ProviderHistory[]>
   fetcher?: DiscoveryFetcher
   deadlineMs?: number
 }): Promise<{ items: Array<{ ordinal: number; candidate: RawCandidate | null; reasonCode?: string }>; sourceExhausted: boolean; deadlineReached: boolean }> {
@@ -53,6 +56,9 @@ export async function discoverApiDirectoryRange(input: {
     if (!plan) throw new Error('source_budget_exhausted')
   }
   const selectedProviders = plan.providers.slice(input.start, input.end)
+  // Keep ordinals stable for checkpoints, but consult durable identities before detail HTTP.
+  const history = input.providerHistory ? await input.providerHistory(selectedProviders) : []
+  const known = new Map(history.map(item => [item.domain, item]))
   const results: Array<{ ordinal: number; candidate: RawCandidate | null; reasonCode?: string }> = []
   let deadlineReached = false
   for (let index = 0; index < selectedProviders.length; index += 1) {
@@ -66,7 +72,9 @@ export async function discoverApiDirectoryRange(input: {
     if (!stored) {
       const provider = selectedProviders[index]
       let proposed: CandidateResult
-      try {
+      if (known.has(normalizeWorkerIdentity('domain', provider))) {
+        proposed = { kind: 'candidate', ordinal, candidate: null, reasonCode: 'provider_identity_processed' }
+      } else try {
         const candidates = await fetchApisGuruCandidates(fetcher, provider)
         proposed = { kind: 'candidate', ordinal,
           candidate: candidates.length ? candidates[(input.rootRunNumber + ordinal) % candidates.length] : null,

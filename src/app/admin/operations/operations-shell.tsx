@@ -46,8 +46,9 @@ export function OperationsShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const workerPage = pathname.startsWith('/admin/worker')
   const outreachPage = pathname.startsWith('/admin/outreach')
+  const pendingEmailsPage = pathname.startsWith('/admin/operations/pending-emails')
   const maintenancePage = pathname.startsWith('/admin/maintenance')
-  const automationPage = workerPage || outreachPage
+  const automationPage = workerPage || outreachPage || pendingEmailsPage
   const adminOnlyPage = automationPage || maintenancePage
   const request = useAdminRequest()
   const [collapsed, setCollapsed] = useState(false)
@@ -94,7 +95,7 @@ export function OperationsShell({ children }: { children: React.ReactNode }) {
       <aside className={`${styles.sidebar} ${drawerOpen ? styles.sidebarOpen : ''}`} aria-label="Admin navigation">
         <div className={styles.identity}>
           <div className={styles.mark} aria-hidden="true">M</div>
-          <div className={styles.identityText}><strong>Mahshar</strong><span>{workerPage ? 'Admin / Worker' : outreachPage ? 'Admin / Outreach' : maintenancePage ? 'Admin / Maintenance' : 'Admin / Operations'}</span></div>
+          <div className={styles.identityText}><strong>Mahshar</strong><span>{pendingEmailsPage ? 'Admin / Pending Emails' : workerPage ? 'Admin / Worker' : outreachPage ? 'Admin / Outreach' : maintenancePage ? 'Admin / Maintenance' : 'Admin / Operations'}</span></div>
           <button type="button" className={styles.collapseButton} onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg>
           </button>
@@ -121,14 +122,17 @@ export function OperationsShell({ children }: { children: React.ReactNode }) {
           <Link href="/admin/outreach" className={`${styles.navItem} ${outreachPage ? styles.navActive : ''}`} aria-current={outreachPage ? 'page' : undefined} title={collapsed ? 'Outreach' : undefined}>
             <NavIcon name="outreach"/><span>Outreach</span>
           </Link>
+          <Link href="/admin/operations/pending-emails" className={`${styles.navItem} ${pendingEmailsPage ? styles.navActive : ''}`} aria-current={pendingEmailsPage ? 'page' : undefined} title={collapsed ? 'Pending Emails' : undefined}>
+            <NavIcon name="outreach"/><span>Pending Emails</span>
+          </Link>
         </nav>
         <div className={styles.sidebarFooter}>
-          <span className={styles.readOnlyDot}/><div><strong>{workerPage ? 'Bounded control' : outreachPage ? 'Manual approval' : 'Read-only'}</strong><small>{workerPage ? 'One batch at a time' : outreachPage ? 'No automatic sending' : maintenancePage ? 'Manual checks only' : 'No control-plane actions'}</small></div>
+          <span className={styles.readOnlyDot}/><div><strong>{pendingEmailsPage ? 'Admin-only actions' : workerPage ? 'Bounded control' : outreachPage ? 'Manual approval' : 'Read-only'}</strong><small>{pendingEmailsPage ? 'External sending only' : workerPage ? 'One batch at a time' : outreachPage ? 'No automatic sending' : maintenancePage ? 'Manual checks only' : 'No control-plane actions'}</small></div>
         </div>
       </aside>
       <div className={styles.workspace}>
         <header className={styles.topbar}>
-          <div><span className={styles.environmentDot}/><strong>Arc Mainnet</strong><span className={styles.topbarDivider}/><span>{workerPage ? 'Worker foundation' : outreachPage ? 'Outreach workspace' : maintenancePage ? 'Maintenance watch' : 'Operations visibility'}</span></div>
+          <div><span className={styles.environmentDot}/><strong>Arc Mainnet</strong><span className={styles.topbarDivider}/><span>{pendingEmailsPage ? 'Pending Emails' : workerPage ? 'Worker foundation' : outreachPage ? 'Outreach workspace' : maintenancePage ? 'Maintenance watch' : 'Operations visibility'}</span></div>
           <div className={styles.topbarReadOnly}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>{adminOnlyPage ? 'Admin only' : 'Read-only'}</div>
         </header>
         <main className={styles.main}>{children}</main>

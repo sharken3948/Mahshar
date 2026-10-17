@@ -145,7 +145,7 @@ export async function researchCandidate(input: {
   const sourceUrl = canonicalExternalUrl(input.candidate.sourceUrl)
   const facts: ProvenanceFact[] = sourceUrl ? [{
     sourceType: 'api_directory', sourceRole: 'directory_assertion', url: sourceUrl,
-    title: 'APIs.guru directory assertion',
+    title: sourceUrl.startsWith('https://api.apis.guru/') ? 'APIs.guru directory assertion' : 'Retained provider discovery assertion',
     factualSummary: durableExternalSummary(input.candidate.sourceSummary, 700), checkedAt,
   }] : []
   for (const [url, label] of [

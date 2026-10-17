@@ -1,6 +1,9 @@
 import 'server-only'
 import { createServiceClient } from '@/lib/supabase/server'
 import { contactResearchDue } from '../contact-coverage'
+import { workerMailRpc } from '../mail-list-rpc'
+import { MAIL_UUID } from '../mail-list-types'
+import { getProviderHistory, WorkerMailInfrastructureError } from './provider-history'
 import { canonicalExternalUrl, durableExternalName, durableExternalSummary } from './sanitize'
 import type { BudgetClaimResult, CandidateOutcome, ContactResearchResult, DurableCandidate, ProvenanceFact, RawCandidate, WorkerQualification, WorkerTraction } from './types'
 
@@ -9,7 +12,7 @@ type DbResult = { data: unknown; error: DbError }
 
 function fail(scope: string, error: DbError): never {
   console.error(`[admin-worker] ${scope} unavailable`, error?.code ?? error?.message ?? 'database error')
-  throw new Error(`${scope}_unavailable`)
+  throw new WorkerMailInfrastructureError(`${scope}_unavailable`)
 }
 
 function row(value: unknown): Record<string, unknown> | null {
@@ -25,6 +28,7 @@ function candidateRow(value: unknown): DurableCandidate {
     throw new Error('worker_candidate_invalid')
   }
   return {
+    ...(item.mail_recovery_kind === 'legacy' || item.mail_recovery_kind === 'contact' ? { mailRecoveryKind: item.mail_recovery_kind } : {}),
     id: item.id,
     discoveryBatchId: item.discovery_batch_id,
     ordinal: item.ordinal as number,
@@ -51,6 +55,42 @@ function candidateRow(value: unknown): DurableCandidate {
     processingLeaseId: typeof item.processing_lease_id === 'string' ? item.processing_lease_id : null,
     processingLeaseExpiresAt: typeof item.processing_lease_expires_at === 'string' ? item.processing_lease_expires_at : null,
   }
+}
+
+
+/** Bounded database recovery also verifies the required migration before any source or Groq work. */
+export async function recoverPendingEmails(runId: string): Promise<void> {
+  const result = await workerMailRpc('mahshar_worker_mail_recover', { p_run_id: runId, p_limit: 25 })
+  const value = result.data
+  const cursor = (input: unknown) => input === null || (typeof input === 'string' && MAIL_UUID.test(input))
+  if (result.error || !value || !Number.isInteger(value.processed) || value.processed < 0 || value.processed > 25
+    || !cursor(value.cursorBefore) || !cursor(value.cursorAfter)) throw new WorkerMailInfrastructureError()
+  if (value.processed || value.cursorBefore !== null) {
+    // Separate RPC/transaction: provider locks have committed before the control
+    // cursor is touched. A lost checkpoint replays the idempotent sweep slice.
+    const saved = await workerMailRpc('mahshar_worker_mail_checkpoint_recovery', {
+      p_run_id: runId, p_before: value.cursorBefore, p_after: value.cursorAfter,
+    })
+    if (saved.error || typeof saved.data !== 'boolean') throw new WorkerMailInfrastructureError('worker_mail_checkpoint_unavailable')
+  }
+}
+
+export async function claimMailRecoveryCandidates(runId: string, kind: 'legacy' | 'contact'): Promise<DurableCandidate[]> {
+  const result = await workerMailRpc('mahshar_worker_mail_claim_recovery', { p_run_id: runId, p_kind: kind, p_limit: 5 })
+  if (result.error || !Array.isArray(result.data)) throw new WorkerMailInfrastructureError()
+  try {
+    if (result.data.length > 5) throw new Error('recovery_limit_invalid')
+    const candidates = result.data.map(candidateRow)
+    if (new Set(candidates.map(candidate => candidate.id)).size !== candidates.length
+      || candidates.some(candidate => candidate.mailRecoveryKind !== kind || !candidate.providerId || !candidate.normalizedDomain
+        || (kind === 'contact' && !candidate.leadId))) throw new Error('recovery_candidate_invalid')
+    return candidates
+  } catch { throw new WorkerMailInfrastructureError('worker_mail_recovery_invalid') }
+}
+
+export async function finishMailRecovery(candidateId: string, reason: string): Promise<void> {
+  const result = await workerMailRpc('mahshar_worker_mail_finish_recovery', { p_candidate_id: candidateId, p_reason: reason })
+  if (result.error) throw new WorkerMailInfrastructureError()
 }
 
 export async function getDiscoveryRunContext(runId: string): Promise<{
@@ -104,6 +144,7 @@ export async function getSavedContactResearch(leadId: string): Promise<ContactRe
       formState: item.form_state === 'available' ? 'available' as const : item.form_state === 'manual_required' ? 'manual_required' as const : undefined,
     }]
   }) : []
+  if (lead.email_ready === true && !evidence.some(c => c.type === 'email' && c.emailReady && Date.parse(c.verifiedAt) >= Date.now() - 30 * 86_400_000)) return null
   return {
     status: lead.contactability_status as ContactResearchResult['status'], emailReady: lead.email_ready === true,
     preferredEmail: typeof lead.preferred_email === 'string' ? lead.preferred_email : null,
@@ -127,17 +168,8 @@ export async function saveContactResearch(input: {
 }
 
 export async function claimContactEnrichmentCandidates(runId: string, limit = 5): Promise<DurableCandidate[]> {
-  const claimed = await createServiceClient().rpc('mahshar_worker_claim_contact_enrichment', {
-    p_run_id: runId, p_claim_key: `contact-enrichment:${runId}`, p_limit: limit,
-  }) as DbResult
-  if (claimed.error) fail('worker_contact_enrichment_claim', claimed.error)
-  const ids = Array.isArray(claimed.data) ? claimed.data.flatMap(value => {
-    const item = row(value); return typeof item?.candidate_id === 'string' ? [item.candidate_id] : []
-  }) : []
-  if (!ids.length) return []
-  const result = await createServiceClient().from('worker_candidates').select('*').in('id', ids).order('updated_at', { ascending: true }) as DbResult
-  if (result.error) fail('worker_contact_enrichment_candidates', result.error)
-  return Array.isArray(result.data) ? result.data.map(candidateRow) : []
+  void limit
+  return claimMailRecoveryCandidates(runId, 'contact')
 }
 
 export async function applyContactActionability(input: {
@@ -251,6 +283,11 @@ export type CandidatePreflight = {
 }
 
 export async function preflightCandidate(domain: string, productKey: string): Promise<CandidatePreflight> {
+  const history = (await getProviderHistory([domain]))[0]
+  if (history && !['provider_already_processed', 'legacy_intake_retained'].includes(history.reason)) {
+    return { action: 'blocked', reasonCode: history.reason, providerId: history.providerId ?? undefined }
+  }
+  if (history?.reason === 'provider_already_processed') return { action: 'duplicate', reasonCode: history.reason, providerId: history.providerId ?? undefined }
   const db = createServiceClient()
   const identity = await db.from('worker_provider_identities').select('provider_id')
     .eq('identity_type', 'domain').eq('normalized_value', domain).maybeSingle() as DbResult
@@ -363,7 +400,7 @@ export async function getReusableProvenance(leadId: string, maxAgeMs = 30 * 24 *
     const item = row(value)
     if (!item || typeof item.url !== 'string' || typeof item.source_type !== 'string'
       || typeof item.source_role !== 'string' || typeof item.checked_at !== 'string'
-      || Date.parse(item.checked_at) < cutoff) return []
+      || Date.parse(item.checked_at) < cutoff || Date.parse(item.checked_at) > Date.now() + 300_000) return []
     const url = canonicalExternalUrl(item.url)
     if (!url) return []
     return [{

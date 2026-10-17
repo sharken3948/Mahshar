@@ -4,7 +4,10 @@ export function contactResearchDue(lead: {
   email_ready?: unknown; commercial_api?: unknown; contact_research_state?: unknown
   contact_checked_at?: unknown; contact_researched_at?: unknown
 }, nowMs = Date.now()): boolean {
-  if (lead.email_ready === true) return false
+  if (lead.email_ready === true) {
+    const checked = lead.contact_checked_at ?? lead.contact_researched_at
+    return typeof checked !== 'string' || !Number.isFinite(Date.parse(checked)) || Date.parse(checked) > nowMs + 300_000 || nowMs - Date.parse(checked) >= 30 * 86_400_000
+  }
   // One bounded pass upgrades old commercial no-email investigations to the
   // richer evidence format; subsequent attempts use the normal freshness window.
   if (lead.commercial_api === true && lead.contact_research_state == null) return true

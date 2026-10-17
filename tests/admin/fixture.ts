@@ -6,6 +6,11 @@ export function createServiceClient() {
     rpc: async (...args: Parameters<typeof db.rpc>) => {
       if (boundary.rpcOverride) return boundary.rpcOverride(String(args[0]), args[1] as Record<string, unknown>)
       if (boundary.unavailable) return { data: null, error: { code: '42P01' } }
+      if (args[0] === 'mahshar_worker_mail_recover') return { data: { processed: 0, cursorBefore: null, cursorAfter: null }, error: null }
+      if (args[0] === 'mahshar_worker_mail_checkpoint_recovery') return { data: true, error: null }
+      if (args[0] === 'mahshar_worker_mail_claim_recovery') return { data: [], error: null }
+      if (args[0] === 'mahshar_worker_mail_finish_recovery') return { data: null, error: null }
+      if (args[0] === 'mahshar_worker_mail_discovery_state') return { data: ((args[1] as { p_domains: string[] }).p_domains).map(domain => ({ domain, provider_id: null, reason: null })), error: null }
       return db.rpc(...args)
     },
     from: (table: string) => {
