@@ -182,7 +182,7 @@ The Admin Worker dashboard separates distinct discovered/qualified providers, va
 
 See [Admin Acquisition controls and activation boundaries](docs/admin-acquisition.md).
 
-Pending Emails is a separate Admin-only Automation page at `/admin/operations/pending-emails` for tracking emails sent externally. It uses verified, qualified Worker contacts independently of invitation drafts and preserves permanent manual-sending history without sending email or fabricating delivery receipts. The new registry migration and historical backfill require separate review and application; see [Admin Pending Emails](docs/admin-pending-emails.md).
+Pending Emails is a separate Admin-only Automation page at `/admin/operations/pending-emails` for tracking emails sent externally. It uses verified, qualified Worker contacts independently of invitation drafts and preserves permanent manual-sending history without sending email or fabricating delivery receipts. The registry migration is installed in Production. Historical reconciliation/import and Worker processing require separate operator authorization; this deployment does not start the Worker or enable email delivery. See [Admin Pending Emails](docs/admin-pending-emails.md).
 
 ## Wallet Funding
 
