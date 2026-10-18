@@ -5,15 +5,16 @@ import { useAdminRequest } from '@/components/AdminAccess'
 import type { PendingEmails } from '@/lib/admin-worker/mail-list-types'
 import styles from '../operations.module.css'
 
-export function PendingEmailsResults({ data, loading, marking, onMark }: {
-  data: PendingEmails | null; loading: boolean; marking: string | null; onMark: (id: string) => void
+export function PendingEmailsResults({ data, page, loading, marking, onMark }: {
+  data: PendingEmails | null; page: number; loading: boolean; marking: string | null; onMark: (id: string) => void
 }) {
   if (loading && !data) return <p role="status" className={styles.sectionMessage}>Loading pending emails…</p>
   if (!data) return <p className={styles.sectionMessage}>Pending emails are unavailable.</p>
   if (!data.items.length) return <p role="status" className={styles.sectionMessage}>No pending emails on this page.</p>
-  return <div className={styles.tableViewport}><table className={styles.table}>
-    <thead><tr><th scope="col">API Name</th><th scope="col">Email Address</th><th scope="col">Action</th></tr></thead>
-    <tbody>{data.items.map(item => <tr key={item.id}>
+  return <div className={styles.tableViewport}><table className={`${styles.table} ${styles.pendingEmailsTable}`}>
+    <thead><tr><th scope="col">No.</th><th scope="col">API Name</th><th scope="col">Email Address</th><th scope="col">Action</th></tr></thead>
+    <tbody>{data.items.map((item, index) => <tr key={item.id}>
+      <td data-label="No."><span>{(page - 1) * 25 + index + 1}</span></td>
       <td data-label="API Name"><strong>{item.apiName}</strong></td>
       <td data-label="Email Address"><span>{item.emailAddress}</span></td>
       <td data-label="Action"><button type="button" className={styles.rowButton} disabled={!!marking || loading}
@@ -85,7 +86,7 @@ export function PendingEmailsClient() {
     <p className={styles.probeNote}>Verified contact readiness does not establish outreach permission. Mark as Sent records your declaration, not verified delivery.</p>
     {failure && <div role="alert" className={styles.degradedBanner}>{failure}</div>}
     <section className={`${styles.panel} ${styles.operationsTablePanel}`} aria-label="Pending emails" aria-busy={loading}>
-      <PendingEmailsResults data={data} loading={loading} marking={marking} onMark={id => void markSent(id)}/>
+      <PendingEmailsResults data={data} page={cursors.length} loading={loading} marking={marking} onMark={id => void markSent(id)}/>
       <div className={styles.pagination}><span>Page {cursors.length}</span><div>
         <button type="button" className={styles.rowButton} disabled={cursors.length === 1 || loading || !!marking}
           onClick={() => { setData(null); setCursors(value => value.slice(0, -1)) }}>Previous</button>

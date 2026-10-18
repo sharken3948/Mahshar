@@ -268,6 +268,11 @@
 .table td > strong { color: #dce5f5; font-size: 17px; font-weight: 580; }
 .table td > small { display: block; overflow: hidden; margin-top: 8px; color: #687790; font-size: 14px; line-height: 1.6; text-overflow: ellipsis; }
 .table code { color: #91a6c8; font-family: var(--font-geist-mono), monospace; font-size: 13.5px; white-space: nowrap; }
+.pendingEmailsTable th { padding: 10px 16px; }
+.pendingEmailsTable td { padding: 10px 16px; vertical-align: middle; }
+.pendingEmailsTable th:first-child { width: 4.5rem; }
+.pendingEmailsTable td:first-child { font-variant-numeric: tabular-nums; }
+.pendingEmailsTable .rowButton { padding: 6px 10px; }
 .paymentsPanel .table th:nth-child(1) { width: 22%; }
 .paymentsPanel .table th:nth-child(2) { width: 18%; }
 .paymentsPanel .table th:nth-child(3) { width: 18%; }
@@ -509,6 +514,7 @@
   .paymentsPanel .table td:last-child,
   .listingsPanel .table td:last-child,
   .operationsTablePanel .table td:last-child { border-bottom: 0; }
+  .operationsTablePanel .pendingEmailsTable td { grid-template-columns: 100px minmax(0, 1fr); gap: 0 8px; padding: 8px 12px; }
   .issueSummary { grid-template-columns: 1fr; }
   .issueSummary .filterField { grid-column: auto; }
   .issueTabs button { min-height: 76px; }

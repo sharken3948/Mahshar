@@ -1,9 +1,11 @@
 import 'server-only'
+import { createHash } from 'node:crypto'
 import { normalizeWorkerIdentity, normalizeWorkerProductKey } from '../normalization'
 import { WORKER_QUALIFICATION_MODEL, qualificationDisposition, qualifyCandidate } from './qualification'
 import { deterministicCandidateFilter } from './filters'
 import { discoverApiDirectoryRange } from './registry'
 import { researchCandidate } from './research'
+import { canonicalExternalUrl } from './sanitize'
 import { discoverProviderContacts } from './contact'
 import { buildContactClaimKey } from './contact-claim-key'
 import { boundedDiscoveryFetch } from './fetch'
@@ -156,9 +158,15 @@ export async function processDiscoveryCandidate(
   let facts: ProvenanceFact[] = []
   if (candidate.leadId) facts = await deps.getReusableProvenance(candidate.leadId)
   if (!facts.some(fact => fact.sourceRole === 'official_docs')) {
+    // The durable ledger scopes this identity to the logical batch, including Resume.
+    // Equivalent fresh/deferred candidates must not claim separate research budgets.
+    const researchIdentity = createHash('sha256').update(JSON.stringify([
+      domain, productKey, canonicalExternalUrl(candidate.discoveredContractUrl) ?? null,
+      canonicalExternalUrl(candidate.discoveredDocsUrl) ?? null,
+    ])).digest('hex')
     const research = await deps.researchCandidate({
       candidate, normalizedDomain: domain,
-      claimResearchBudget: purpose => deps.claimDiscoveryBudget(runId, 'research', `candidate:${candidate.id}:${purpose}`),
+      claimResearchBudget: purpose => deps.claimDiscoveryBudget(runId, 'research', `research:${researchIdentity}:${purpose}`),
     })
     facts = research.facts
     if (!research.docsVerified || research.compatibilityFailure) {
