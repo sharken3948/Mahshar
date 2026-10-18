@@ -1,0 +1,1843 @@
+{
+  "x4021": {
+    "meta": {
+      "total": 1020,
+      "page": 1,
+      "per_page": 50,
+      "total_pages": 21
+    },
+    "provenance": {
+      "license": "CC-BY-4.0",
+      "attribution_required": true,
+      "attribution": "Data: x402-list.com (CC BY 4.0)",
+      "cite_as": "https://x402-list.com/api/v1/services",
+      "source": "https://x402-list.com"
+    },
+    "data": [
+      {
+        "slug": "rooms-by-aurmada-agent-rooms",
+        "name": "Rooms by Aurmada \u2013 Agent Rooms",
+        "description": "Pay-per-call public chat rooms where AI agents and people meet. Any x402 wallet can search public rooms by topic ($0.001), read a room's recent messages or only the new ones since its last read ($0.001), and post a question, offer or update to the Rooms Lobby or another public room that takes agents ($0.002). No sign-up or API key: the paying wallet is the identity, shown with an agent wallet badge, and every post returns an Ed25519-signed receipt. Private rooms are never readable. Payment settles only after a successful answer, so errors and bad input are never charged. USDC on Base.",
+        "website_url": "https://rooms.aurmada.com",
+        "base_url": "https://rooms.aurmada.com/x402/v1/rooms",
+        "verified": false
+      },
+      {
+        "slug": "agmail",
+        "name": "agmail",
+        "description": "Email inboxes for AI agents, by the hour: an address of your choice, one call waits for a message and returns the code or link. No account, paid per call with x402 stablecoins.",
+        "website_url": "https://agmail.shveik.dev",
+        "base_url": "https://agmail.shveik.dev",
+        "verified": false
+      },
+      {
+        "slug": "astro-agents",
+        "name": "Astro Agents",
+        "description": "Deterministic Western and Vedic astrology for AI agents, computed from NASA/JPL DE440 with no LLM: planet positions, natal charts, transits, synastry, kundli with 16 divisional charts, Vimshottari dashas, doshas, panchang and Gun Milan. $0.01 to $0.50 per call; every result carries a SHA-256 that POST /v1/verify recomputes.",
+        "website_url": "https://astro-agent.dev",
+        "base_url": "https://astro-agent.dev",
+        "verified": false
+      },
+      {
+        "slug": "sharpe-nova-os",
+        "name": "Sharpe Nova OS",
+        "description": "Pre-execution decision-context infrastructure for consequential machine-prepared capital actions. Sharpe Nova OS provides progressively deeper source-aware context before local authority decides. Nova does not approve, authorize, custody, route, or execute capital.",
+        "website_url": "https://github.com/nova-infrastructure-systems",
+        "base_url": "https://nova-retail-controlled-proof.onrender.com",
+        "verified": false
+      },
+      {
+        "slug": "402rpc",
+        "name": "402rpc",
+        "description": "Ethereum mainnet JSON-RPC on an independently operated full node. One call per payment, no account or API key. Serves eth_, net_ and web3_ methods. Blocks, transactions, receipts and logs from the Merge (block 15537394) onward; current state only, not an archive node. Raw transactions are broadcast through public relays rather than the node itself. Priced by how much work a method costs: $0.001 for chain metadata, $0.002 for lookups, $0.005 for EVM execution, up to $0.03 for wide eth_getLogs ranges. USDC on Base, Arbitrum or Polygon via the Coinbase CDP facilitator.",
+        "website_url": "https://402rpc.com",
+        "base_url": "https://402rpc.com",
+        "verified": false
+      },
+      {
+        "slug": "bix-creator-edge",
+        "name": "BiX Creator Edge",
+        "description": "provides creator-fee decision intelligence via x402",
+        "website_url": "https://creator.linkhco.com",
+        "base_url": "https://creator.linkhco.com",
+        "verified": false
+      },
+      {
+        "slug": "f-retagskoll",
+        "name": "F\u00f6retagskoll",
+        "description": "Swedish company data for AI agents. Look up any Swedish company by organisation number: status, legal form, address, industry, plus revenue, profit, equity and growth from its latest annual report. Official data from Bolagsverket and SCB. $0.01 per lookup, $0.05 for financials, USDC on Base. Only successful responses are charged.",
+        "website_url": "https://api.fundamentwebb.se",
+        "base_url": "https://api.fundamentwebb.se",
+        "verified": false
+      },
+      {
+        "slug": "carredge",
+        "name": "Carredge",
+        "description": "Agent-payable APIs over x402 (USDC on Base): swaps, memecoins, 216 endpoints. No API keys, no signup. Pay per call.",
+        "website_url": "https://api.carredge.com",
+        "base_url": "https://api.carredge.com",
+        "verified": false
+      },
+      {
+        "slug": "agdata",
+        "name": "agdata",
+        "description": "Unblocking and fresh web data for AI agents: any URL as Markdown, screenshots, YouTube transcripts and comments, Google Maps and Amazon reviews, LinkedIn and Indeed jobs, Google News, web search, X replies. Pay per call in stablecoins with x402 or MPP; remote MCP server at /mcp.",
+        "website_url": "https://agdata.shveik.dev",
+        "base_url": "https://agdata.shveik.dev",
+        "verified": false
+      },
+      {
+        "slug": "quine-poisoncheck",
+        "name": "Quine PoisonCheck",
+        "description": "Address-poisoning guard for agent wallets on Base. Checks if a destination wallet address is a confirmed scam/rug-pull address to prevent mistaken transfers.",
+        "website_url": "https://www.val.town/x/quinebuilder77/poisoncheck",
+        "base_url": "https://quinebuilder77--411db2d0c0d811f1b46f1607ee4eb77e.web.val.run/",
+        "verified": false
+      },
+      {
+        "slug": "quine-tokencheck",
+        "name": "Quine TokenCheck",
+        "description": "Honeypot and rug-pull safety checker for ERC20 tokens on Base. Analyzes token contracts for common scam patterns and risky functions.",
+        "website_url": "https://www.val.town/x/quinebuilder77/tokencheck",
+        "base_url": "https://quinebuilder77--78b65f4ec0d811f18dd61607ee4eb77e.web.val.run/",
+        "verified": false
+      },
+      {
+        "slug": "agentexec",
+        "name": "AgentExec",
+        "description": "Base mainnet execution gateway for AI agents: HTTP 402 x402 USDC micropayments (EIP-3009), keyless dry-run simulation, and sponsored UserOps on paid execute.",
+        "website_url": "https://agentexec.dev",
+        "base_url": "https://api.agentexec.dev",
+        "verified": false
+      },
+      {
+        "slug": "agvps",
+        "name": "agvps",
+        "description": "Servers for AI agents, rented by the month: a Linux server with root access and a public IPv4, in Germany or Finland. Pay in stablecoins with x402 or MPP, no account and no card. Extend a server by paying again. Remote MCP server at /mcp.",
+        "website_url": "https://agvps.shveik.dev",
+        "base_url": "https://agvps.shveik.dev",
+        "verified": false
+      },
+      {
+        "slug": "agproxy",
+        "name": "agproxy",
+        "description": "Residential proxy traffic and raw fetch for AI agents: buy a byte-capped proxy pack with country targeting and sticky sessions, or fetch a URL through the proxy in one call. Pay in stablecoins with x402 or MPP, no account. Remote MCP server at /mcp.",
+        "website_url": "https://agproxy.shveik.dev",
+        "base_url": "https://agproxy.shveik.dev",
+        "verified": false
+      },
+      {
+        "slug": "synap-by-linkrra",
+        "name": "Synap by Linkrra",
+        "description": "OpenAI-compatible AI inference paid per call in USDC on Base. GET /v1/models lists the model catalogue with per-model USD prices per million tokens. Pay-per-call chat completions, prepaid credit top-up, and pay-per-call TTS, all via x402 v2 (scheme exact, eip155:8453).",
+        "website_url": "https://synap.linkrra.com",
+        "base_url": "https://pool.linkrra.com",
+        "verified": false
+      },
+      {
+        "slug": "trading-lab-ohlcv-integrity-check",
+        "name": "Trading Lab OHLCV Integrity Check",
+        "description": "Checks up to 2000 buyer-supplied OHLCV rows for ordering, duplicates, OHLC consistency and optional continuous-interval gaps. JSON report and input hash for 0.02 native USDC on Base. No market data, trading signals or performance prediction.",
+        "website_url": "https://trading-lab-turnover-notes.vironnimo.chatgpt.site/bar-integrity",
+        "base_url": "https://trading-lab-turnover-notes.vironnimo.chatgpt.site",
+        "verified": false
+      },
+      {
+        "slug": "opx-website-to-json",
+        "name": "OPX Website-to-JSON",
+        "description": "Turn a public webpage into validated typed JSON. Submit a URL and requested fields; OPX extracts supported values and settles payment only when required fields are delivered.",
+        "website_url": "https://opx-status.dev",
+        "base_url": "https://opx-status.dev",
+        "verified": false
+      },
+      {
+        "slug": "regevidencehub-cqc-provider",
+        "name": "RegEvidenceHub CQC Provider",
+        "description": "Evidence-linked England CQC provider-registration and statutory-notification preflight for care providers and agents.",
+        "website_url": "https://cqc.regevidencehub.com",
+        "base_url": "https://cqc.regevidencehub.com",
+        "verified": false
+      },
+      {
+        "slug": "agpay",
+        "name": "agpay",
+        "description": "Payments held between two agents: the buyer pays by x402 or MPP, the seller proves its wallet and delivers, the buyer confirms and the seller is paid; disputes are decided by hand. USDC on Base, no account.",
+        "website_url": "https://agpay.shveik.dev",
+        "base_url": "https://agpay.shveik.dev",
+        "verified": false
+      },
+      {
+        "slug": "web-capture",
+        "name": "Web Capture",
+        "description": "Preserve a public HTTPS page as a full-page browser screenshot, rendered HTML, capture metadata, PDF report and signed integrity receipt. 0.10 USDC per successful capture on Base; downloads available for 30 days. Exact-host loading; no independent timestamp or legal certification.",
+        "website_url": "https://web-capture.j0wn0.chatgpt.site",
+        "base_url": "https://web-capture.j0wn0.chatgpt.site",
+        "verified": false
+      },
+      {
+        "slug": "agents-trust-recommend",
+        "name": "Agents Trust Recommend",
+        "description": "Find ranked APIs for a task, with price, payment network, invocation details and live payment-challenge checks. 0.01 USDC per recommendation query, separate from the provider call. Payment-challenge evidence does not verify paid delivery.",
+        "website_url": "https://agents-trust.com",
+        "base_url": "https://api.agents-trust.com",
+        "verified": false
+      },
+      {
+        "slug": "filingdelta",
+        "name": "FilingDelta",
+        "description": "FilingDelta sells JSON cards that say what changed: material changes in a company's latest SEC filing compared with the last one, and central-bank rate decisions with the vote and dissents where the bank publishes them. Each change carries a materiality rating, a citation and the EDGAR or central-bank source link. It's a change log, not a stock tip.\nCoverage: 7 chip filers (AMD, MRVL, NVDA, AVGO, TSM, MU, AMAT) from their latest 10-Q/10-K, 6-K or 8-K earnings exhibit, and 3 central banks (BOE, FED, ECB). Unknown tickers and ids return 404 before any payment.\nPrice: $0.10 USDC per call on Base (eip155:8453), x402 v2 exact scheme, no account needed.\nPaid: https://filingdelta.xyz/delta/{ticker} and https://filingdelta.xyz/policy/{id}\nFree samples: https://filingdelta.xyz/sample/{ticker} and https://filingdelta.xyz/sample/policy/{id}\nCatalog: https://filingdelta.xyz/catalog\nDiscovery: https://filingdelta.xyz/.well-known/x402\nMCP: POST https://filingdelta.xyz/mcp (paid tools get_filing_delta and get_policy)\nTags: sec, edgar, filings, 10-q, 10-k, central-bank, interest-rates, fomc, boe, ecb, finance",
+        "website_url": "https://filingdelta.xyz",
+        "base_url": "https://filingdelta.xyz",
+        "verified": false
+      },
+      {
+        "slug": "x402-doctor",
+        "name": "x402 Doctor",
+        "description": "Checks x402 endpoints before an AI agent pays them: a $0.001 pre-payment check (go / caution / no_go, payout address screened against OFAC), a $0.01 full diagnosis with a fix hint per check, the fix as code, and a $0.25 paid delivery check that buys the endpoint once. Pay in USDC on Base, Solana or Algorand, or RLUSD on the XRP Ledger.",
+        "website_url": "https://x402-doctor.fizzl.eu/",
+        "base_url": "https://x402-doctor.fizzl.eu/",
+        "verified": false
+      },
+      {
+        "slug": "leftclaw-services",
+        "name": "LeftClaw Services",
+        "description": "AI Ethereum dev bots for hire, paid per job in USDC on Base via x402. $1 smart contract audit (written report with severity ratings, also at onedollaraudit.com), $2.50 frontend QA, $3 research report, $1 consult, $20 full dApp build. Jobs are escrowed and delivered on-chain.",
+        "website_url": "https://leftclaw.services",
+        "base_url": "https://leftclaw.services",
+        "verified": false
+      },
+      {
+        "slug": "pique-signal",
+        "name": "Pique Signal",
+        "description": "Real-time curated Solana memecoin alpha-signal feed: live calls with market data, a dex-paid tell, a Fake Volume flag (fee_rug, present only when flagged) and a Clear-Eyes read (read_state, ce_step). Pay per call in USDC on Solana; one call returns the full current gated board. view=free returns the free board with basic calls plus the dex-paid and Fake Volume flags.",
+        "website_url": "https://piquesignal.xyz/ai-agents",
+        "base_url": "https://piquesignal.xyz",
+        "verified": false
+      },
+      {
+        "slug": "agosint",
+        "name": "agosint",
+        "description": "Company and domain due diligence for AI agents: legal entity from official registers, LEI, EU VAT, sanctions lists (OFAC, EU, UK) and domain checks, every answer signed. Pay per call in stablecoins with x402 or MPP, no account.",
+        "website_url": "https://agosint.shveik.dev",
+        "base_url": "https://agosint.shveik.dev",
+        "verified": false
+      },
+      {
+        "slug": "stock-bloc",
+        "name": "Stock Bloc",
+        "description": "SEC filing and market data API for agents. Diffs a company's latest 10-K or 10-Q risk factors against the prior filing (added, removed, changed), plus 13F institutional accumulation, SB Score, quotes and an earnings prep pack. x402 v2, USDC on Base, $0.01 to $0.35 per call. Free JSON samples at /api/v1/sec/job/sample and /api/data/sec/sample.",
+        "website_url": "https://stockbloc.ai.studio",
+        "base_url": "https://stockbloc.ai.studio",
+        "verified": false
+      },
+      {
+        "slug": "forgemesh-shopscout",
+        "name": "ForgeMesh ShopScout",
+        "description": "Agent shopping API: search the Shopify Global Catalog, refresh variant offers, rank offers by item price, and compare single-seller vs split-basket shipping plans from supplied rules. $0.01 USDC per call via x402 on Base. No purchases; tax, duties and landed cost not verified.",
+        "website_url": "https://shopscout.forgemesh.io",
+        "base_url": "https://shopscout.forgemesh.io",
+        "verified": false
+      },
+      {
+        "slug": "proyield-stablecoin-yield-intelligence-pyd-fi",
+        "name": "ProYield \u2014 stablecoin yield intelligence (pyd.fi)",
+        "description": "Non-custodial USDC yield vault on HyperEVM plus a live stablecoin-yield API for agents: curated DeFi lending venue rates with safety tiers, vault share price and daily history, full provenance (sources + timestamps) in every response. Pay-per-call USDC via x402 on Base, Arbitrum One or Polygon; no signup, no API key.",
+        "website_url": "https://pyd.fi",
+        "base_url": "https://pyd.fi",
+        "verified": false
+      },
+      {
+        "slug": "node-scorecard-api",
+        "name": "Node Scorecard API",
+        "description": "Independent measurement and scoring of the Sentinel dVPN network and Akash DePIN providers. Pay-per-call in USDC over x402. Recommendations with anti-concentration, verifiable receipts. No API key.",
+        "website_url": "https://nodescorecard.xyz",
+        "base_url": "https://nodescorecard.xyz",
+        "verified": false
+      },
+      {
+        "slug": "agent-settlement-passport-base-usdc-quorum-evidence",
+        "name": "Agent Settlement Passport \u2014 Base USDC Quorum Evidence",
+        "description": "Read-only x402 v2 Base USDC transfer settlement evidence for autonomous agents. 2-of-3 public RPC receipt agreement, expected recipient, positive minimum amount and confirmation checks, unsigned SHA-256 evidence digest. Price 0.10 USDC per paid GET. One PayAPI Market-funded real Base USDC paid canary verified on-chain and HTTP 200 reported. This is not a signed oracle attestation, independent financial authorization, or proof of recurring customers.",
+        "website_url": "https://agent-economy-wallet-pay.lovable.app",
+        "base_url": "https://jzallxzbbdtelcpabfgr.supabase.co/functions/v1/agent-settlement-passport",
+        "verified": false
+      },
+      {
+        "slug": "spread-paywall-api",
+        "name": "Spread Paywall API",
+        "description": "71 pay-per-call x402 endpoints: live SOL CEX/DEX spread data, AI inference, whale watching, NPI/DEA verification, web scraping, tokenized stocks, Polymarket data, pump.fun launchpad data, utilities and more. Paid in USDC on Base and Solana.",
+        "website_url": "https://workspace-x402-paywall.onrender.com",
+        "base_url": "https://workspace-x402-paywall.onrender.com",
+        "verified": false
+      },
+      {
+        "slug": "kertivo",
+        "name": "Kertivo",
+        "description": "Kertivo is the trust layer for bot-to-bot payments on Base USDC. Verify a payment by tx hash, including whether it settled, the real-USDC check, the recipient and amount match, and who funded the payer (POST /check $0.01; /check/deep $0.05 for wider funding history). Catch lookalike or poisoned addresses before sending (POST /address/check $0.001; /address/check/full $0.005). Look up the Kertivo Index grade of an x402 endpoint, graded from real paid calls (POST /trust/lookup $0.002). Responses are signed. There is a free demo at POST /demo, and a free buyer claims desk at /claims.",
+        "website_url": "https://kertivo.com",
+        "base_url": "https://kertivo.com",
+        "verified": false
+      },
+      {
+        "slug": "xiaoli-shop-xiaoli-x402-shop",
+        "name": "Xiaoli Shop (xiaoli x402 shop)",
+        "description": "Pay-per-call micro services from an autonomous AI agent: Chinese research briefs generated on a local LLM (POST /v1/research) and claim verification with verdict+reason (POST /v1/verify). $0.01 USDC per call on Base.",
+        "website_url": "https://xiaoli-x402.lcy-163-qq.workers.dev",
+        "base_url": "https://xiaoli-x402.lcy-163-qq.workers.dev",
+        "verified": false
+      },
+      {
+        "slug": "fuelscout",
+        "name": "FuelScout",
+        "description": "Cheapest fuel nearby. Station-level prices for Spain, France and Italy; official regional averages for the US. $0.01 USDC per query on Base (also Arbitrum, Polygon, XRP, RLUSD). Official open data, may be delayed.",
+        "website_url": "https://scalpstream.com",
+        "base_url": "https://fuelscout.scalpstream.com",
+        "verified": false
+      },
+      {
+        "slug": "skuuy-private-rpc-relay",
+        "name": "Skuuy Private RPC Relay",
+        "description": "Zero-log, no-signup JSON-RPC relay for 12 EVM chains. Free 2,500 calls/day/IP, then $0.001 USDC per call via x402 on Base. Point your provider URL to rpc.skuuy.com/<chain>.",
+        "website_url": "https://rpc.skuuy.com",
+        "base_url": "https://rpc.skuuy.com",
+        "verified": false
+      },
+      {
+        "slug": "tender-data-api-uk-public-procurement",
+        "name": "Tender Data API \u2014 UK Public Procurement",
+        "description": "Search UK public procurement notices from Find a Tender for apps, automations and AI agents. Filter by keyword, CPV category, delivery region, deadline and value. Receive up to 25 structured JSON results with buyers, values, deadlines and official source links where available. Pay 0.01 USDC per successful request on Base via x402; no subscription or API key. Successful empty searches are chargeable. Coverage is a bounded ingestion window, not all UK contracts; check the free /status endpoint first.",
+        "website_url": "https://api.alexstokes.com/tenders",
+        "base_url": "https://api.alexstokes.com",
+        "verified": false
+      },
+      {
+        "slug": "gadgethumans-api",
+        "name": "GadgetHumans API",
+        "description": "Agent-facing utility API: 49 MCP tools and 55+ REST endpoints behind x402, including wx/fx/crypto data, QR and JSON tooling, web research, and OpenAI-compatible chat completions. Pay-per-call in USDC on Base, no signup, no API key.",
+        "website_url": "https://www.gadgethumans.com/api-hub",
+        "base_url": "https://api.gadgethumans.com",
+        "verified": false
+      },
+      {
+        "slug": "contractlens",
+        "name": "ContractLens",
+        "description": "Smart contract security scan for AI agents: chain id + contract address in, Slither static-analysis findings, proxy/upgradeability status, who controls the contract (renounced, single-key EOA or Safe m-of-n) and every owner/role-gated admin function (mint, pause, blacklist, upgrade) out. Works on Sourcify-verified contracts on Ethereum, Base, Arbitrum, Optimism, Polygon, BNB. $0.01 USDC per call on Base or Arbitrum.",
+        "website_url": "https://contractlens.appin60.com",
+        "base_url": "https://contractlens-api.appin60.com",
+        "verified": false
+      },
+      {
+        "slug": "allthebot",
+        "name": "AllTheBot",
+        "description": "Pay-per-call AI text and Base on-chain data APIs for agents. Text: summarize, translate, grammar fix, JSON extraction, entities, sentiment, prompt-injection check. Base reads (no AI): wallet, token, allowance, tx, gas, Basenames, contracts, swap quotes. Also Hyperliquid perp funding rates, an x402 endpoint benchmark, and fun content. USDC on Base, from $0.002.",
+        "website_url": "https://zkrobotics.fr",
+        "base_url": "https://api.zkrobotics.fr",
+        "verified": false
+      },
+      {
+        "slug": "x402-format-checker",
+        "name": "x402 Format Checker",
+        "description": "Format and checksum validation for IBAN, EU VAT, Polish NIP/REGON/PESEL and email, pay-per-call via x402. Only $0.001 (0.1 cent) per check, paid via x402 in USDC on Base. POST JSON {\"value\": \"...\"}; values are never stored and personal identifiers are masked. Also a remote MCP server (/mcp) and A2A agent (/.well-known/agent-card.json).",
+        "website_url": "https://x402-test.crewofthecaptain.com/",
+        "base_url": "https://x402-test.crewofthecaptain.com",
+        "verified": false
+      },
+      {
+        "slug": "pathmint",
+        "name": "Pathmint",
+        "description": "Before you pay an x402 URL: one cent says if it is live or dead. Two cents checks the listed price against the live 402. USDC on Base.",
+        "website_url": "https://pathmint.edge.report",
+        "base_url": "https://pathmint.edge.report",
+        "verified": false
+      },
+      {
+        "slug": "wickedapi-x402-paywall",
+        "name": "WickedAPI x402 Paywall",
+        "description": "Multi-tenant x402 paywall-as-a-service: wrap any HTTP endpoint with per-call USDC pricing on Base, verified and settled through the Coinbase CDP facilitator directly to the owner wallet with no custody. Self-serve signup and REST config API; live demo route returns a valid 402.",
+        "website_url": "https://paywall.wickedapi.com",
+        "base_url": "https://paywall.wickedapi.com",
+        "verified": false
+      },
+      {
+        "slug": "instant-expert",
+        "name": "Instant Expert",
+        "description": "Pay per question for a written or voice answer from a real professional you name, or the best match for a description. From $40 in USDC on Base via x402, no account, refunded automatically if nobody answers within 7 days.",
+        "website_url": "https://instant.expert",
+        "base_url": "https://instant.expert",
+        "verified": false
+      },
+      {
+        "slug": "date-firme",
+        "name": "date-firme",
+        "description": "Romanian company data for AI agents (ONRC/ANAF): CUI lookup, company profile, financials, CAEN benchmark, administrator lookup and a KYB risk score 0-100 with reasons. Pay per call in USDC on Base via x402, no account or API key.",
+        "website_url": "https://date-firme.dev-box.ro",
+        "base_url": "https://date-firme.dev-box.ro",
+        "verified": false
+      },
+      {
+        "slug": "factstamp",
+        "name": "FactStamp",
+        "description": "FactStamp verifies a company against official public registers in 15 jurisdictions and returns a dated, cited, machine-readable answer. Paid per call over x402 (USDC on Base); free catalogue at /series.json.",
+        "website_url": "https://factstamp.dev",
+        "base_url": "https://agents.factstamp.dev",
+        "verified": false
+      },
+      {
+        "slug": "sundial-deathwatch-and-afterlife",
+        "name": "Sundial \u2014 Deathwatch and Afterlife",
+        "description": "Two domain-history lookups sold by the call: Deathwatch returns a domain's registry RDAP record \u2014 expiry date, days left, EPP status codes, registrar, name servers \u2014 and Afterlife returns a web address's first and last Wayback Machine capture with the span between. 0.01 USDC per call on Base, settled through PayAI's public facilitator; no API key, no account. Operated by Sundial, an AI with no memory between sessions that keeps a public diary at asundial.com; a human principal holds the receiving address.",
+        "website_url": "https://asundial.com/tools/x402",
+        "base_url": "https://x402.asundial.com",
+        "verified": false
+      },
+      {
+        "slug": "verify-api-agent-tools-suite",
+        "name": "Verify API & Agent Tools Suite",
+        "description": "Multi-utility AI Agent suite: Claim Verification + Web-to-Markdown Reader + Live Search + JSON Extraction + Stealth Fetch + CAPTCHA Solving \u2014 pay-per-use via x402 on Base USDC. Note: /v1/verify costs 1.00 USDC per call.",
+        "website_url": "https://github.com/drain54/verify-api",
+        "base_url": "https://verify.drain54.my.id",
+        "verified": false
+      },
+      {
+        "slug": "agentsapi-base-onchain-data-api-x402",
+        "name": "AgentSAPI - Base Onchain Data API (x402)",
+        "description": "Per-call Base onchain and SEC data API sold over x402 (HTTP 402, USDC on Base, payTo 0x381cdbb664608bf7b1dd4f9403a572c1c57332c2). Address labels from the open eth-labels dataset (104,209 entries; mostly generic category tags such as token-contract/exchange rather than named entities, and unknown addresses return label:null while still being charged per call), plain-language Base transaction explanation, funding-cluster / sybil analysis, CCTP cross-chain USDC burn-mint tracking, historical onchain alerts plus paid alert subscriptions by webhook or Telegram, and US SEC 8-K material-event filings streamed live from EDGAR. Prices 0.01-0.05 USDC per call. Also serves a free-tier MCP endpoint at /mcp and an A2A agent card at /.well-known/agent-card.json.",
+        "website_url": "https://agentsapi.top",
+        "base_url": "https://agentsapi.top",
+        "verified": false
+      },
+      {
+        "slug": "witan-markets",
+        "name": "WITAN Markets",
+        "description": "Market where AI agents sell what they measured: knowledge units (benchmarks, failure post-mortems, working parameters) reviewed against their evidence, and versioned, signed datasets. Each paid read is one x402 payment in USDC; search, listings and free reads need no payment or key. Remote MCP server at https://witan.markets/mcp, OpenAPI at https://witan.markets/openapi.json, Python and JS SDKs. Public beta on Base Sepolia (test USDC).",
+        "website_url": "https://witan.markets/developers",
+        "base_url": "https://witan.markets",
+        "verified": false
+      }
+    ]
+  },
+  "x4022": {
+    "meta": {
+      "total": 1020,
+      "page": 2,
+      "per_page": 50,
+      "total_pages": 21
+    },
+    "provenance": {
+      "license": "CC-BY-4.0",
+      "attribution_required": true,
+      "attribution": "Data: x402-list.com (CC BY 4.0)",
+      "cite_as": "https://x402-list.com/api/v1/services",
+      "source": "https://x402-list.com"
+    },
+    "data": [
+      {
+        "slug": "swarmmemo-agent-offerings-pythia-oracle",
+        "name": "SwarmMemo agent offerings (Pythia oracle)",
+        "description": "Paid calls to agents on SwarmMemo, the message board for agent swarms. Each offering is a signed, priced task an agent provides; the caller pays the provider directly over x402 (v2, exact, USDC on Base) and polls for the answer. First listed: Pythia, a forecasting ensemble answering a question with a probability (5 USDC).",
+        "website_url": "https://swarmmemo.com/@pythia/oracle",
+        "base_url": "https://swarmmemo.com/@pythia",
+        "verified": false
+      },
+      {
+        "slug": "pokt-agent-korea-data-checks-for-ai-agents",
+        "name": "POKT Agent \u2014 Korea data & checks for AI agents",
+        "description": "Pay-per-call Korean data and checks for AI agents: Korean company due diligence report, company ID crosswalk (business no. / corp no. / DART code / English name), sanctions screening with Korean name variants and romanisation, Upbit/Bithumb risk events (delisting warnings, deposit/withdrawal halts), HWP to Markdown, business status (NTS), Korean business-day calendar, road-address normalisation, Korean law articles, FX and rates, DART filings and more. No account or API key: pay each call in USDC on Base via x402 v2. OpenAPI: https://x402.pokt-agent.com/openapi.json",
+        "website_url": "https://pokt-agent.com",
+        "base_url": "https://x402.pokt-agent.com",
+        "verified": false
+      },
+      {
+        "slug": "night-bridge",
+        "name": "Night Bridge",
+        "description": "Machine services for AI agents. Pay per request with x402/Base USDC.",
+        "website_url": "https://night-bridge-ops.base44.app",
+        "base_url": "https://night-bridge-ops.base44.app",
+        "verified": false
+      },
+      {
+        "slug": "finalsentry-browser-release-evidence",
+        "name": "FinalSentry Browser Release Evidence",
+        "description": "Rendered desktop/mobile checks for AI-built websites. Quick 0.099 USDC standard, eligible intro 0.019 by quote, Acceptance 0.299 for up to three same-origin pages and ten explicit assertions. GET/HEAD only advertise requirements; POST performs paid checks. No confirmed independent buyers.",
+        "website_url": "https://finalsentry.smarterlistdigital.com/",
+        "base_url": "https://finalsentry-payment-gateway.nejthompson.chatgpt.site",
+        "verified": false
+      },
+      {
+        "slug": "skavio-usdc-verification-and-paid-mcp-tools",
+        "name": "Skavio USDC Verification and Paid MCP Tools",
+        "description": "Skavio LLC pay-per-call native Circle USDC verification on seven blockchains, precise payment matching and evidence PDFs; MCP agent server also available.",
+        "website_url": "https://www.skavio.eu/x402/",
+        "base_url": "https://www.skavio.eu",
+        "verified": false
+      },
+      {
+        "slug": "x402-socks",
+        "name": "X402 Socks",
+        "description": "x402socks.com provides instant SOCKS5 proxy services for AI agents via crypto-native HTTP 402 payments.",
+        "website_url": "https://x402socks.com",
+        "base_url": "https://payments.x402socks.com",
+        "verified": false
+      },
+      {
+        "slug": "limitguard",
+        "name": "Limitguard",
+        "description": "Limitguard checks Dutch and Belgian companies, sales leads, sanctions and wallets for AI agents, paid per call in USDC on Base or Solana. x402 agent prices: lead verify $0.05 (KVK/KBO register, VIES VAT, mail server, sanctions, 0-100 lead score), light check $0.05, entity check $0.29, KYB check $0.29, risk score $0.25, entity report $0.55, deep check $0.88, reputation score $0.90, sanctions screen $0.005 (OFAC, EU, UN), agent wallet check $0.005, seller preflight $0.005, wallet balance and compliance alerts $0.11. With the X-Response-Quality: cached header a recent stored answer costs $0.11 for entity check and risk score. Prepaid API keys use the account price list. Current prices are always in https://api.limitguard.ai/.well-known/x402.json.",
+        "website_url": "https://limitguard.ai",
+        "base_url": "https://api.limitguard.ai",
+        "verified": false
+      },
+      {
+        "slug": "quantx402",
+        "name": "QuantX402",
+        "description": "Market signal API for AI agents. Blends Kronos candlestick forecasts with market data and Polymarket prices into a JSON fact list (direction, confidence bucket, range, invalidation level, reasons). Live: crypto (BTC-USD, ETH-USD, 1h); stocks and forex planned. Pay per call in USDC via x402. Experimental, not calibrated; not financial advice.",
+        "website_url": "https://quantx402.app",
+        "base_url": "https://quantx402.app",
+        "verified": false
+      },
+      {
+        "slug": "telago-korea-physical-execution-logistics-decision-api",
+        "name": "TELAGO Korea Physical Execution & Logistics Decision API",
+        "description": "Machine-payable Korea field-ops preflight, building execution readiness and Thailand-Myanmar Mae Sot/Myawaddy shipment decision APIs over x402.",
+        "website_url": "https://favpulse.media",
+        "base_url": "https://ozeejewwpjmabshxyitc.supabase.co/functions/v1/telago-x402-live-v1",
+        "verified": false
+      },
+      {
+        "slug": "btc-intel",
+        "name": "btc-intel",
+        "description": "Live Stacks/Bitcoin market data plus npm/PyPI dependency version and health lookups. Pay-per-call x402.",
+        "website_url": "https://9eouter-0f49c8.abyte.my.id",
+        "base_url": "https://9eouter-0f49c8.abyte.my.id",
+        "verified": false
+      },
+      {
+        "slug": "moneylab-agent-data",
+        "name": "Moneylab agent data",
+        "description": "First-party data from a publicly documented, AI-operated business experiment, sold per call in USDC on Base. Real AI Economy Index (daily x402 vs gross USDC volume, payers, category revenue, catalog census, 90-day archive), a first-client playbook pack for AI automation freelancers, a sourced dataset of free-tier commercial-use limits for 44 AI image/voice/music/video tools with change log, and the full 106-post corpus as JSON. Free headline versions stay free at /api/ai-economy, /api/first-client and /llms.txt.",
+        "website_url": "https://money-lab.app/for-agents",
+        "base_url": "https://money-lab.app",
+        "verified": false
+      },
+      {
+        "slug": "orioncmd-site-checks",
+        "name": "OrionCMD Site Checks",
+        "description": "Outside-in checks for any domain: certificate details from CT logs plus a live HTTPS probe, DNS records with SPF/DMARC, registration expiry via RDAP, and a combined site-health call. $0.01 per check, $0.03 for the bundle. Also available as a remote MCP server at /mcp.",
+        "website_url": "https://orioncmd.com",
+        "base_url": "https://api.orioncmd.com",
+        "verified": false
+      },
+      {
+        "slug": "is-it-down-api",
+        "name": "Is It Down API",
+        "description": "Is a SaaS vendor down right now? Normalized current status and recent incidents for 1,400+ SaaS and cloud vendors, read live from 60SecMonitor. $0.01 per vendor, or $0.05 for up to 25 at once. Free vendor list and validation.",
+        "website_url": "https://isitdownapi.com",
+        "base_url": "https://api.isitdownapi.com",
+        "verified": false
+      },
+      {
+        "slug": "inboxguards-email-test",
+        "name": "InboxGuards Email Test",
+        "description": "Deliverability and authentication report for one real email. Create a test (free), send a message to the address you get, then read the report for $0.05: SPF, DKIM, DMARC, ARC, reverse DNS, blocklist, header and List-Unsubscribe checks. Messages are not stored; rows are deleted after 24 hours.",
+        "website_url": "https://inboxguards.com",
+        "base_url": "https://api.inboxguardstest.com",
+        "verified": false
+      },
+      {
+        "slug": "agentsvc-io",
+        "name": "agentsvc.io",
+        "description": "111 pay-per-call APIs for AI agents: web scraping and crawling to Markdown, screenshots, PDF and OCR, invoice extraction, company and sanctions checks, token risk and pre-trade checks for trading bots, scam message and prompt injection checks, IOTA and Bitcoin notarization, change monitoring with webhooks. USDC on Base, Solana, Polygon or Arbitrum, no account. Also a remote MCP server at https://agentsvc.io/mcp.",
+        "website_url": "https://agentsvc.io",
+        "base_url": "https://agentsvc.io/api/v1/proxy",
+        "verified": false
+      },
+      {
+        "slug": "rooms-by-aurmada-paid-tools",
+        "name": "Rooms by Aurmada paid tools",
+        "description": "Pay-per-call agent utilities in USDC on Base, no account or API key: x402 trust check for an unfamiliar paid endpoint ($0.003), Rooms agent identity verification with a signed receipt ($0.005), wallet snapshot ($0.002), ERC-20 token facts ($0.003), ENS resolve ($0.002), web page to markdown ($0.002) and email address check ($0.001). Never charged for errors.",
+        "website_url": "https://rooms.aurmada.com/paid",
+        "base_url": "https://rooms.aurmada.com",
+        "verified": true
+      },
+      {
+        "slug": "hyrule-cloud",
+        "name": "Hyrule Cloud",
+        "description": "Pay-per-request infrastructure on its own network (AS215932): IPv6-native VMs with root SSH from $0.20/day, network diagnostics (DNS, BGP, IP, RDAP/WHOIS, deep TLS, MX, port/NAT, VoIP) from $0.001, and one-shot requests over Direct, Tor, I2P or Yggdrasil. USDC on Base, Polygon and Arbitrum; no account.",
+        "website_url": "https://hyrule.host",
+        "base_url": "https://cloud.hyrule.host",
+        "verified": false
+      },
+      {
+        "slug": "emboss",
+        "name": "Emboss",
+        "description": "Emboss turns any PDF form into a fillable one, fills it from data or supporting documents, reads a filled form back, and faxes the result to a US, Canadian or Mexican fax number. Pay per call with x402 (USDC on Base) or MPP, no account needed, or use an Emboss account with 5 free jobs of each kind a month (faxes excluded) on forms up to 5 pages.",
+        "website_url": "https://getemboss.ai/docs/pay-per-call",
+        "base_url": "https://api.getemboss.ai",
+        "verified": false
+      },
+      {
+        "slug": "asi-agent-search-index",
+        "name": "ASI \u2013 Agent Search Index",
+        "description": "Web search API for AI agents over ASI's own crawled English web index. Returns title, URL, snippet, source and date as JSON. The x402 endpoint costs 0.01 USDC on Base per search; the same search is also available for free at /v1/search, so paying is voluntary.",
+        "website_url": "https://asi.xynatec.com",
+        "base_url": "https://api.asi.xynatec.com",
+        "verified": false
+      },
+      {
+        "slug": "on-chain-agent-intel",
+        "name": "On-Chain Agent Intel",
+        "description": "Trust-filter intelligence on ERC-8004 agents \u2014 commerce-backed reputation (real paid on-chain jobs), not a registry dump. Free MCP + x402-paid deep intel on Base + Ethereum.",
+        "website_url": "https://onchainagentintel.io",
+        "base_url": "https://api.onchainagentintel.io",
+        "verified": false
+      },
+      {
+        "slug": "scriptmasterlabs-url-to-markdown-api",
+        "name": "SCRIPTMASTERLABS URL to Markdown API",
+        "description": "Read a public HTTPS URL and return compact LLM-ready Markdown.",
+        "website_url": "https://scriptmasterlabs.com/url-to-markdown-api",
+        "base_url": "https://scriptmasterlabs.com",
+        "verified": false
+      },
+      {
+        "slug": "mailvett-api-by-cybermax",
+        "name": "Mailvett API by CyberMax",
+        "description": "Validate up to 10 email addresses per call: syntax, MX and mail provider, disposable, role and free-provider flags, typo fixes (gmial.com to gmail.com), domain age, SPF and DMARC, with a verdict and a 0-100 score. Keys work on the REST API and the MCP server. Pay per call: $0.006 USDC per call on Base, no account or API key (x402, PayAI facilitator).",
+        "website_url": "https://cybermaxtools.com/store/mailvett-api/?s=x402-list-mailvett",
+        "base_url": "https://mailvett.cybermaxtools.com",
+        "verified": false
+      },
+      {
+        "slug": "lucas",
+        "name": "Lucas",
+        "description": "Pay-per-request research for AI agents. Quick research ($0.25): a concise answer to any question, with key points that each cite a source, a confidence rating, and anything that could not be verified. Lead research ($1.00): up to 3 companies matching a description, with every requirement checked against a source. Unverifiable claims are marked unverified, never guessed. Invalid requests and failed research are not charged. USDC on Base via the Coinbase facilitator, listed in the x402 Bazaar. No account or API key.",
+        "website_url": "https://lucasnode.app",
+        "base_url": "https://api.lucasnode.app",
+        "verified": false
+      },
+      {
+        "slug": "agentpay-transaction-authority-check",
+        "name": "AgentPay Transaction Authority Check",
+        "description": "Compare a proposed payment with current advertised terms for supported x402 endpoints. Receive ALLOW, HOLD or DENY with source-bound reasons and a verifiable receipt. Assessment costs 0.10 USDC on Base. Supports AgentPay\u2019s reference endpoint and X402 Data API domain-intel using the fixed api.x402-engine.com probe; other targets return HOLD. Does not buy the external report or certify merchant identity or delivery.",
+        "website_url": "https://api.x402-engine.com/proof/price-mismatch",
+        "base_url": "https://api.x402-engine.com",
+        "verified": false
+      },
+      {
+        "slug": "nerf-radar",
+        "name": "Nerf Radar",
+        "description": "Structured, source-linked game patch data: every buff, nerf and fix from official patch notes for World of Warcraft: Forever, World of Warcraft (Retail), Counter-Strike 2, League of Legends, VALORANT, Deadlock and WARDOGS, with before and after values. $0.01 per patch, $0.02 per change-history query.",
+        "website_url": "https://nerfradar.com/api",
+        "base_url": "https://nerfradar.com",
+        "verified": false
+      },
+      {
+        "slug": "agentshop-mv7xvscs-0",
+        "name": "agentshop",
+        "description": "agentshop sells analytical macro-economic reports per fetch over x402 (USDC on Base mainnet). 115 prebuilt World Bank reports across 24 categories, 86 indicators, 20 economies, covering every year from 2015 to 2025, plus annual editions and a bespoke endpoint that builds a report from any indicator and economy. Delivery is html, json, or tidy csv. Free machine-readable previews at /preview/{id} (also markdown), a browsable year index at /years, and an MCP endpoint at /mcp. No account, no API key, no signup: an unpaid request returns HTTP 402 with the price and a valid request returns the document. Source: World Bank Open Data (CC BY 4.0), attributed in every document.",
+        "website_url": "https://reportbazaar.app.workbuddy.host",
+        "base_url": "https://reportbazaar.app.workbuddy.host",
+        "verified": false
+      },
+      {
+        "slug": "tanod",
+        "name": "Tanod",
+        "description": "Pay-per-call tools for AI agents over HTTP and MCP: web page to Markdown, web search, PDF text, OCR, pre-transaction address risk checks, agent package scans, plus about 140 more routes listed at https://tanod.dev/.well-known/x402. Small free daily allowance per IP, then x402 USDC on Base. MCP at https://tanod.dev/mcp. Automated, heuristic results; not an audit.",
+        "website_url": "https://tanod.dev",
+        "base_url": "https://tanod.dev",
+        "verified": false
+      },
+      {
+        "slug": "agentic-finance-graph",
+        "name": "Agentic Finance Graph",
+        "description": "Independent ledger of AI-agent money on Base. Nine x402 evidence packs (1 to 25 cents USDC) about any ERC-8004 agent or receiving address: liveness rank with evidence, where it pays, our public drain rule applied, logged incidents, peer agents, a fresh re-probe, hash-chained signed statement history, and who paid an address. Every pack is dated and carries definition ids; the free JSON API and a read-only MCP server sit beside them.",
+        "website_url": "https://agenticfinancegraph.com",
+        "base_url": "https://agenticfinancegraph.com",
+        "verified": false
+      },
+      {
+        "slug": "iban-tax-verification-hub",
+        "name": "IBAN & Tax Verification Hub",
+        "description": "A B2B financial and tax verification hub built for autonomous agents. Validate IBANs (single or batch), verify Romanian CUI and EU VAT numbers, audit a business partner, generate e-Factura (UBL) invoices, fetch BNR exchange rates, convert currencies, generate SEPA EPC QR codes, idempotency keys and UUIDv7. Every endpoint is priced per call (0.002\u20130.030 USD) and paid in USDC on Base with the x402 protocol. Discoverable via OpenAPI, /.well-known/x402, llms.txt and the CDP Bazaar.",
+        "website_url": "https://api.ibancheck.co.uk",
+        "base_url": "https://api.ibancheck.co.uk",
+        "verified": false
+      },
+      {
+        "slug": "averray-verify",
+        "name": "Averray Verify",
+        "description": "Paid, bounded verification of a candidate result with a signed, content-addressed receipt. USDC on Base; capture follows an approved or rejected verdict. Inconclusive runs are not billed.",
+        "website_url": "https://averray.com/verify/",
+        "base_url": "https://api.averray.com",
+        "verified": false
+      },
+      {
+        "slug": "bartok-text-analyzer",
+        "name": "Bartok Text Analyzer",
+        "description": "Summarize and classify text (up to 4000 chars). Pay-per-call 0.02 USDC on Base via x402. Categories: news, opinion, technical, commercial, other.",
+        "website_url": "https://n8n.eotrends.com/webhook/bartok/info",
+        "base_url": "https://n8n.eotrends.com",
+        "verified": false
+      },
+      {
+        "slug": "skuuy-file-drop",
+        "name": "Skuuy File Drop",
+        "description": "Ephemeral, zero-log file sharing and pastebin with x402 micropayments. Free tier: 25 drops/pastes per day; $0.005 USDC per request on Base after quota.",
+        "website_url": "https://skuuy.com",
+        "base_url": "https://file.skuuy.com",
+        "verified": false
+      },
+      {
+        "slug": "skuuy-read",
+        "name": "Skuuy Read",
+        "description": "URL to clean markdown reader with x402 micropayments. Free tier: 100 reads per day; $0.005 USDC per request on Base after quota.",
+        "website_url": "https://skuuy.com",
+        "base_url": "https://read.skuuy.com",
+        "verified": false
+      },
+      {
+        "slug": "ishob",
+        "name": "ISHOB",
+        "description": "ISHOB is a pay-per-call API and remote MCP server for AI agents (36 tools: crypto token & wallet risk, transaction simulation, web extraction, screenshots, site audits, agent alarms, weather & location risk, SEC company data, research search). Payments use x402 (USDC on Base), no API key or account.\r\n\r\n- OpenAPI 3.1: https://api.ishob.com/openapi.json\r\n- llms.txt: https://ishob.com/llms.txt\r\n- MCP server: https://api.ishob.com/mcp (Streamable HTTP); server card: https://ishob.com/.well-known/mcp.json\r\n- Official MCP Registry: com.ishob/archive\r\n- Docs per tool: https://ishob.com/tools\r\n\r\nPlease list all endpoints in the OpenAPI definition under one listing: ISHOB.",
+        "website_url": "https://ishob.com",
+        "base_url": "https://api.ishob.com",
+        "verified": false
+      },
+      {
+        "slug": "plainchain",
+        "name": "Plainchain",
+        "description": "Pay-per-call chain data for agents on Base, Arbitrum, Ethereum and Optimism: gas with USD cost estimates, latest block, USD prices, wallet balances with USD values, ERC-20 token data with DEX market stats, address classification (EOA, EIP-7702, Safe multisig, proxy, token), ERC-20 allowance checks, decoded transactions, x402/USDC payment receipt verification and verifiable block-hash randomness. x402 v2, USDC on Base via the CDP facilitator, $0.001-$0.003 per call, no API key. Bad input returns 400 and is not charged.",
+        "website_url": "https://plainchain.appin60.com",
+        "base_url": "https://plainchain.appin60.com",
+        "verified": false
+      },
+      {
+        "slug": "onekeyaway-control-map",
+        "name": "OneKeyAway Control Map",
+        "description": "Who can change this smart contract? GET /api/control?chain=8453&address=0x... returns the on-chain control path as JSON: proxy admin, beacon owner, owner(), DEFAULT_ADMIN_ROLE members, each resolved through ProxyAdmin, Safe multisig threshold and signers, timelock delay or Avocado wallet, plus a verdict (SINGLE KEY / MULTISIG NO TIMELOCK / TIMELOCKED / UNRESOLVED). 15 EVM chains. $0.01 USDC on Base or Arbitrum. Free verdict at /api/preview.",
+        "website_url": "https://onekeyaway.appin60.com",
+        "base_url": "https://onekeyaway.appin60.com",
+        "verified": false
+      },
+      {
+        "slug": "x402-web-probe",
+        "name": "x402 Web Probe",
+        "description": "Pay-per-use web probe API for AI agents: HTTP reachability check, HTML-to-Markdown, domain intel (DNS/RDAP), and page metadata extraction. Settles USDC on Base via x402. SSRF-hardened.",
+        "website_url": "https://rockndefi.xyz",
+        "base_url": "https://rockndefi.xyz:8443",
+        "verified": false
+      },
+      {
+        "slug": "kenward-payable-api",
+        "name": "Kenward payable API",
+        "description": "Agent-native data with no signup, pay-per-call in USDC on Base. 1) MARKET QUEUE ANALYTICS + SETTLEMENT VERDICTS: how crowded a marketplace is (bids per job, measured) and whether money has ever actually moved there (payer share, buyer behaviour, freshness). 2) CONTENT EXTRACTION: page to clean LLM-ready text, video transcript with timestamps, PDF to text (batch up to 5 URLs per call). Free catalog card /v1/preview, MCP surface /mcp, append-only proof log /proof. Unmeasured answers stay UNKNOWN - we never sell a guess.",
+        "website_url": "https://pay.kenwardai.my.id/llms.txt",
+        "base_url": "https://pay.kenwardai.my.id",
+        "verified": false
+      },
+      {
+        "slug": "twitter-x-api",
+        "name": "Twitter/X API",
+        "description": "Search Twitter/X with structured filters or raw advanced-search syntax. Returns up to 20 normalized tweets with full text, author details, engagement metrics and a pagination cursor.",
+        "website_url": null,
+        "base_url": "https://twitter.use.x402atlas.com",
+        "verified": false
+      },
+      {
+        "slug": "apollo-via-locus",
+        "name": "Apollo via Locus",
+        "description": "Locus wrapper on Apollo: people and organization search and enrichment, paid per call.",
+        "website_url": null,
+        "base_url": "https://apollo.x402.paywithlocus.com",
+        "verified": false
+      },
+      {
+        "slug": "mapleai",
+        "name": "MapleAI",
+        "description": "Reseller of LLM access: chat completions, responses and image generation priced per call, a proxy to the Jev structured-decision model, and prepaid codes.",
+        "website_url": null,
+        "base_url": "https://base.mapleai.shop",
+        "verified": false
+      },
+      {
+        "slug": "jev-structured-evaluation-jev-x402",
+        "name": "Jev Structured Evaluation (jev-x402)",
+        "description": "Third-party wrapper of the Jev (System One) model by TypeSafe: send a state plus typed questions and get calibrated probabilities and confidence for each.",
+        "website_url": null,
+        "base_url": "https://jev-x402.vercel.app",
+        "verified": false
+      },
+      {
+        "slug": "orthogonal",
+        "name": "Orthogonal",
+        "description": "Marketplace of third-party data APIs (Apollo, Aviato, Fiber, Findymail, Abstract API, Andi and others) behind one x402 gateway. Each provider is paid at its own address.",
+        "website_url": null,
+        "base_url": "https://x402.orthogonal.com",
+        "verified": false
+      },
+      {
+        "slug": "keyring-agent",
+        "name": "keyring-agent",
+        "description": "Execution fee endpoints labelled for token, native coin and NFT transfers, swaps, adding liquidity to Uniswap V3 pools, and USDC supply. The caller performs the onchain action.",
+        "website_url": null,
+        "base_url": "https://keyring-agent.blockchhub.link",
+        "verified": false
+      },
+      {
+        "slug": "oneshot-agent",
+        "name": "OneShot Agent",
+        "description": "Agent tools marketplace: browser and research tools, company and person enrichment, email sending, LinkedIn actions and compute. Third-party sellers on the marketplace are paid through the same address.",
+        "website_url": null,
+        "base_url": "https://win.oneshotagent.com",
+        "verified": false
+      },
+      {
+        "slug": "deepai-tools-on-zeroclick",
+        "name": "DeepAI tools on ZeroClick",
+        "description": "DeepAI image tools offered through the ZeroClick payment gateway: background removal, colorization and super resolution, paid per call.",
+        "website_url": null,
+        "base_url": "https://deepai.pay.zeroclick.io",
+        "verified": false
+      },
+      {
+        "slug": "locus-report",
+        "name": "Locus Report",
+        "description": "Property and place reports from cited public records: parcel lookup, flood zone, permits, crime, air quality, PFAS, electricity context, assessments and satellite change.",
+        "website_url": null,
+        "base_url": "https://api.locus.report",
+        "verified": false
+      },
+      {
+        "slug": "freeq-x402-gateway",
+        "name": "freeq x402 Gateway",
+        "description": "Tool gateway: token prices, cross-chain balances and portfolio, World ID and Semaphore verification, QR codes, OG images, Mermaid and Markdown rendering, HTML to Markdown and job listings.",
+        "website_url": null,
+        "base_url": "https://x402.freeq.one",
+        "verified": false
+      },
+      {
+        "slug": "quotient",
+        "name": "Quotient",
+        "description": "Quotient prediction-market signals across Polymarket and Kalshi: market search and lookup, mispriced markets, asset price outlooks, portfolio, and X profile and search data.",
+        "website_url": null,
+        "base_url": "https://quotient-api-gateway.onrender.com",
+        "verified": false
+      },
+      {
+        "slug": "x402-factory",
+        "name": "x402 Factory",
+        "description": "Data endpoints: weather forecast windows, aviation delay risk, energy, economic series, SEC insider filings, market movers, climate and science boards, a backtest tool and a low-cost ping.",
+        "website_url": null,
+        "base_url": "https://x402-factory.com",
+        "verified": false
+      }
+    ]
+  },
+  "pay1": {
+    "category": null,
+    "network": null,
+    "verified_only": false,
+    "count": 50,
+    "total": 429,
+    "offset": 0,
+    "limit": 50,
+    "next_cursor": "eyJvIjo1MCwidiI6MX0",
+    "next_offset": 50,
+    "has_more": true,
+    "results": [
+      {
+        "id": "7a9bd09f-8a7c-4311-8ade-bc492f58420c",
+        "name": "10x402",
+        "description": "x402 conformance lint for sellers: 82 regime-labeled, source-cited checks against your live 402 (envelope, dual-stack, Bazaar metadata), grade + bazaar_ready verdict. USDC on Base and Solana, $0.004-$",
+        "base_url": "https://10x402.com/lint/one",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "e1faf67f-9fc8-4461-89fd-5ce7cfc48132",
+        "name": "AeroCheck",
+        "description": "Risk scanner for Aerodrome and Uniswap v2 pools on Base. Reads both tokens, runs honeypot and rug checks, returns per-token risk scores and a safe/caution/avoid verdict before you provide liquidity.",
+        "base_url": "https://aero.lonestaroracle.xyz/pool",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "afdfba84-fc54-46f3-94c3-fbecb03aafc2",
+        "name": "Cognilode Ticket Resale Underwriter",
+        "description": "Pay-per-call ticket resale underwriting for break-even, safe buy ceiling, net profit, ROI, downside, liquidity, and ranked buy/no-buy decisions.",
+        "base_url": "https://cognilode.com/api/x402/ticket-underwrite",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "0f3bab6c-5b4f-4350-b8a4-14b99e1e34ee",
+        "name": "Crypto Snapshot Pro - AI Trading Signals",
+        "description": "AI crypto trading signals: entry, target, stop, risk/reward, conviction. Pay per request via x402 in USDC on Base.",
+        "base_url": "https://crypto-snapshot-pro.onrender.com",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "5501c628-4dcc-406a-9d5f-1fec53c0e0dd",
+        "name": "kino402",
+        "description": "Pay-per-call video generation and TTS for agents. The 402 carries a parametric quote, so the price depends on the input: TTS is priced PER CHARACTER at about $0.00024 a character with a floor near $0.001 (5 characters quoted $0.002, 200 characters quoted $0.048), video is $0.056 to $16.70 by length and resolution, and compiled prompts are $0.008. Read the quote in the 402 rather than assuming a fixed price. USDC on Base and Solana, no key.",
+        "base_url": "https://kino402.com/v1/audio/tts",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "ad5f8599-35aa-4133-a78b-8746e6fae89e",
+        "name": "LaborPulse",
+        "description": "US labor-market signal in one call: jobs, unemployment, wage growth and JOLTS distilled into a single read. Straight from the BLS.",
+        "base_url": "https://labor.lonestaroracle.xyz/labor",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "b58b5bef-a393-4032-9f12-309d6ff9cbd5",
+        "name": "Lemon Toolshed",
+        "description": "19 pay-per-call conversion tools for agents: markdown, HTML, JSON, YAML, CSV, text and more. x402 USDC on Base and Solana, $0.002-$0.006 per call, no keys or accounts. Every route answers 402 with the",
+        "base_url": "https://toolshed.lemon-agent.dev/convert/json-yaml",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "bd8d9887-f6dc-447b-b6a0-b704a730f6b6",
+        "name": "LLM2API - Gemma 4 12B + Crypto Trade Checks",
+        "description": "OpenAI-compatible Gemma 4 12B chat completions plus crypto pre-trade checks (news risk-check, liquidity size-check) powered by the live Kurage FreqAI trading system.",
+        "base_url": "https://bittensorman.xyz/llm2api",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "ed48a5e1-8624-4028-8782-82106769b2e5",
+        "name": "MachineMint \u2014 Unsigned Base Transaction Preflight",
+        "description": "Preflight unsigned Base transactions before signing. Simulates execution, estimates gas, checks balance and contract code, decodes transfers/approvals, flags risks, and returns PASS, REVIEW, or FAIL.",
+        "base_url": "https://machinemint-native-x402-production.up.railway.app",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "8d5220b5-44a2-4fb5-a603-004372ab2533",
+        "name": "MacroPulse",
+        "description": "US macro-conditions signal in one call: growth, inflation and policy distilled into a single read an agent can gate decisions on. Built from official data.",
+        "base_url": "https://macro.lonestaroracle.xyz/macro",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "a1d79583-399c-469a-a69a-84951aa0bc2e",
+        "name": "Melssa",
+        "description": "\u0441\u043f\u0440\u0430\u0432\u043e\u0447\u043d\u043e \u0441\u044a\u0434\u044a\u0440\u0436\u0430\u043d\u0438\u0435 \u0437\u0430 \u0436\u0438\u0432\u043e\u0442 \u0432 \u0411\u044a\u043b\u0433\u0430\u0440\u0438\u044f",
+        "base_url": "https://melssa.com/api/agent/qa",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "b6dcb03b-570e-485a-b16d-03aedd5ccd94",
+        "name": "NexusEval Marketing Preflight",
+        "description": "x402-paid pre-publish marketing QA gate for AI agents, returning structured quality and risk flags before content goes live.",
+        "base_url": "https://nexuseval.vercel.app/api/gate",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "00f1c992-5c4e-4552-8902-30b2636887d8",
+        "name": "OptionsFlow",
+        "description": "Options flow signal for US equities and crypto (BTC/ETH/SOL). Returns IV skew, put/call ratio, unusual activity and a directional read. One call per ticker.",
+        "base_url": "https://options.lonestaroracle.xyz/flow?ticker=SPY",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "de199658-0af5-4c87-b3f0-b40dc390e8d4",
+        "name": "Parallax",
+        "description": "The x402 economy, measured: seller-side market data computed from public chain settlements (daily window, per-seller stats, buyer baskets). Free 7-day-old previews inside the 402; paid full reads $0.0",
+        "base_url": "https://parallax402.com/v1/seller",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "95023e78-155e-4e53-afe8-afe4d6209150",
+        "name": "penny402",
+        "description": "A penny arcade for agents: 10 novelty attractions (horoscope, oracle, tarot, koan, fortune, prophecy, wallet roast, spark, oblique, brainstorm), flat $0.0025 each in USDC on Base and Solana. Free dire",
+        "base_url": "https://penny402.fun/oracle",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "bf79ca10-cbe3-41cb-a656-460b10659b36",
+        "name": "ProviderSignal Dental Market Intelligence",
+        "description": "Enriched US dental provider intelligence: licensure from 42 state boards, DSO affiliation, discipline, Medicaid participation and fee schedules, acquisition scoring. Citation envelope on every call.",
+        "base_url": "https://providersignal.com/api/v1/agent/search",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "dc97edfa-227f-4eed-89c3-c694b1a8c35e",
+        "name": "RatesPulse",
+        "description": "US bond-market signal: yield-curve slope with recession flag, IG and HY credit spreads scored vs their own history, real yields and inflation breakevens, rates regime.",
+        "base_url": "https://rates.lonestaroracle.xyz/rates",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "a2584e6e-b383-4adb-b559-2629fdb537c4",
+        "name": "SameDayDesk Machine Commerce APIs",
+        "description": "Eleven x402-paid APIs for Morpho risk and protection, AI-search audits, company and wallet enrichment, repository scanning, extraction, reading, and structured data.",
+        "base_url": "https://agents.samedaydesk.com/extract",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "686938ee-5136-4402-8644-f49b0ce4b2cf",
+        "name": "SanctionsScreen",
+        "description": "OFAC sanctions screening in one call: check a name, entity, or wallet against the US Treasury SDN list. Public-domain data refreshed daily. Drop-in AML check for agents.",
+        "base_url": "https://sanctions.lonestaroracle.xyz/screen",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "6260528f-aa96-48bb-81bf-5883eaf63c02",
+        "name": "Contract Powers",
+        "description": "Contract Powers: pay $0.05 per address, get the privileged powers its admin retains - upgrade, mint, pause, blacklist, fees, sweep - each with on-chain evidence, plus proxy type and bounty coverage.",
+        "base_url": "https://agent.zbang.net/api/paid/contract?chain=base&address=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "6278cdce-f93a-45c7-9829-ffbe570f4df5",
+        "name": "Kristo Intelligence \u2014 DeFi Signals API",
+        "description": "Live Base DeFi signals for ETH, ONDO, KAITO, DEGEN \u2014 action, confidence, one-line reasoning. Whale USDC tracking (\u2265 $5M transfers) on GET /api/v1/whaleflow. Cross-DEX arb spreads and rug checks. Pay-per-call from $0.003, x402, no signup.",
+        "base_url": "https://kristo-intelligence-api.onrender.com",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "1126be8a-b7c1-406b-b324-8d67dce93c85",
+        "name": "CSV Drift Evidence",
+        "description": "Detect pipeline and schema drift by comparing baseline and candidate CSVs for added, removed or reordered columns, type changes, missing-rate shifts and optional numeric excursions. JSON evidence.",
+        "base_url": "https://foundry-csv-drift-evidence-mainnet.inference-chip-index.workers.dev/v1/csv/drift",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "fb9cc655-52ec-4cca-95b7-d7c14eb31aca",
+        "name": "Sirenic",
+        "description": "French & European company data for AI agents: KYB, financials, capital, default scoring, sanctions screening, EU search + LEI/GLEIF. Official open data, GDPR-safe, pay-per-call in USDC.",
+        "base_url": "https://api.sirenic.eu",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "fe9782db-0ad1-4f89-999d-2cbb1a473280",
+        "name": "Kurage FX Brain",
+        "description": "FX trade-judgment API \u2014 37 endpoints on local Gemma 4 12B, built from vendored open-source trading intelligence (TradingAgents, FinGPT, ai-hedge-fund, FinRobot, FinMem) with pinned commits and full attribution. Judgment only: no broker credentials, no order execution. 36 of the 37 endpoints are live now; the premium multi-agent endpoint (tradingagents/run) is in final verification and will be added shortly.",
+        "base_url": "https://bittensorman.xyz/fxbrain",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "84e29165-de8e-45e9-b613-86433a268bdc",
+        "name": "Agent402.Tools",
+        "description": "Pay-per-call tools for agents. Prices and catalog size come from https://agent402.tools/api/pricing and can change.",
+        "base_url": "https://agent402.tools",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "b19d2783-1be2-4015-aa30-b9cb7202566e",
+        "name": "Anicca x402 Agent APIs",
+        "description": "Nine x402-native AI utilities: context compression, emotion detection, Buddhist counsel, focus coaching, habit design, prompt safety, decision clarity, intent routing, and live funding rates.",
+        "base_url": "https://x402-agents-production.up.railway.app",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "65f1b025-fb25-4e2d-8afa-161602badfd2",
+        "name": "API Acre",
+        "description": "61 account-free x402 v2 APIs for deterministic code, document, web, public-record and Base data tasks, with OpenAPI, MCP, A2A and exact USDC pricing.",
+        "base_url": "https://apiacre.com",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "bea16247-c412-4970-b994-7902d5d73755",
+        "name": "Bankruptcy Filing Search & Chapter 11 Dockets API",
+        "description": "Search CourtListener RECAP bankruptcy dockets by chapter, debtor or case keyword, court, docket number, and filing date for restructuring leads, insolvency monitoring, legal research, and credit-risk review. Deterministic test: chapter=11&maxResults=1. RECAP is an incomplete PACER-derived archive, not an official or complete PACER search. Docket metadata and party names do not prove identity, debt validity, liability, discharge, current status, case outcome, creditworthiness, or legal effect. MCP tool: search_bankruptcy_filings.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/bankruptcy-filings",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "41bad029-8981-446b-b9cf-619a117c2951",
+        "name": "Bulk Email Validation & Verification API",
+        "description": "Bulk email validation for lead-list cleaning, CRM cleanup, syntax checks, MX lookup, and disposable-domain signals. Returns stable source and interpretation fields for up to 100 addresses per request. The serverless route does not perform SMTP checks: valid means syntax valid, MX present, and domain not flagged disposable\u2014not mailbox ownership, live reachability, delivery, consent, or anti-spam compliance. Deterministic test: emails=test@example.com,ava@example.org&maxResults=2. MCP tool: validate_email_addresses.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/email-validation",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "b35f1759-0fd6-4b36-a110-e8d06c1b93f3",
+        "name": "Butterfly Delta Exact-Order Preflight",
+        "description": "Signed exact-order depth, spread, slippage, freshness, and venue-state preflight for Coinbase and Gemini crypto trading agents. Returns PASS/BLOCK/UNKNOWN before order placement.",
+        "base_url": "https://butterflydelta.com",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "6430e2a8-ae89-49bf-b967-994d302b30e8",
+        "name": "ChainVerdict",
+        "description": "Pre-payment checks for agents: token safety and wallet risk on Base, on-chain payment verification, IBAN/VAT/BIC/LEI/ISIN validation, TLS and email posture. Signed answers with evidence and limits.",
+        "base_url": "https://chainverdict.xyz",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "a26ad751-990f-4761-b4c0-237284ce1875",
+        "name": "Cloud World Model",
+        "description": "Simulate cloud infrastructure changes, traffic, scaling and failures before deployment. Model cost, performance and reliability across AWS, Azure, GCP, OCI and DigitalOcean.",
+        "base_url": "https://www.cloudworldmodel.ai",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "50d30ea5-6cdd-4947-8a6c-4e201748c76f",
+        "name": "Compute Revenue Gateway",
+        "description": "GPU compute economics for agents. POST /api/gpu-profitability returns gross, rental, electricity and net USD per GPU-hour plus margin percent and a break-even flag from your revenue, rental, power draw and electricity price. POST /api/rank-providers ranks up to 100 compute providers on hourly price, performance score and reliability. $0.001 per call in USDC on Base, no API key.",
+        "base_url": "https://x402-compute-revenue-gateway.vercel.app",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "58a9ce66-1366-410f-917b-e28f1fa0d07c",
+        "name": "CourtListener Legal Opinions & Case Law API",
+        "description": "Search CourtListener legal opinions and case law by full text, court, filing date, citation, docket number, or source-reported status for precedent research, litigation analysis, and legal research workflows. Deterministic test: query=artificial intelligence copyright&maxResults=1 returns source-linked National Security Counselors v. Central Intelligence Agency evidence. CourtListener is a non-governmental public archive; results can be incomplete, delayed, duplicated, or corrected and are not official court copies, legal advice, identity verification, Shepardization/KeyCite treatment, or proof an opinion remains controlling law.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/courtlistener-legal-opinions",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "acb2665e-9bf2-4f79-939c-689df45eecfc",
+        "name": "Currency & Crypto API",
+        "description": "5 endpoints for fiat and crypto pricing: latest ECB exchange rates for any base currency, fast amount conversion, historical rates back to 1999, single-coin crypto price lookup, and batch crypto pricing for up to 50 coins at once. Per-key TTL cache (1h fiat, 30s crypto) keeps upstream load minimal.",
+        "base_url": "https://currency.payapi.market",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "82a794ed-e067-4636-98a8-f37a2b47c180",
+        "name": "Diagram Generation API",
+        "description": "AI-powered diagram generation API that renders Mermaid, D2, PlantUML, and Graphviz diagrams to SVG or PNG.",
+        "base_url": "https://diagram-generation-api-production.up.railway.app",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "f0f22eb4-70bd-4699-a12f-05364588431a",
+        "name": "DNS & Domain Intelligence API",
+        "description": "5 endpoints for DNS and domain intelligence: every common record type (A, AAAA, MX, TXT, NS, SOA, CNAME), WHOIS registration metadata, live SSL certificate inspection (issuer, validity, SANs, days remaining), Certificate Transparency-log subdomain discovery via crt.sh, and reverse-IP lookup with PTR fallback.",
+        "base_url": "https://dns.payapi.market",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "a0c10238-0d64-403b-9042-bba88a6d3a15",
+        "name": "Dokimo Verify API",
+        "description": "Independently verifies a Merkle evidence proof to its committed root and returns a signed attestation \u2014 from Dokimo, a non-custodial ASC-606 subledger for x402/agent revenue.",
+        "base_url": "https://dokimo.augaster.com",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "510e93be-19d9-4f81-91e3-e925eaa10882",
+        "name": "DOL Form 5500 401(k) & Employee Benefit Plan Leads API",
+        "description": "Search official DOL regular Form 5500 and linked Schedule H/I annual filings by sponsor, EIN, plan, state, category, participants, assets, contributions, expenses, and fees. Deterministic test: sponsorEin=91-1144442, planCategory=401k, sortBy=assets_desc, maxResults=1 returns Microsoft Savings Plus 401(k). Scope excludes Form 5500-SF and other schedules. Filer-submitted annual evidence is not DOL verification, a live/current plan, compliance status, renewal timing, or buying intent; filings can be amended, delayed, duplicated, incomplete, or erroneous.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/dol-form-5500-plans",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "256a0b7b-4e1e-4fd8-ad3d-e748e6aa2302",
+        "name": "Email Verification API",
+        "description": "4 endpoints for real-time email verification: single verify, bulk verify (up to 100), domain check, MX lookup. Each call runs syntax validation, MX resolution, SMTP RCPT probe, catch-all detection, disposable check against 3500+ domains, role-based pattern detection (45+ patterns), free provider classification, typo suggestion, and a 0\u2013100 quality score. Verdict: valid / invalid / risky / unknown.",
+        "base_url": "https://email.payapi.market",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "08968778-9cd2-49c9-9fbd-7d7a7f3ca76f",
+        "name": "FDA 510k Medical Device Clearances API",
+        "description": "Search official FDA 510(k) clearance records by device, applicant/manufacturer, product code, and decision date for medical-device regulatory intelligence. Deterministic test: applicant=Medtronic&maxResults=1 returns official record K231976. Records are clearance evidence\u2014not FDA approval or endorsement, current availability, safety/effectiveness proof, recall status, or equivalence for a specific use; review the official record, labeling, and later FDA actions.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/fda-510k-clearances",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "e538f5d5-1b6b-423d-87e0-05b81de01fe4",
+        "name": "Federal Register Rules, Regulations & Proposed Rules API",
+        "description": "Search official Federal Register documents for final rules, proposed rules, notices, agency actions, comment deadlines, dockets, RINs, and CFR references. Deterministic test: query=artificial intelligence&maxResults=1. Records can be corrected, republished, withdrawn, delayed, or superseded and are publication evidence\u2014not legal advice, current codified-law or applicability proof, or proof a reported comment deadline remains open. MCP tool: search_federal_register_documents.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/federal-register-documents",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "2890b446-daeb-411d-aa63-b9986f91b1bc",
+        "name": "IP Geolocation API",
+        "description": "4 endpoints for IP geolocation: single IP lookup (country, region, city, ISP, ASN, lat/lng, timezone, datacenter heuristic), batch lookup of up to 20 IPs in parallel, caller's-IP introspection (via x-forwarded-for chain), and great-circle distance between two IPs in km/miles. Backed by ip-api.com (primary) with ipapi.co fallback.",
+        "base_url": "https://ipgeo.payapi.market",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "b8a64bef-ada5-4443-b1c9-a4cc3c5dd5d9",
+        "name": "IRS 990 Nonprofit Charity Grant Evidence API",
+        "description": "IRS 990 nonprofit search for charity verification, donor research, grant prospecting, foundation diligence, and nonprofit evidence packs. Parameters: query required, maxResults optional. Deterministic test: query=American Red Cross&maxResults=5 returns public tax-exempt organization filing metadata and source-backed organization details.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/irs-990/search",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "f79d0b5a-cc3f-4148-a817-860c468cd574",
+        "name": "Merchant Risk WHOIS Domain Evidence API",
+        "description": "WHOIS and domain-age evidence for merchant underwriting, vendor due diligence, website legitimacy checks, fraud review, and risk-agent evidence packs. Parameter: domain required. Deterministic test: domain=apple.com returns registrar, creation/expiration dates, nameservers, and parsed domain metadata.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/whois/lookup",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "efbf6526-c465-43c2-980c-412cdb29cc44",
+        "name": "Moneytest x402 Agent Utilities",
+        "description": "Five deterministic agent utilities for JSON receipts, opportunity qualification, failed-attempt decisions, text QA, and portfolio prioritization.",
+        "base_url": "https://moneytest-x402-api.indierepo.chatgpt.site",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "fde614cf-84ee-4402-a5e6-8807d895b000",
+        "name": "New Jersey UCC Lien Search & Debtor Filings API",
+        "description": "Search New Jersey UCC debtor filings by organization, person, or filing number for lender due diligence, credit underwriting, vendor risk, and business lien checks. Deterministic test: debtorName=JPMorgan&maxResults=1. Results are point-in-time non-certified portal evidence\u2014not identity resolution, lien priority, legal effect, expiry, or proof of complete debtor coverage.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/nj-ucc-lien-search",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "5f3e003c-f23e-4a01-850a-175b1b2b2deb",
+        "name": "NHTSA VIN Decoder, Bulk Vehicle Specs & vPIC API",
+        "description": "Decode one or multiple full or partial VINs through NHTSA's official no-key vPIC service, with optional model-year hints, manufacturer data, vehicle specifications, official warning codes, and a bounded total result cap. Use it for vehicle-specification lookup, fleet-data normalization, automotive inventory enrichment, and VIN data QA. vPIC output is manufacturer-data-based specification evidence\u2014not title, ownership, accident or vehicle history, odometer, recall, inspection, valuation, current configuration, or condition evidence. Missing values mean NHTSA has no data for that variable; they do not prove equipment is unavailable. Deterministic test: vin=1HGCM82633A004352&maxResults=1 returns a 2003 Honda Accord. MCP tool: decode_nhtsa_vins.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/nhtsa-vin-decoder",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "89f43a47-0c06-4448-b8f5-7b296409a6ea",
+        "name": "Phone Validation & Geocoding API",
+        "description": "Bulk phone validation and carrier/region metadata for lead-list cleanup and CRM QA. Numbering-plan evidence only\u2014not ownership, consent, live reachability, OTP delivery, or current HLR assignment.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/phone-validation",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "beebc15b-3ec8-40db-a92a-cb8b0695963d",
+        "name": "PlantPair API",
+        "description": "Find companion plants for your plants (vegetable, greens, fruits, berries, etc).",
+        "base_url": "https://x402plantpairapi.manowar.online",
+        "status": "live",
+        "payment_verified": true
+      }
+    ]
+  },
+  "pay2": {
+    "category": null,
+    "network": null,
+    "verified_only": false,
+    "count": 50,
+    "total": 429,
+    "offset": 50,
+    "limit": 50,
+    "next_cursor": "eyJvIjoxMDAsInYiOjF9",
+    "next_offset": 100,
+    "has_more": true,
+    "results": [
+      {
+        "id": "cc63e408-75d8-4c49-9ef3-7cb9fc8c9b0b",
+        "name": "pogo-tb.nl -- Dutch Open Data (RDW/BAG/OV)",
+        "description": "Dutch open-government data for AI agents via x402 on Base USDC: RDW vehicle records (incl. fuel type + CO2 emissions + APK inspection risk), BAG address and building lookups, OV public-transport departures, postcode search, reverse geocoding, and composite decision packs (vehicle-buy, moving-house). CC0 / CC BY 4.0 licensed sources with attribution in every response. Free /preview routes on every paid endpoint. Disclosed AI-run project.",
+        "base_url": "https://api.pogo-tb.nl",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "ef4b309a-cb85-41a6-a6e4-9d7a1b1e3f61",
+        "name": "Postcode & Address Lookup API",
+        "description": "5 endpoints for UK postcode and address intelligence: full postcode lookup (coordinates, council, ward, parliamentary constituency, region), free-text address search, nearest postcodes within a radius (lat/lng), validity check, and partial-postcode autocomplete. Backed by Ordnance Survey-derived data.",
+        "base_url": "https://postcode.payapi.market",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "8026894d-7a50-4854-8c78-4b7daa69258e",
+        "name": "ProfitCollector Utility API",
+        "description": "Fast deterministic utility APIs for AI agents and automated systems. Pay per request with USDC via x402 on Base. No API keys, accounts, subscriptions, or prepaid credits.",
+        "base_url": "https://api.bakhour.ca",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "1b9b679e-1429-461c-b426-a0232153d04f",
+        "name": "QR Code API",
+        "description": "4 endpoints for QR code generation and decoding: basic generation with default styling, fully styled generation (custom hex colours, module size, border, error-correction level), batch generation of up to 20 codes per call, and image decoding via libzbar (returns content + bounding boxes for any QR codes detected). Returns base64 PNG to keep the x402 envelope consistent.",
+        "base_url": "https://qr.payapi.market",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "dac142ac-dc69-4eb4-9ffd-3eb155d9d312",
+        "name": "Scamalytics IP Address Fraud Risk Score",
+        "description": "Scamalytics provide ip address fraud risk scores that are trusted around the globe by thousands of companies. Their data is based on real world fraud incidents, not algorithmically generated.",
+        "base_url": "https://x402.scamalytics.com/lookup",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "63b219e1-3ad0-45e1-afa9-c1708f5f82f6",
+        "name": "Schema Markup, JSON-LD & Structured Data Extractor API",
+        "description": "Extract point-in-time structured-data evidence from public web pages: JSON-LD, Microdata, RDFa, Open Graph, Twitter Cards, canonical URLs, meta tags, schema types, and malformed-block signals. Use it for SEO audits, rich-result research, content QA, and website-data enrichment with bounded fetching and private-network protections. Static HTML can miss client-rendered, blocked, personalized, or later-mutated markup; extracted syntax is not semantic validation, Google rich-result eligibility, search-ranking proof, ownership proof, or a guarantee that crawlers see the same page. Deterministic test: url=https://www.apple.com&maxResults=1. MCP tool: extract_schema_markup.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/schema-markup",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "66b37b9b-60b0-45bd-a15f-8528a8f5a576",
+        "name": "Screenshot & PDF Capture API",
+        "description": "4 endpoints for headless web capture: viewport screenshot, full-page screenshot (scrolled), PDF render with print emulation, and CSS-selected element capture. Powered by Playwright + Chromium with one warm browser instance per process. Returns base64-encoded binary in JSON to keep the x402 envelope consistent.",
+        "base_url": "https://screenshot.payapi.market",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "dc6233d9-72ed-41e0-a40a-07d0f836e2da",
+        "name": "TinyOps Automation Integration Preflight",
+        "description": "Preflight automation workflows before deployment. Analyze returns prioritized integration risks, and Acceptance Pack generates acceptance criteria. x402 on Base, $0.03 to $0.10 USDC per call.",
+        "base_url": "https://x402-preflight.tinyopsstudio.com",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "f37b0f4c-aa2b-4b02-a356-aba6f27c4c5b",
+        "name": "TradeRails",
+        "description": "Trade and logistics identifier checks: GTIN/GS1 barcodes, SSCC-18, ISO 6346 container numbers, IMO numbers, GS1 element strings, HS-code triage. Deterministic, signed, priced at the floor.",
+        "base_url": "https://trade.chainverdict.xyz",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "fa668a16-87c8-4483-bd97-db3a0c7571d5",
+        "name": "Trend Signals",
+        "description": "PP-SuperTrend trend-flip signals across ~1,600 crypto assets (crypto only). Per-timeframe direction (1D/4H/1W), bars since the last flip, the invalidation band (trend-break) level, RSI divergences, and 14-day momentum. Computed technical-analysis signals derived from crypto price history - a derived signal, not a live price feed and not a forecast. Not financial advice: informational only, not a recommendation to buy or sell.",
+        "base_url": "https://trend-signals.com",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "ded78662-8c20-4c13-8e7a-dcbd862cd9d4",
+        "name": "UK HMO Licence API",
+        "description": "3 endpoints covering 124,715 licensed rental records across 65 UK councils, as of May 2026: check a single address for HMO status, search all licences in a postcode, and retrieve full licence details including licensee, expiry date, and max occupancy. Coverage includes London boroughs (Southwark, Lambeth, Camden, Tower Hamlets, Newham, Barnet, Hounslow, Lewisham, Croydon, Bexley), Edinburgh, Glasgow, Cardiff, Newport, Brighton, Sheffield, Leeds, Salford, Bath, Cambridge, Oxford, Nottingham, and more. Covers mandatory HMOs, additional licensing, and selective licensing schemes. Essential for letting agents, property buyers, and compliance tools.",
+        "base_url": "https://hmo.payapi.market",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "45b7ad0e-5fad-4e34-b56a-84d8a014cbbf",
+        "name": "ukintel.uk",
+        "description": "Companies House + FCA company verdicts, UK procurement fit-scores from Find a Tender and Contracts Finder, GOV.UK grant eligibility. Built for AI agents, no signup, no API key.",
+        "base_url": "https://api.ukintel.uk",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "b130546a-bbb1-4cd1-87ac-4587002c1310",
+        "name": "US Tariff HTS Code Lookup & Import Duty API",
+        "description": "Search official U.S. International Trade Commission HTS classification lines by HTS code prefix or product description. Returns source-linked tariff descriptions, units, general and special duty rates, and column 2 rates for import classification and landed-cost research. Deterministic test: htsCode=8507.60&maxResults=1 returns HTS 8507.60.00 for lithium-ion batteries with the published 3.4% general rate. Results are published classification/rate evidence, not a binding CBP ruling, legal advice, a complete landed-cost calculation, origin or FTA proof, or a guarantee of duty owed; Chapter 99 duties, exclusions, quotas, trade remedies, valuation, origin, and revisions can change treatment.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/us-tariff-hts",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "8867355b-ffac-4400-a35b-f35a24880962",
+        "name": "Web Scraper & Content Extractor API",
+        "description": "4 endpoints for HTML scraping: clean main-content text extraction (boilerplate stripped: nav/footer/sidebar/ads), all links split into internal and external with anchor text, full page metadata (title, OG/Twitter tags, canonical, language, author, dates), and structured extraction (heading hierarchy, lists, tables as 2D arrays, images with alt text). Powered by httpx + BeautifulSoup4 + lxml.",
+        "base_url": "https://scrape.payapi.market",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "613df987-9802-49d7-b893-cfce471a0f3b",
+        "name": "x402.freeq.one",
+        "description": "",
+        "base_url": "https://x402.freeq.one",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "33400796-2b43-4579-8cb0-593039dcd993",
+        "name": "x402pulse",
+        "description": "Independent uptime and quality monitoring of third-party x402 endpoints: live verdicts, rankings, signed attestations, a bulk feed, and a daily archive timestamped into Bitcoin via OpenTimestamps.",
+        "base_url": "https://pulse.chainverdict.xyz",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "e3161e82-d5c2-4703-b113-5f674af02887",
+        "name": "Yahoo Finance Stock Data & Historical Prices API",
+        "description": "Stock quotes, OHLCV chart history, previous close, 52-week range, exchange and currency metadata for ticker research. Deterministic test: symbol=AAPL&range=1mo&interval=1d. Values are publisher observations that may be delayed or revised\u2014not exchange-certified live prices, adjusted history, fundamentals, corporate-action evidence, or investment advice.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/stock/chart",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "0e13798a-e446-4ff4-b54a-f81342f127ba",
+        "name": "Broken Link Checker, 404 Audit & Link Rot API",
+        "description": "Extract and check unique links, images, scripts, and stylesheets from a web page for broken URLs, 404s, redirects, TLS failures, and link rot. Static-HTML, point-in-time HTTP evidence only: no recursive crawl, rendered-JavaScript coverage, continuous uptime guarantee, or proof a transient failure is permanent. Deterministic test: url=https://badssl.com/&maxResults=1.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/broken-link-checker",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "56dc0e08-b1c4-454a-8884-db8934798da6",
+        "name": "California Contractor License Lookup & Verification API",
+        "description": "Official California CSLB contractor-license evidence for license lookup, contractor onboarding, and compliance review. Search by license number, business name, or personnel name; receive source-reported status, classifications, bond, workers' compensation, personnel, and disciplinary evidence when available. Point-in-time CSLB records do not by themselves prove identity, good standing, insurance, bonding, scope, or contracting eligibility. Deterministic test: licenseNumber=1098765&maxResults=1. MCP tool: lookup_cslb_contractor_license.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/cslb-contractor-license",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "a1b1d94a-75f0-40e2-aa95-d285991a2fc7",
+        "name": "CMS Nursing Home Care Compare, Ratings & Staffing API",
+        "description": "Search official CMS Care Compare nursing home records by facility, state, exact CCN, overall rating, or ownership type. Returns source-linked ratings, staffing, inspections, deficiencies, fines, ownership, beds, chains, and contacts for provider research and healthcare due diligence. Deterministic test: ccn=055001&maxResults=1. CMS fields are point-in-time administrative and quality evidence\u2014not current licensure, good standing, complete enforcement history, clinical suitability, ownership identity, or patient-specific care-quality proof.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/cms-nursing-homes",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "068d89c7-1e4d-45d3-8013-caa8b5d482be",
+        "name": "Federal Court Dockets & PACER RECAP API",
+        "description": "Search federal court dockets through CourtListener's public RECAP archive by case name, court, filing dates, nature of suit, or full-text query. Returns bounded source-linked docket evidence with parties, attorneys, firms, judge, PACER case ID, CourtListener links, and matching archived documents. Deterministic test: caseName=Microsoft Corporation&maxResults=1. RECAP is an incomplete crowd-sourced PACER-derived archive\u2014not official or complete PACER, identity verification, proof of allegations or liability, current case status/outcome, legal advice, or a Shepard's/KeyCite substitute.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/federal-court-dockets",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "172f21f6-0617-405c-b268-78e5fd105a7a",
+        "name": "FMCSA Carrier Safety, Inspections, Violations & Crash Data API",
+        "description": "Official FMCSA/DOT carrier safety evidence by exact USDOT number: company census profile, authority/status fields, latest inspections, linked violations and out-of-service evidence, and reported crash involvement. Deterministic test: usdotNumber=54283&maxResults=1 returns Swift Transportation with source links plus bounded inspection and crash rows. Crash involvement does not prove fault or preventability; violations can change through corrections, challenges, or adjudication; public files exclude driver data; bounded rows are not complete history; agency records are not independent authority, insurance, identity, or compliance clearance.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/fmcsa-carrier-safety",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "13413a08-76ad-47bb-90ad-77d7cc3a738c",
+        "name": "HMDA Mortgage Loan Applications & Fair Lending Data API",
+        "description": "Search official FFIEC/CFPB HMDA loan-application records by lender LEI, state, year, county, action, loan type, and loan purpose. Returns bounded privacy-modified evidence for lender origination and denial analysis, mortgage-market research, and fair-lending screening. HMDA records are institution-reported evidence\u2014not proof of borrower identity, discrimination, compliance, lender policy, property value, creditworthiness, or current market conditions; outcome analysis requires appropriate denominators and controls. Deterministic test: lei=KB1H1DSPRFMYMCUFXT09&states=CA&years=2024&actionsTaken=1&maxResults=1. MCP tool: search_hmda_mortgage_data.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/hmda-mortgage-data",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "35a82782-227a-4fd8-8c2c-eecbf50f8fc6",
+        "name": "NHTSA Vehicle Complaints & Auto Defect Reports API",
+        "description": "Search official NHTSA ODI consumer vehicle complaints by make, model, model year, and component. Returns source-linked complaint narratives, crash/fire/injury indicators, ODI identifiers, and evidence limits for automotive safety research, defect monitoring, and lemon-law workflows. Consumer-submitted reports are not NHTSA verification of a defect, causation, frequency, recall status, manufacturer liability, or current vehicle condition.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/nhtsa-vehicle-complaints",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "a194f35f-cc62-439c-b1a7-42cf6e9fb6c9",
+        "name": "NPPES NPI Registry & Healthcare Provider Lookup API",
+        "description": "Search the official public NPPES NPI Registry by exact NPI, provider or organization name, taxonomy, and location for provider onboarding, directory enrichment, and credentialing preflight. Deterministic test: npi=1881018208&maxResults=1 returns Mayo Clinic. NPI assignment and status A are administrative registry evidence\u2014not identity, licensure, good standing, credentialing, sanctions clearance, Medicare or Medicaid enrollment, billing or ordering authority, current practice, or employment. MCP tool: search_npi_registry.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/npi-registry",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "d567244a-f32b-4861-86fc-acbc62dd80a1",
+        "name": "OFAC SDN Sanctions Screening API",
+        "description": "Screen names against the U.S. Treasury OFAC Specially Designated Nationals (SDN) List by query, country, sanctions program, or person/entity type for AML, KYC, vendor, and counterparty review workflows. Deterministic test: query=Wagner Group&maxResults=1 returns one source-linked possible match. Scope is the SDN List only. Substring results are possible matches\u2014not identity verification, legal or compliance clearance, non-SDN consolidated-list coverage, beneficial-ownership analysis under OFAC's 50 Percent Rule, or a substitute for current official guidance and qualified review.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/ofac-sanctions-screening",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "c21aa170-7127-4ebc-a97b-5c34e43634a7",
+        "name": "Official US Business Registry Evidence API",
+        "description": "Official-source US Secretary of State business-registry evidence for KYB, merchant underwriting, compliance review, and agent evidence packs. No-key pilot covers 16 active states (NY, TX, CO, OR, IA, WI, NJ, CT, PA, MN, KY, ND, AL, AR, RI, MO); CA requires keyed/bulk data and returns an explicit warning. Parameters: query required, states optional CSV, maxResults, fetchDetails. Deterministic test: query=Apple Inc&states=NY,TX&maxResults=5 returns matches.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/business-entity/search",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "dfed18d0-b44f-4786-8d7c-f8710bf6dbb1",
+        "name": "OSHA Workplace Inspections, Violations & Penalties API",
+        "description": "Search official OSHA IMIS workplace inspection records by exact activity number, employer, location, dates, case status, inspection type, NAICS, violation status, and bounded result count. Returns source-linked inspection, violation, citation, standard, and penalty evidence. Deterministic test: activityNumber=1774072.015&maxResults=1 returns the Nexcivil Engineering record. OSHA IMIS is agency management evidence, not final adjudication, a complete safety rating, employer identity proof, or compliance clearance; open cases, citations, classifications, and penalties can change through corrections, settlements, and contests.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/osha-workplace-inspections",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "c91424cc-729c-4c08-8490-ba5853832f4a",
+        "name": "SAM.gov Contract Opportunities & GovCon Leads API",
+        "description": "Official SAM.gov contract opportunities, federal procurement notices, GovCon leads, solicitations, bids, set-asides, NAICS targeting, and agency notice evidence. Deterministic test: query=roofing&activeOnly=true&maxResults=1. Notices may be amended, cancelled, archived, delayed, or incomplete and do not prove an opportunity remains open, vendor eligibility, final award, or bid success.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/sam-gov-contract-opportunities",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "80efdd12-a252-43e2-8c03-02c29928bb1f",
+        "name": "Saymon RU Data API",
+        "description": "Russian-language (Runet) data, pay-per-call via x402 in USDC on Base. No API keys.\n\nWhat agents get: EGRUL/INN company checks; Yandex Runet search; RU pages to Markdown and research dossiers; Russian Post tariff, tracking, offices, ZIP and address tools; Central Bank FX rates and MOEX quotes.\n\n20 live routes on https://payforapi.com. Read the 402 for the price of the path you call.",
+        "base_url": "https://payforapi.com",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "ca4b1809-f894-4b73-8abc-0c86111d61fe",
+        "name": "SEC Form 13F Institutional & Hedge Fund Holdings API",
+        "description": "Search official SEC EDGAR Form 13F-HR and 13F-HR/A filings by investment manager name or CIK, filing date, report quarter, issuer, CUSIP, value, shares, put/call, discretion, and amendment status. Use it for institutional holdings, hedge fund holdings, quarterly manager portfolios, and source-linked investment research with official filing, cover-document, information-table, and search URLs plus bounded-scan disclosure. Form 13F is lagged manager-filed disclosure\u2014not SEC verification, a live or complete portfolio, beneficial-ownership proof, or investment advice. It can omit short positions, non-13(f) securities, and confidential holdings and can later be amended. Deterministic test: managerCik=1067983&maxResults=1&maxFilingsScanned=1 returns Berkshire Hathaway's source-linked American Express holding. MCP tool: search_sec_form_13f_holdings.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/sec-form-13f-holdings",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "e33ba0f3-7430-413e-b27c-56a7c827c4da",
+        "name": "SEC Form D Startup Funding & Private Placement API",
+        "description": "Search official SEC EDGAR Form D notices for startup funding, private placements, issuers, offering amounts, amounts sold, investor counts, exemptions, securities, and amendments. Supports recent filings plus exact CIK, accession, keyword, date, state, industry, fund, entity, security, exemption, amendment, amount, and investor filters with bounded results and source links. Form D is issuer-filed notice evidence\u2014not SEC approval, verified or completed financing, investment advice, or proof reported amounts were ultimately raised; investor counts do not identify investors. Deterministic test: daysBack=7&maxResults=1&maxFilingsScanned=25. MCP tool: search_sec_form_d_filings.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/sec-form-d-filings",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "70139b93-4685-43fd-aa7e-354743292884",
+        "name": "Sitemap URL Extractor & XML Sitemap Parser API",
+        "description": "Extract URLs from XML sitemaps and sitemap indexes for SEO audits, migrations, crawl planning, and RAG ingestion. Supports nested sitemap discovery with bounded results and private/local-target protection. Sitemap URLs and lastmod, changefreq, priority, and image fields are publisher declarations\u2014not proof of reachability, indexing, canonical status, ownership, safety, or current content. Deterministic test: url=https://www.apple.com/sitemap.xml&maxResults=1. MCP tool: extract_sitemap_urls.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/sitemap-urls",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "cbbbc3eb-0b9c-436f-8e93-bad1aa6efd6e",
+        "name": "Website Company Enrichment & Domain Intelligence API",
+        "description": "Turn public business websites into structured company names, descriptions, public contact evidence, social links, addresses, final URLs, and observed technology signals for B2B lead enrichment and CRM cleanup. Deterministic test: domains=stripe.com&maxResults=1. Output is page-observed evidence\u2014not verified legal-entity identity, contact ownership, reachability, consent, or a security/compliance determination.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/website-enrichment",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "52b3d7dc-452b-4766-a24e-39863b42b040",
+        "name": "Website Tech Stack Scanner & BuiltWith Alternative API",
+        "description": "Detect website technologies from response headers and bounded static HTML for lead enrichment, competitive research, migrations, and technology lookup. Returns stable technology names and categories with DNS, redirect, private-network, response-size, and request-time protections. Detections are point-in-time heuristic observations\u2014not proof a technology is present or absent; client-rendered, blocked, proxied, or obfuscated tools may be missed and fingerprints can produce false positives. Deterministic test: url=https://www.shopify.com&maxResults=1. MCP tool: scan_website_tech_stack.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/website-tech-stack",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "d2e8d5ae-a92d-49ef-86a5-4a4907f5bc23",
+        "name": "Congress Stock Trades & Financial Disclosures API",
+        "description": "Search official House and Senate financial disclosure filings by member, chamber, filing year and type, with Periodic Transaction Reports plus annual holdings, transaction summaries, income, and liabilities when available. Deterministic test: query=Tuberville&chamber=senate&filingYear=2025&filingType=O&fetchTransactions=true&maxResults=1 returns one annual filing with 280 holdings, 270 transaction-summary rows, 3 income rows, and 2 liabilities. Filings are filer-submitted official records\u2014not independent verification, a live or complete portfolio, beneficial-ownership proof, investment advice, or a wrongdoing or compliance determination. MCP tool: search_congress_stock_trades.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/congress-financial-disclosures",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "5993bea1-4cfc-40d2-9b1b-4656551a26a8",
+        "name": "HALOWERK EV Charging",
+        "description": "Electric vehicle charging points around a coordinate, from OpenStreetMap: position, distance, operator, network, connector types with per-connector power and socket counts, access, fee status, opening hours and whether authentication is required. Sorted nearest first, filterable to a minimum power or a required connector type.",
+        "base_url": "https://karte.halowerk.com/v1/ev-charging",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "24ac764c-8ad5-405f-8735-c2bcd8b3b4e7",
+        "name": "PreFlight Checker",
+        "description": "Pre-flight checks for agents before they act: npm package trust, GitHub repo health, domain liveness, and EVM token contract safety. Each returns a deterministic score or verdict with the signals behind it, so an agent can decide whether to trust a dependency, a link, or a token before committing to it.",
+        "base_url": "https://x402-api-catalog.onrender.com",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "1ccdb2f7-363c-47f4-90ee-ad339e494dc2",
+        "name": "SEC EDGAR Filings Public Company Evidence API",
+        "description": "SEC EDGAR company and filing lookup for investor due diligence, financial research, compliance agents, 10-K/10-Q discovery, and public-company evidence workflows. Prefer tickers for exact company matching: tickers=AAPL&maxResults=2. Also supports cik, company/query text, formType, and maxResults filters.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/sec-edgar/filings",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "b20f2e5b-985c-4a7a-9e82-92b61f9eee35",
+        "name": "SEC Form 8-K Material Events, Earnings & M&A API",
+        "description": "Search official SEC EDGAR Form 8-K filings by company or ticker, CIK, accession number, date, state, SEC item code, normalized event category, amendment status, and sort order. Use it for earnings, M&A, cybersecurity, executive-change, bankruptcy, restatement, capital-markets, listing, and governance monitoring with record-specific SEC filing links and bounded-scan disclosure. Form 8-K is company-filed disclosure evidence\u2014not SEC verification, a live market feed, investment advice, or proof that a reported event had a particular outcome. Review the linked filing and later amendments. Deterministic test: company=Apple&maxResults=1 returns a source-linked Apple filing. MCP tool: search_sec_form_8k_events.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/sec-form-8k-events",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "333be22b-0f06-4ea9-ae04-adcb8d2f0f3c",
+        "name": "Building Permits Roof Age Solar AHJ Evidence API",
+        "description": "Official-source building-permit search for contractor leads plus roof-age, property-insurance permit history, solar/AHJ coverage QA, P&C underwriting, COPE permit evidence, and permit source-drift checks. Parameters: city, query/keyword, maxResults. Safe default if city/query are omitted: Austin roof permits with an explicit warning. Deterministic test: city=austin&query=roof&maxResults=5 returns recent permit-event records; city=austin&query=solar&maxResults=5 demonstrates solar/AHJ project evidence.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/building-permits/search",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "840a93fc-45e1-49af-856e-9a487beebc80",
+        "name": "Bulk HTTP Status Checker & Redirect API",
+        "description": "Check HTTP status codes, redirects, final URLs, response times, and request errors for up to 100 public URLs. GET or POST. Deterministic test: urls=https://example.com&maxResults=1. Point-in-time HTTP evidence only\u2014not continuous uptime, rendered-content, authentication, or application-health proof. Private and local network targets are blocked.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/http-status-check",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "e894e40d-0dd3-41d0-bd72-562eb16e268b",
+        "name": "Dallas County Property Tax Records & Assessed Value API",
+        "description": "Search the Dallas County Tax Office public property-tax portal by exact account number, owner name, or street/address. Returns bounded source-linked evidence including owner as displayed, property address, assessed and market values, tax levy, amount due, and retrieval context for property research, underwriting, and due diligence. Portal records are point-in-time screening evidence\u2014not certified tax certificates, title reports, appraisals, complete lien searches, ownership determinations, or proof that a displayed zero balance means no other obligation. Deterministic test: account=007554000K0020000&maxResults=1. MCP tool: search_dallas_county_property_tax.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/dallas-property-tax",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "32fb076d-afe3-4d49-9b68-3c2c359a4394",
+        "name": "Skim - Clean Reader API",
+        "description": "x402-native clean reader for AI agents. POST a URL, get back agent-ready Markdown plus structured metadata (title, byline, published date, word count) in well under a second. Pay per call in USDC on Base over HTTP 402 - no signup, no API keys, no accounts. Endpoints: /read ($0.002 basic read), /read/js ($0.005, headless-browser rendering for JS-heavy pages), /read/batch ($0.015, up to 10 URLs), /extract ($0.02, structured field extraction). Discovery metadata served at the base URL; also available as an MCP server (npm: skim-mcp). Docs: https://skim402.com/docs",
+        "base_url": "https://skim402.com/api/v2",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "c87c852d-5634-4b54-a21a-6f922879b31c",
+        "name": "Sunbiz Florida New Business Filings & LLC Leads API",
+        "description": "Search Florida Division of Corporations Sunbiz daily public filing files for new business formations and company leads by source-file date, entity name, filing type, status, ZIP, and registered-agent keyword. Returns bounded source-linked records with entity identifiers, addresses, agent/officer evidence, file provenance, and explicit coverage limits. The source-file date is when a record appeared in Florida's database file, not necessarily original formation; daily files may include corrections or older entities, and source-reported Active is not certified good standing, identity, ownership, licensing, tax, lien, operations, or suitability proof.",
+        "base_url": "https://autoscrape-api-seven.vercel.app/x402/v1/sunbiz-new-business-filings",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "acaf52cb-d5f0-486d-9515-53b6153f38a8",
+        "name": "Aegis by Boris Inc",
+        "description": "Verify any x402 service before you pay it. Aegis probes the service, confirms it actually delivers, and returns a proof-backed trust score \u2014 so agents never pay a dead endpoint.",
+        "base_url": "https://aegis.borisinc.com",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "612279cc-6405-4020-894c-185b187b3da4",
+        "name": "Anchor-x402",
+        "description": "16 x402-paid endpoints for AI agents: OFAC sanctions screening, wallet due-diligence, dual-chain hash anchoring, signed receipts, tx/calldata decode, ENS/SNS, prices + LLM tools. USDC, no keys.",
+        "base_url": "https://api.anchor-x402.com",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "ecf788c3-9a88-45fa-85fb-3acd34b9bfbe",
+        "name": "UK Data API",
+        "description": "24 UK data endpoints: Land Registry sold prices, rental yields, stamp duty, EPC, crime, flood risk, planning, council tax, weather, air quality, Companies House, DVLA, MOT, BoE rates, exchange rates, inflation, mortgage calculator. All paid per-request via x402.",
+        "base_url": "https://property.payapi.market",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "aa67610b-a141-4486-91f9-eb994373c2fe",
+        "name": "Massive",
+        "description": "Aggregate stock bars over a date range in custom time windows. Pay per request in USDC on Base, no key. The verified route returns daily OHLCV bars for a ticker and date range: open, high, low, close, volume, volume-weighted average price and trade count per bar. The host advertises 23 paid GET routes at $0.01 each, covering bars, snapshots, SMA, EMA, RSI and MACD indicators, ticker reference, news and SEC filings, listed at https://agent.massive.com/llms-full.txt. Only the bars canary is settlement-verified.",
+        "base_url": "https://agent.massive.com",
+        "status": "live",
+        "payment_verified": true
+      },
+      {
+        "id": "4fe36ef5-4237-4313-9bff-95340aac5c15",
+        "name": "ProofForge",
+        "description": "Deterministically compare caller-supplied content with a caller-supplied SHA-256 digest. Integrity comparison only; no identity, provenance, or security guarantee.",
+        "base_url": "https://qaegxjxaavxdqihfgzhr.supabase.co/functions/v1/proof-quickscan-x402/PROOF_HASH_VERIFICATION",
+        "status": "live",
+        "payment_verified": true
+      }
+    ]
+  },
+  "bolt1": {
+    "total": 3,
+    "hasMore": false,
+    "entries": [
+      {
+        "slug": "sesezed",
+        "name": "Sesezed ",
+        "displayTitle": "Sesezed",
+        "gatewayDomain": "https://sesezed.gw.bolthub.ai",
+        "owner": null,
+        "endpoints": [
+          {
+            "docsUrl": null
+          }
+        ]
+      },
+      {
+        "slug": "routeplanner",
+        "name": "routeplanner",
+        "displayTitle": "RoutePlanner.io",
+        "gatewayDomain": "https://routeplanner.gw.bolthub.ai",
+        "owner": {
+          "username": "TamasCs",
+          "avatarUrl": null
+        },
+        "endpoints": [
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          }
+        ]
+      },
+      {
+        "slug": "btc-intel",
+        "name": "BTC Intel",
+        "displayTitle": "Bitcoin Market Intelligence API",
+        "gatewayDomain": "https://btc-intel.gw.bolthub.ai",
+        "owner": {
+          "username": "TamasCs",
+          "avatarUrl": null
+        },
+        "endpoints": [
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          },
+          {
+            "docsUrl": null
+          }
+        ]
+      }
+    ]
+  },
+  "bolt2": {
+    "total": 3,
+    "hasMore": false,
+    "entries": []
+  }
+}

@@ -1,5 +1,5 @@
 export const DISCOVERY_SOURCE_IDS = ['apis_guru', 'public_api_lists', 'github_public_apis', 'public_apis_dev', 'apify_store',
-  'rapidapi', 'postman', 'zyla', 'apilayer', 'api_market', 'allthingsdev', 'apyhub', 'apis_io', 'api_tracker', 'api_directory'] as const
+  'rapidapi', 'postman', 'zyla', 'apilayer', 'api_market', 'allthingsdev', 'apyhub', 'apis_io', 'api_tracker', 'api_directory', 'x402_list', 'payapi_market', 'aws_marketplace', 'api_deposu', 'bolthub'] as const
 export type DiscoverySourceId = typeof DISCOVERY_SOURCE_IDS[number]
 export type SourceReadiness = 'ACTIVE-READY' | 'PERMISSION-GATED' | 'CREDENTIAL-GATED' | 'UNSUPPORTED'
 export type SourceRegistration = { id: DiscoverySourceId; name: string; status: SourceReadiness; catalogUrl?: string; evidence: string; requirement: string }
@@ -21,6 +21,11 @@ export const discoverySourceCatalog: readonly SourceRegistration[] = [
   { id: 'apis_io', name: 'APIs.io', status: 'PERMISSION-GATED', evidence: 'https://apis.io/terms', requirement: 'Written intended-use clearance under the substantial-replication restriction. Keyless Explore GET /api/v1/providers and /search exist; published tier/rate limits still apply.' },
   { id: 'api_tracker', name: 'API Tracker', status: 'PERMISSION-GATED', evidence: 'https://apitracker.io/', requirement: 'Reusable provider feed/export with documented pagination, rate limits and commercial licensing. Advertised llms.txt agent view does not establish full-catalog reuse rights.' },
   { id: 'api_directory', name: 'APIDirectory', status: 'PERMISSION-GATED', evidence: 'https://apidirectory.com/data', requirement: 'Licensed commercial use and an authorized dataset key for /v1 search/export or MCP. Free evaluation keys and 200-row samples do not license this commercial integration.' },
+  { id: 'x402_list', name: 'x402 List', status: 'ACTIVE-READY', catalogUrl: 'https://x402-list.com/api/v1/services', evidence: 'https://x402-list.com/api', requirement: 'CC BY 4.0 attribution retained. Free catalog GETs only; never pay a 402 or call listed endpoints.' },
+  { id: 'payapi_market', name: 'PayAPI Market', status: 'ACTIVE-READY', catalogUrl: 'https://payapi.market/agent/list', evidence: 'https://payapi.market/terms', requirement: 'Documented free paginated HTTP equivalent of read-only MCP catalog. Never call provider routes or settlement tools.' },
+  { id: 'aws_marketplace', name: 'AWS Marketplace', status: 'PERMISSION-GATED', evidence: 'https://aws.amazon.com/terms/', requirement: 'MCP lookup is documented and unauthenticated, but written clearance for commercial catalog reuse is required under AWS Site Terms. Require independently identifiable API providers, not inferred vendor names or AWS profile domains.' },
+  { id: 'api_deposu', name: 'API Deposu', status: 'CREDENTIAL-GATED', evidence: 'https://apideposu.com/en/mcp', requirement: 'Portal-issued read-only MCP key, quota and commercial reuse confirmation. No authentication bypass or website scraping.' },
+  { id: 'bolthub', name: 'bolthub', status: 'ACTIVE-READY', catalogUrl: 'https://api.bolthub.ai/directory', evidence: 'https://docs.bolthub.ai/docs/guides/directory-api', requirement: 'Open directory GETs only. Require external docs links; gateway domains and usernames cannot identify independent providers. Never execute L402 endpoints.' },
 ]
 
 export function sourceCatalogUrl(id: DiscoverySourceId): string {

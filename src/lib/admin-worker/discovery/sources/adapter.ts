@@ -5,6 +5,7 @@ import { boundedJson, type DiscoveryFetcher } from '../fetch'
 import { fetchApisGuruCandidates, fetchApisGuruProviderNames } from './apis-guru'
 import type { RawCandidate } from '../types'
 import { type DiscoverySourceId } from './catalog'
+import { x402ListCatalog, payApiCatalog, bolthubCatalog } from './additional-catalogs'
 import { apifyCatalog, resolveApifyProvider, directoryObservation, markdownCatalog } from './open-catalogs'
 
 export { DISCOVERY_SOURCE_IDS, type DiscoverySourceId } from './catalog'
@@ -73,6 +74,9 @@ export const discoverySourceAdapters: readonly DiscoverySourceAdapter[] = [
   })),
   { id: 'apify_store', catalog: apifyCatalog, resolve: resolveApifyProvider,
     candidate: async entry => directoryObservation('apify_store', entry) },
+  ...([{ id: 'x402_list', catalog: x402ListCatalog }, { id: 'payapi_market', catalog: payApiCatalog },
+    { id: 'bolthub', catalog: bolthubCatalog }] as const).map(source => ({ ...source,
+      candidate: async (entry: SourceEntry) => directoryObservation(source.id, entry) })),
 ]
 
 export function catalogRevision(entries: SourceEntry[]): string {

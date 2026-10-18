@@ -139,3 +139,6 @@ assert sql("SELECT desired_state FROM worker_control WHERE id=1;")=='stopped'
 assert sql("SELECT desired_state FROM admin_acquisition_control WHERE id=1;")=='stopped'
 assert sql("SELECT enabled FROM admin_acquisition_delivery_control WHERE id=1;")=='f'
 print('PASS: duplicate-email gap reproduced; additive guard preserves old data/functions, normalized uniqueness, concurrent conflict holds, separate providers, manual/contacted/legacy history and automatic qualified enqueue',flush=True)
+
+if '--additional' in __import__('sys').argv:
+    exec(compile((ROOT / 'tests/admin-worker/additional-catalogs-postgres.py').read_text(), 'additional-catalogs-postgres.py', 'exec'))

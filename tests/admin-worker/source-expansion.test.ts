@@ -36,7 +36,7 @@ function harness() {
     },
     request:async key => {if(quota&&key.includes(':apify_store:'))throw new Error('discovery_source_request_limit');return true},
   }
-  const input=(end=10)=>({rootRunNumber:batch,start:0,end,sourceStore:store,now:()=>now,deadlineMs:now+60_000,
+  const input=(end=10)=>({rootRunNumber:batch,start:0,end,adapters:discoverySourceAdapters.filter(a=>active.includes(a.id)),sourceStore:store,now:()=>now,deadlineMs:now+60_000,
     loadSourceWork:async(key:string)=>work.get(`${batch}:${key}`)??null,
     materializeSourceWork:async(key:string,_kind:unknown,value:unknown)=>{work.set(`${batch}:${key}`,structuredClone(value));return value},
     providerHistory:async(domains:string[])=>known?domains.map(domain=>({domain,providerId:null,reason:'manual_mail_pending'})):[],
@@ -225,15 +225,15 @@ test('the six Run 24 keyword-free directory entries reach technical checks witho
   }
 })
 
-test('all fifteen sources have explicit access status; only five approved adapters can dispatch',()=>{
-  assert.equal(discoverySourceCatalog.length,15)
-  assert.equal(new Set(discoverySourceCatalog.map(s=>s.id)).size,15)
-  assert.deepEqual(discoverySourceAdapters.map(a=>a.id),active)
-  assert.deepEqual(discoverySourceCatalog.filter(s=>s.status==='ACTIVE-READY').map(s=>s.id),active)
+test('all twenty sources have explicit access status; only eight approved adapters can dispatch',()=>{
+  assert.equal(discoverySourceCatalog.length,20)
+  assert.equal(new Set(discoverySourceCatalog.map(s=>s.id)).size,20)
+  assert.deepEqual(discoverySourceAdapters.map(a=>a.id),[...active,'x402_list','payapi_market','bolthub'])
+  assert.deepEqual(discoverySourceCatalog.filter(s=>s.status==='ACTIVE-READY').map(s=>s.id),[...active,'x402_list','payapi_market','bolthub'])
   for(const source of discoverySourceCatalog.filter(s=>s.status!=='ACTIVE-READY'))assert.throws(()=>sourceCatalogUrl(source.id),/not_authorized/)
 })
 
-test('all ten disabled registrations are rejected before any source transport, state or budget operation', async () => {
+test('all twelve disabled registrations are rejected before any source transport, state or budget operation', async () => {
   for (const source of discoverySourceCatalog.filter(source => source.status !== 'ACTIVE-READY')) {
     const h = harness()
     let operations = 0

@@ -101,7 +101,8 @@ export async function discoverMultiSourceRange(input: {
     const pending = rotateEntry ? [...entries.slice(0, cursor), ...entries.slice(cursor + 1), entries[cursor]] : entries
     const saved = await input.sourceStore.update(state, { ...state.snapshot, entries: pending, failures,
       retryAfter: new Date(Math.max(now() + Math.min(CACHE_MS, 60_000 * 2 ** (failures - 1)),
-        error instanceof SourceHttpFailure ? error.retryAt ?? 0 : 0)).toISOString() })
+        error instanceof SourceHttpFailure ? (error.status === 402 && ['x402_list', 'payapi_market', 'bolthub'].includes(state.sourceId)
+          ? Math.max(now() + CACHE_MS, error.retryAt ?? 0) : error.retryAt ?? 0) : 0)).toISOString() })
     if (!saved) throw new SourcePaused('discovery_stopped')
     states.set(state.sourceId, saved)
     unavailable.add(state.sourceId)
