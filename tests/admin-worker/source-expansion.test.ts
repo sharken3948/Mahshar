@@ -140,3 +140,129 @@ test('missing recipient/source schema fails before reconciliation or candidate p
     assert.deepEqual(calls,['mahshar_worker_discovery_ready'])
   } finally {boundary.rpcOverride=null}
 })
+
+function apifyPage(offset:number,total:number,returned?:number) {
+  const count=Math.min(20,Math.max(0,total-offset))
+  return {data:{offset,total,limit:20,desc:false,count,
+    items:Array.from({length:returned??count},(_,i)=>({id:`actor${offset+i}`,username:'acme',title:`API ${offset+i}`}))}}
+}
+
+function apifyInput(h:ReturnType<typeof harness>,total:number,page=(offset:number)=>apifyPage(offset,total)) {
+  const base=h.input(20)
+  return {...base,adapters:discoverySourceAdapters.filter(a=>a.id==='apify_store'),fetcher:async(url:string)=>{
+    if(!url.startsWith(sourceCatalogUrl('apify_store')+'?'))return base.fetcher(url)
+    const query=new URL(url).searchParams
+    assert.equal(query.get('includeUnrunnableActors'),'true')
+    assert.equal(query.get('limit'),'20');assert.equal(query.get('sortBy'),'newest')
+    return {url,status:200,contentType:'application/json',body:JSON.stringify(page(Number(query.get('offset'))))}
+  }}
+}
+
+test('Apify requests complete metadata instead of accepting the exact twenty-count seventeen-item filtered response',async()=>{
+  const requests:string[]=[]
+  const page=await apifyCatalog(async url=>{
+    requests.push(url)
+    const includeAll=new URL(url).searchParams.get('includeUnrunnableActors')==='true'
+    return {url,status:200,contentType:'application/json',body:JSON.stringify(apifyPage(0,45,includeAll?20:17))}
+  })
+  assert.equal(requests.length,1)
+  assert.equal(page.entries.length,20);assert.equal(page.nextPage,'20')
+  assert.ok(page.entries.every(entry=>entry.domain===''&&!('candidate' in entry)))
+  assert.ok(!/(\/runs|run-sync|\/tasks|\/subscriptions|token=)/.test(requests[0]))
+})
+
+test('Apify still rejects count mismatches and invalid Actor identities with the complete-catalog option',async()=>{
+  const mismatch=apifyPage(0,45,17)
+  const invalidId=apifyPage(0,1);invalidId.data.items[0].id='actor/execute'
+  const invalidPublisher=apifyPage(0,1);invalidPublisher.data.items[0].username='../other'
+  for(const response of [mismatch,invalidId,invalidPublisher]) {
+    await assert.rejects(apifyCatalog(async url=>({url,status:200,contentType:'application/json',body:JSON.stringify(response)})),/apify_catalog_invalid/)
+  }
+})
+
+test('Apify accepts dotted publishers only as bounded identities and still verifies the exact public profile',async()=>{
+  const response=apifyPage(0,1);response.data.items[0].username='acme.api'
+  const page=await apifyCatalog(async url=>({url,status:200,contentType:'application/json',body:JSON.stringify(response)}))
+  assert.equal(page.entries[0].publisher,'acme.api');assert.equal(page.entries[0].domain,'')
+  const resolved=await resolveApifyProvider(page.entries[0],async url=>{
+    assert.equal(url,'https://api.apify.com/v2/users/acme.api')
+    return {url,status:200,contentType:'application/json',body:JSON.stringify({data:{username:'acme.api',profile:{websiteUrl:'https://docs.acme.com/'}}})}
+  })
+  assert.equal(resolved.domain,'acme.com')
+  await assert.rejects(resolveApifyProvider(page.entries[0],async url=>({url,status:200,contentType:'application/json',body:JSON.stringify({data:{username:'acme_api'}})})),/apify_publisher_mismatch/)
+  for(const publisher of ['.','..','../acme','a/b','a\\b','a?query','a#fragment','%2e%2e','https://evil.example','a'.repeat(101)]) {
+    response.data.items[0].username=publisher
+    await assert.rejects(apifyCatalog(async url=>({url,status:200,contentType:'application/json',body:JSON.stringify(response)})),/apify_catalog_invalid/)
+    await assert.rejects(resolveApifyProvider({...page.entries[0],publisher},async()=>{throw Error('must not dispatch')}),/apify_publisher_invalid/)
+  }
+})
+
+test('Apify validates short final pages and empty terminal pages without inventing a next cursor',async()=>{
+  for(const [offset,total,expected] of [[20,37,17],[20,20,0],[0,0,0]]) {
+    const result=await apifyCatalog(async url=>({url,status:200,contentType:'application/json',body:JSON.stringify(apifyPage(offset,total))}),String(offset))
+    assert.equal(result.entries.length,expected);assert.equal(result.nextPage,null)
+  }
+})
+
+test('Apify rejects nonterminal empty pages, wrong offsets and impossible totals',async()=>{
+  const empty=apifyPage(20,40,0);empty.data.count=0
+  await assert.rejects(apifyCatalog(async url=>({url,status:200,contentType:'application/json',body:JSON.stringify(empty)}),'20'),/apify_catalog_no_progress/)
+  const wrongOffset=apifyPage(0,40)
+  const impossible=apifyPage(20,40);impossible.data.total=21
+  for(const response of [wrongOffset,impossible]) {
+    await assert.rejects(apifyCatalog(async url=>({url,status:200,contentType:'application/json',body:JSON.stringify(response)}),'20'),/apify_catalog_invalid/)
+  }
+})
+
+test('Apify continuation consumes every returned identity exactly once across twenty, twenty and five item pages',async()=>{
+  const h=harness();const pages:number[]=[]
+  const input=()=>apifyInput(h,45,offset=>{pages.push(offset);return apifyPage(offset,45)})
+  const ids:string[]=[]
+  for(let batch=0;batch<3;batch++) {
+    if(batch)h.next()
+    const result=await discoverMultiSourceRange(input())
+    ids.push(...result.items.map(item=>item.candidate!.sourceRecordId!))
+    assert.equal(h.states.get('apify_store')!.snapshot.nextPage,batch===2?null:String((batch+1)*20))
+  }
+  assert.deepEqual(pages,[0,20,40]);assert.equal(ids.length,45);assert.equal(new Set(ids).size,45)
+  assert.deepEqual(ids,Array.from({length:45},(_,i)=>`actor${i}`))
+  h.next();assert.equal((await discoverMultiSourceRange(input())).sourceExhausted,true)
+  assert.deepEqual(pages,[0,20,40])
+})
+
+test('Apify empty nonterminal pages retain the durable frontier and recover after cooldown',async()=>{
+  const h=harness();let empty=true;const pages:number[]=[]
+  const input=()=>apifyInput(h,40,offset=>{
+    pages.push(offset)
+    const page=apifyPage(offset,40,offset===20&&empty?0:undefined)
+    if(offset===20&&empty)page.data.count=0
+    return page
+  })
+  await discoverMultiSourceRange(input());h.next()
+  assert.equal((await discoverMultiSourceRange(input())).items.length,0)
+  const held=h.states.get('apify_store')!.snapshot
+  assert.equal(held.cursor,20);assert.equal(held.nextPage,'20');assert.equal(held.entries[0].id,'actor0')
+  assert.ok(held.retryAfter)
+  h.next();assert.equal((await discoverMultiSourceRange(input())).items.length,0)
+  assert.deepEqual(pages,[0,20])
+  empty=false;h.advance();h.next()
+  const recovered=await discoverMultiSourceRange(input())
+  assert.deepEqual(recovered.items.map(item=>item.candidate!.sourceRecordId),Array.from({length:20},(_,i)=>`actor${20+i}`))
+  assert.deepEqual(pages,[0,20,20]);assert.equal(h.states.get('apify_store')!.snapshot.nextPage,null)
+})
+
+test('Apify interrupted page acceptance resumes the persisted observation and preserves Stop without skipping a page',async()=>{
+  const h=harness();const pages:number[]=[]
+  const input=()=>apifyInput(h,45,offset=>{pages.push(offset);return apifyPage(offset,45)})
+  await discoverMultiSourceRange(input());h.next();h.lose()
+  await assert.rejects(discoverMultiSourceRange(input()),/lost_response/)
+  const saved=h.states.get('apify_store')!.snapshot
+  assert.equal(saved.cursor,1);assert.equal(saved.nextPage,'40');assert.equal(saved.entries[0].id,'actor20')
+  h.stop();const calls=pages.length
+  assert.equal((await discoverMultiSourceRange(input())).items.length,0);assert.equal(pages.length,calls)
+  h.resume();const resumed=await discoverMultiSourceRange(input())
+  assert.deepEqual(resumed.items.map(item=>item.candidate!.sourceRecordId),Array.from({length:20},(_,i)=>`actor${20+i}`))
+  assert.deepEqual(pages,[0,20]);assert.equal(h.observed.length,40)
+  h.next();const last=await discoverMultiSourceRange(input())
+  assert.equal(last.items.length,5);assert.deepEqual(pages,[0,20,40]);assert.equal(h.observed.length,45)
+})

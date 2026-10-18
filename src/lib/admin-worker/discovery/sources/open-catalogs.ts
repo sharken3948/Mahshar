@@ -8,6 +8,7 @@ import { sourceCatalogUrl, type DiscoverySourceId } from './catalog'
 
 const SHARED_HOSTS = ['rapidapi.com', 'postman.com', 'github.com', 'apify.com', 'apifyusercontent.com', 'publicapis.dev',
   'public-api-lists.github.io', 'apis.guru', 'api.market', 'zylalabs.com', 'allthingsdev.co']
+const APIFY_USERNAME = /^(?!\.{1,2}$)[a-zA-Z0-9_.-]{1,100}$/
 
 function externalDomain(url: string): string | null {
   try {
@@ -51,15 +52,17 @@ export async function markdownCatalog(source: DiscoverySourceId, fetcher: Discov
 export async function apifyCatalog(fetcher: DiscoveryFetcher, page: string | null = null): Promise<SourcePage> {
   if (page !== null && !/^\d{1,7}$/.test(page)) throw new Error('source_page_invalid')
   const offset = page === null ? 0 : Number(page)
+  // The default run-safety filter removes public metadata after pagination without correcting count.
+  // Request the complete catalog; Actor execution and provider verification remain separate.
   const response = await boundedJson<{ data: { items: unknown[]; total: number; count: number; offset: number } }>(fetcher,
-    `${sourceCatalogUrl('apify_store')}?limit=20&offset=${offset}&sortBy=newest`)
+    `${sourceCatalogUrl('apify_store')}?limit=20&offset=${offset}&sortBy=newest&includeUnrunnableActors=true`)
   const data = response.data
   if (!data || !Array.isArray(data.items) || data.items.length > 20 || data.count !== data.items.length
     || data.offset !== offset || !Number.isSafeInteger(data.total) || data.total < offset + data.count) throw new Error('apify_catalog_invalid')
   const entries: SourceEntry[] = data.items.map(value => {
     const actor = value as { id?: string; username?: string; name?: string; title?: string }
     if (!actor || typeof actor.id !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(actor.id)
-      || typeof actor.username !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(actor.username)) throw new Error('apify_catalog_invalid')
+      || typeof actor.username !== 'string' || !APIFY_USERNAME.test(actor.username)) throw new Error('apify_catalog_invalid')
     const title = durableExternalName(actor.title ?? actor.name, 120)
     if (!title) throw new Error('apify_catalog_invalid')
     return { id: actor.id, domain: '', publisher: actor.username, title }
@@ -69,7 +72,7 @@ export async function apifyCatalog(fetcher: DiscoveryFetcher, page: string | nul
 }
 
 export async function resolveApifyProvider(entry: SourceEntry, fetcher: DiscoveryFetcher): Promise<SourceEntry> {
-  if (!entry.publisher || !/^[a-zA-Z0-9_-]{1,100}$/.test(entry.publisher)) throw new Error('apify_publisher_invalid')
+  if (!entry.publisher || !APIFY_USERNAME.test(entry.publisher)) throw new Error('apify_publisher_invalid')
   const response = await boundedJson<{ data?: { username?: string; profile?: { websiteUrl?: string } } }>(fetcher,
     'https://api.apify.com/v2/users/' + encodeURIComponent(entry.publisher))
   if (response.data?.username !== entry.publisher) throw new Error('apify_publisher_mismatch')
