@@ -9,7 +9,7 @@ import { x402ListCatalog, payApiCatalog, bolthubCatalog } from './additional-cat
 import { apifyCatalog, resolveApifyProvider, directoryObservation, markdownCatalog } from './open-catalogs'
 
 export { DISCOVERY_SOURCE_IDS, type DiscoverySourceId } from './catalog'
-export type SourceEntry = { id: string; domain: string; candidate?: RawCandidate; title?: string; url?: string; summary?: string; publisher?: string }
+export type SourceEntry = { id: string; domain: string; candidate?: RawCandidate; title?: string; url?: string; summary?: string; publisher?: string; quarantine?: { reason: 'discovery_response_too_large'; checkedAt: string } }
 export type SourcePage = { entries: SourceEntry[]; nextPage: string | null }
 export type SourceSnapshot = {
   entries: SourceEntry[]; cursor: number; revision: string | null; fetchedAt: string | null

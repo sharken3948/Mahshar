@@ -1,0 +1,146 @@
+[
+  {
+    "sourceId": "x402_list",
+    "discoveredDomain": "rooms.aurmada.com",
+    "discoveredProduct": "Rooms by Aurmada \u2013 Agent Rooms",
+    "discoveredDocsUrl": "https://rooms.aurmada.com/"
+  },
+  {
+    "sourceId": "payapi_market",
+    "discoveredDomain": "10x402.com",
+    "discoveredProduct": "10x402",
+    "discoveredDocsUrl": "https://10x402.com/"
+  },
+  {
+    "sourceId": "public_api_lists",
+    "discoveredDomain": "earningsfeed.com",
+    "discoveredProduct": "Earnings Feed",
+    "discoveredDocsUrl": "https://earningsfeed.com/api"
+  },
+  {
+    "sourceId": "public_api_lists",
+    "discoveredDomain": "apidoc.rwlabs.org",
+    "discoveredProduct": "RWLabs",
+    "discoveredDocsUrl": "https://apidoc.rwlabs.org/"
+  },
+  {
+    "sourceId": "github_public_apis",
+    "discoveredDomain": "hostdefi.com",
+    "discoveredProduct": "HostDeFi",
+    "discoveredDocsUrl": "https://hostdefi.com/docs/api/"
+  },
+  {
+    "sourceId": "x402_list",
+    "discoveredDomain": "agmail.shveik.dev",
+    "discoveredProduct": "agmail",
+    "discoveredDocsUrl": "https://agmail.shveik.dev/"
+  },
+  {
+    "sourceId": "public_api_lists",
+    "discoveredDomain": "esi.evetech.net",
+    "discoveredProduct": "Eve Online",
+    "discoveredDocsUrl": "https://esi.evetech.net/ui"
+  },
+  {
+    "sourceId": "public_apis_dev",
+    "discoveredDomain": "techy-api.vercel.app",
+    "discoveredProduct": "Techy",
+    "discoveredDocsUrl": "https://techy-api.vercel.app/"
+  },
+  {
+    "sourceId": "x402_list",
+    "discoveredDomain": "astro-agent.dev",
+    "discoveredProduct": "Astro Agents",
+    "discoveredDocsUrl": "https://astro-agent.dev/"
+  },
+  {
+    "sourceId": "payapi_market",
+    "discoveredDomain": "cognilode.com",
+    "discoveredProduct": "Cognilode Ticket Resale Underwriter",
+    "discoveredDocsUrl": "https://cognilode.com/"
+  },
+  {
+    "sourceId": "public_api_lists",
+    "discoveredDomain": "www.profitvana.com",
+    "discoveredProduct": "Profitvana",
+    "discoveredDocsUrl": "https://www.profitvana.com/developers"
+  },
+  {
+    "sourceId": "public_api_lists",
+    "discoveredDomain": "www.zip-codes.com",
+    "discoveredProduct": "Zip-Codes",
+    "discoveredDocsUrl": "https://www.zip-codes.com/api/"
+  },
+  {
+    "sourceId": "github_public_apis",
+    "discoveredDomain": "open-meteo.com",
+    "discoveredProduct": "Open-Meteo",
+    "discoveredDocsUrl": "https://open-meteo.com/"
+  },
+  {
+    "sourceId": "payapi_market",
+    "discoveredDomain": "kino402.com",
+    "discoveredProduct": "kino402",
+    "discoveredDocsUrl": "https://kino402.com/"
+  },
+  {
+    "sourceId": "public_api_lists",
+    "discoveredDomain": "jsonbin.io",
+    "discoveredProduct": "JSONbin.io",
+    "discoveredDocsUrl": "https://jsonbin.io/"
+  },
+  {
+    "sourceId": "public_api_lists",
+    "discoveredDomain": "webcrawlerapi.com",
+    "discoveredProduct": "WebCrawlerAPI",
+    "discoveredDocsUrl": "https://webcrawlerapi.com/"
+  },
+  {
+    "sourceId": "github_public_apis",
+    "discoveredDomain": "tanvo.ai",
+    "discoveredProduct": "Tanvo",
+    "discoveredDocsUrl": "https://tanvo.ai/developers/api"
+  },
+  {
+    "sourceId": "public_api_lists",
+    "discoveredDomain": "screenshotapi.to",
+    "discoveredProduct": "ScreenshotAPI",
+    "discoveredDocsUrl": "https://screenshotapi.to/docs"
+  },
+  {
+    "sourceId": "public_api_lists",
+    "discoveredDomain": "wattfigure.com",
+    "discoveredProduct": "WattFigure",
+    "discoveredDocsUrl": "https://api.wattfigure.com/"
+  },
+  {
+    "sourceId": "payapi_market",
+    "discoveredDomain": "toolshed.lemon-agent.dev",
+    "discoveredProduct": "Lemon Toolshed",
+    "discoveredDocsUrl": "https://toolshed.lemon-agent.dev/"
+  },
+  {
+    "sourceId": "public_api_lists",
+    "discoveredDomain": "www.uspto.gov",
+    "discoveredProduct": "USPTO",
+    "discoveredDocsUrl": "https://www.uspto.gov/learning-and-resources/open-data-and-mobility"
+  },
+  {
+    "sourceId": "public_api_lists",
+    "discoveredDomain": "tcgpricelookup.com",
+    "discoveredProduct": "TCG Price Lookup",
+    "discoveredDocsUrl": "https://tcgpricelookup.com/tcg-api"
+  },
+  {
+    "sourceId": "public_api_lists",
+    "discoveredDomain": "www.openplzapi.org",
+    "discoveredProduct": "OpenPLZ API",
+    "discoveredDocsUrl": "https://www.openplzapi.org/"
+  },
+  {
+    "sourceId": "github_public_apis",
+    "discoveredDomain": "data.rijksmuseum.nl",
+    "discoveredProduct": "Rijksmuseum",
+    "discoveredDocsUrl": "https://data.rijksmuseum.nl/"
+  }
+]

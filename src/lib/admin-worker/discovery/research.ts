@@ -1,4 +1,7 @@
 import 'server-only'
+import { createHash } from 'node:crypto'
+import { officialContractLinks } from './contract-links'
+import { WorkerMailInfrastructureError } from './provider-history'
 import { officialNamingMetadata } from '../invitation-names'
 import { normalizeWorkerIdentity } from '../normalization'
 import { boundedDiscoveryFetch, type DiscoveryFetcher } from './fetch'
@@ -11,6 +14,10 @@ export type ResearchResult = {
   failureCode: string | null
   compatibilityFailure: string | null
 }
+
+export type ResearchPurpose = 'contract' | 'ownership_docs' | 'ownership_root' | `link:${string}` | `redirect:${string}`
+
+class ResearchBudgetError extends Error {}
 
 type OpenApiInspection = {
   valid: boolean
@@ -137,7 +144,8 @@ export function sourceTrustRank(fact: ProvenanceFact): number {
 export async function researchCandidate(input: {
   candidate: RawCandidate
   normalizedDomain: string
-  claimResearchBudget: (purpose: 'contract' | 'ownership_docs' | 'ownership_root') => Promise<BudgetClaimResult>
+  deadlineMs?: number
+  claimResearchBudget: (purpose: ResearchPurpose) => Promise<BudgetClaimResult>
   fetcher?: DiscoveryFetcher
   now?: () => string
 }): Promise<ResearchResult> {
@@ -171,17 +179,97 @@ export async function researchCandidate(input: {
     failureCode: contractClaim === 'replayed' ? 'research_claim_replayed'
       : contractClaim === 'deadline_reached' ? 'run_budget_exhausted' : 'research_budget_exhausted', compatibilityFailure: null }
   try {
-    const fetcher = input.fetcher ?? boundedDiscoveryFetch
-    const structuredUrl = contractUrl ?? docsUrl
+    const transport = input.fetcher ?? boundedDiscoveryFetch
+    let requests = 0
+    const fetcher: DiscoveryFetcher = async (url, options) => {
+      let first = true
+      const beforeRequest = async (redirect?: string) => {
+        if (Date.now() >= (input.deadlineMs ?? Infinity)) throw new ResearchBudgetError('run_budget_exhausted')
+        if (++requests > 12) throw new ResearchBudgetError('official_docs_unreachable')
+        if (!first) {
+          const key = createHash('sha256').update(redirect ?? url).digest('hex').slice(0, 32)
+          const claim = await input.claimResearchBudget(`redirect:${key}`)
+          if (claim !== 'claimed') throw new ResearchBudgetError(claim === 'replayed' ? 'research_claim_replayed'
+            : claim === 'deadline_reached' ? 'run_budget_exhausted' : 'research_budget_exhausted')
+        }
+        first = false
+      }
+      await beforeRequest()
+      let initial = true
+      return transport(url, { ...options, timeoutMs: Math.max(1, Math.min(6000, (input.deadlineMs ?? Infinity) - Date.now())),
+        beforeRequest: async redirect => {
+          if (initial) { initial = false; return }
+          await beforeRequest(redirect)
+        } })
+    }
+    let structuredUrl = contractUrl ?? docsUrl
     if (!structuredUrl) throw new Error('structured_api_contract_missing')
-    const response = await fetcher(structuredUrl, { maxBytes: 256 * 1024, accept: 'application/json' })
-    const finalUrl = canonicalExternalUrl(response.url)
+    let response = await fetcher(structuredUrl, { maxBytes: 256 * 1024, accept: 'application/json,text/html;q=0.8' })
+    let finalUrl = canonicalExternalUrl(response.url)
     if (!finalUrl) return { facts, docsVerified: false, failureCode: 'structured_api_contract_missing', compatibilityFailure: null }
     if (response.status < 200 || response.status >= 300) return { facts, docsVerified: false, failureCode: 'official_docs_unreachable', compatibilityFailure: null }
-    const type = response.contentType.toLowerCase()
-    if (!type.includes('json')) {
-      facts.push({ sourceType: 'api_directory', sourceRole: 'directory_assertion', url: finalUrl, factualSummary: 'Directory-linked page reached; no structured API contract was verified.', checkedAt })
-      return { facts, docsVerified: false, failureCode: 'structured_api_contract_missing', compatibilityFailure: null }
+    let linkedOfficialPage: string | null = null
+    if (!response.contentType.toLowerCase().includes('json')) {
+      const queue: Array<{ url: string; kind: 'contract' | 'docs'; page: string; depth: number }> = []
+      const visited = new Set([structuredUrl, finalUrl])
+      let ownershipMissing = false
+      let linksTruncated = false
+      const append = (page: string, body: string, depth: number) => {
+        if (!providerOwnsUrl(page, input.normalizedDomain)) return
+        const links = officialContractLinks(body, page)
+        linksTruncated ||= links.length >= 16
+        for (const link of links) {
+          if (link.kind === 'contract' && !providerOwnsUrl(link.url, input.normalizedDomain)
+            && !providerIdentityEstablished(body, input.candidate, input.normalizedDomain)) { ownershipMissing = true; continue }
+          if (link.kind === 'docs' && (depth >= 1 || !providerOwnsUrl(link.url, input.normalizedDomain))) continue
+          if (!visited.has(link.url) && !queue.some(item => item.url === link.url) && queue.length < 16) queue.push({ ...link, page, depth })
+        }
+        queue.sort((a, b) => Number(a.kind === 'docs') - Number(b.kind === 'docs'))
+      }
+      if (response.contentType.toLowerCase().includes('html')) append(finalUrl, response.body, 0)
+      if (docsUrl && !visited.has(docsUrl) && providerOwnsUrl(docsUrl, input.normalizedDomain)) {
+        queue.push({ url: docsUrl, kind: 'docs', page: docsUrl, depth: 0 })
+      }
+      let temporary = false
+      let invalid: string | null = null
+      let resolved = false
+      for (let index = 0; index < 4 && queue.length; index++) {
+        const link = queue.shift()!
+        visited.add(link.url)
+        const claim = await input.claimResearchBudget(`link:${createHash('sha256').update(link.url).digest('hex').slice(0, 32)}`)
+        if (claim !== 'claimed') throw new ResearchBudgetError(claim === 'replayed' ? 'research_claim_replayed'
+          : claim === 'deadline_reached' ? 'run_budget_exhausted' : 'research_budget_exhausted')
+        try {
+          const allowed = (url: string) => Boolean(canonicalExternalUrl(url)) && !new URL(url).search && !new URL(url).hash && (providerOwnsUrl(url, input.normalizedDomain)
+            || (link.kind === 'contract' && new URL(url).hostname === new URL(link.url).hostname))
+          const next = await fetcher(link.url, { maxBytes: 256 * 1024, accept: 'application/json,text/html;q=0.8', validateUrl: allowed })
+          const nextUrl = canonicalExternalUrl(next.url)
+          if (!nextUrl || !allowed(nextUrl)) continue
+          if (next.status < 200 || next.status >= 300) { temporary ||= ![404, 410].includes(next.status); continue }
+          if (next.contentType.toLowerCase().includes('json')) {
+            const owned = providerOwnsUrl(nextUrl, input.normalizedDomain)
+            const inspection = inspectOpenApiDocument(next.body, owned ? nextUrl : undefined)
+            if (!inspection.valid) { invalid = inspection.failureCode; continue }
+            // A third-party specification host needs an explicit official link AND a provider-owned API endpoint.
+            if (!owned && !(inspection.endpointUrl && providerOwnsUrl(inspection.endpointUrl, input.normalizedDomain))) {
+              ownershipMissing = true; continue
+            }
+            response = next; finalUrl = nextUrl; structuredUrl = link.url
+            linkedOfficialPage = link.page; resolved = true; break
+          }
+          if (/\b(?:yaml|yml)\b/i.test(next.contentType)) invalid = 'unsupported_api_spec_format'
+          if (next.contentType.toLowerCase().includes('html')) append(nextUrl, next.body, link.depth + 1)
+        } catch (error) {
+          if (error instanceof ResearchBudgetError || error instanceof WorkerMailInfrastructureError) throw error
+          temporary = true
+        }
+      }
+      if (!resolved) return { facts, docsVerified: false,
+        failureCode: temporary || queue.length || linksTruncated ? 'official_docs_unreachable'
+          : ownershipMissing ? 'provider_ownership_unverified' : invalid ?? 'structured_api_contract_missing',
+        compatibilityFailure: temporary || queue.length || linksTruncated || ownershipMissing ? null : invalid }
+      facts.push({ sourceType: 'website', sourceRole: 'official_docs', url: linkedOfficialPage!,
+        factualSummary: 'Provider-owned documentation explicitly links the verified structured API contract.', checkedAt })
     }
     const contractIsProviderOwned = providerOwnsUrl(finalUrl, input.normalizedDomain)
     const inspection = inspectOpenApiDocument(response.body, contractIsProviderOwned ? finalUrl : undefined)
@@ -195,8 +283,8 @@ export async function researchCandidate(input: {
       title: input.candidate.discoveredProduct?.slice(0, 200),
       factualSummary: durableExternalSummary(`Structured contract observed via directory; this is not official provider documentation. ${inspection.summary ?? ''}`, 1000), checkedAt,
     })
-    let ownershipVerified = contractIsProviderOwned
-    if (docsUrl && docsUrl !== structuredUrl && providerOwnsUrl(docsUrl, input.normalizedDomain)) {
+    let ownershipVerified = contractIsProviderOwned || linkedOfficialPage !== null
+    if (!linkedOfficialPage && docsUrl && docsUrl !== structuredUrl && providerOwnsUrl(docsUrl, input.normalizedDomain)) {
       const ownershipDocsClaim = await input.claimResearchBudget('ownership_docs')
       if (ownershipDocsClaim !== 'claimed') {
         return { facts, docsVerified: false,
@@ -212,7 +300,7 @@ export async function researchCandidate(input: {
             factualSummary: 'Provider-owned documentation linked from the directory contract.', ...officialNamingMetadata(officialUrl, docsResponse.body, input.normalizedDomain), checkedAt })
           ownershipVerified = true
         }
-      } catch { /* Continue to the bounded provider-root fallback. */ }
+      } catch (error) { if (error instanceof ResearchBudgetError || error instanceof WorkerMailInfrastructureError) throw error /* Continue to the bounded provider-root fallback. */ }
     }
     if (!ownershipVerified && endpointIsProviderOwned) {
       const ownershipRootClaim = await input.claimResearchBudget('ownership_root')
@@ -232,13 +320,14 @@ export async function researchCandidate(input: {
             factualSummary: 'Provider-owned site independently verified for this directory contract.', ...officialNamingMetadata(finalRoot, rootResponse.body, input.normalizedDomain), checkedAt })
           ownershipVerified = true
         }
-      } catch { /* Ambiguous ownership remains non-terminal in the processor. */ }
+      } catch (error) { if (error instanceof ResearchBudgetError || error instanceof WorkerMailInfrastructureError) throw error /* Ambiguous ownership remains non-terminal in the processor. */ }
     }
     if (!ownershipVerified) {
       return { facts, docsVerified: false, failureCode: 'provider_ownership_unverified', compatibilityFailure: null }
     }
     return { facts: facts.sort((a, b) => sourceTrustRank(a) - sourceTrustRank(b)), docsVerified: true, failureCode: null, compatibilityFailure: null }
-  } catch {
-    return { facts, docsVerified: false, failureCode: 'official_docs_unreachable', compatibilityFailure: null }
+  } catch (error) {
+    if (error instanceof WorkerMailInfrastructureError) throw error
+    return { facts, docsVerified: false, failureCode: error instanceof ResearchBudgetError ? error.message : 'official_docs_unreachable', compatibilityFailure: null }
   }
 }

@@ -8,7 +8,7 @@ import { researchCandidate } from '../../src/lib/admin-worker/discovery/research
 import { processDiscoveryCandidate, processDiscoveryRange, type DiscoveryRangeDependencies } from '../../src/lib/admin-worker/discovery/processor'
 import type { CandidateOutcome, DurableCandidate } from '../../src/lib/admin-worker/discovery/types'
 import { boundary } from '../admin/fixture'
-import { boundedDiscoveryFetch } from '../../src/lib/admin-worker/discovery/fetch'
+import { boundedDiscoveryFetch, DiscoveryResponseTooLargeError } from '../../src/lib/admin-worker/discovery/fetch'
 
 function harness() {
   let batch = 1
@@ -70,6 +70,141 @@ function harness() {
     exhaustBudget: () => { permitRequest = false }, crash: () => { crashAfterObserve = true },
   }
 }
+
+test('oversized amazonaws.com detail is durably quarantined across Resume, Starts and catalog refresh', async () => {
+  const f = harness(); f.gurus.unshift('amazonaws.com')
+  let oversized = 0
+  const invoke = async (start: number, end: number) => {
+    const input = f.input(start, end), original = input.fetcher
+    return discoverMultiSourceRange({ ...input, fetcher: async (url, options) => {
+      if (url.endsWith('/amazonaws.com.json')) {
+        oversized++
+        return boundedDiscoveryFetch(url, options, async () => new Response('', {
+          headers: { 'content-length': '866618', 'content-type': 'application/json' },
+        }))
+      }
+      return original(url)
+    } })
+  }
+  const result = await invoke(0, 4)
+  assert.equal(result.items.length, 4)
+  assert.ok(result.items.some(item => item.candidate?.sourceId === 'apis_guru'))
+  assert.ok(result.items.every(item => item.reasonCode !== 'source_adapter_unavailable'))
+  const snapshot = f.states.get('apis_guru')!.snapshot
+  assert.equal(snapshot.entries.at(-1)?.id, 'amazonaws.com')
+  assert.equal(snapshot.entries.at(-1)?.quarantine?.reason, 'discovery_response_too_large')
+  assert.ok(snapshot.cursor > 0); assert.equal(snapshot.failures, 0)
+  assert.equal(snapshot.retryAfter, null); assert.equal(oversized, 1)
+  f.stop(); assert.equal((await invoke(4, 6)).items.length, 0)
+  f.resume(); await invoke(0, 4); assert.equal(oversized, 1, 'Resume reuses observations')
+  f.start(); await invoke(0, 4); assert.equal(oversized, 1, 'A new Start cannot re-download the quarantined detail')
+  f.advance(25 * 60 * 60 * 1000); f.start(); f.gurus.push('new.example')
+  const after = await invoke(0, 4)
+  assert.equal(oversized, 1); assert.ok(after.items.some(item => item.candidate?.discoveredDomain === 'new.example'))
+  assert.equal(f.states.get('apis_guru')!.snapshot.entries.at(-1)?.quarantine?.reason, 'discovery_response_too_large')
+})
+
+test('a lost quarantine-save response does not re-download the oversized record on Resume', async () => {
+  const f = harness(); f.gurus.unshift('amazonaws.com')
+  const originalUpdate = f.store.update
+  let crash = true, attempts = 0
+  f.store.update = async (state, snapshot) => {
+    const saved = await originalUpdate(state, snapshot)
+    if (crash && snapshot.entries.some(entry => entry.quarantine)) {
+      crash = false; throw new WorkerMailInfrastructureError('lost_quarantine_response')
+    }
+    return saved
+  }
+  const invoke = () => {
+    const input = f.input(), original = input.fetcher
+    return discoverMultiSourceRange({ ...input, fetcher: async url => {
+      if (url.endsWith('/amazonaws.com.json')) { attempts++; throw new DiscoveryResponseTooLargeError() }
+      return original(url)
+    } })
+  }
+  await assert.rejects(invoke(), WorkerMailInfrastructureError)
+  assert.equal((await invoke()).items.length, 4); assert.equal(attempts, 1)
+})
+
+test('Guru can continue past its oversized head even when every other source is exhausted', async () => {
+  const f = harness(); f.gurus.unshift('amazonaws.com')
+  const input = f.input(0, 2), original = input.fetcher
+  let requests = 0
+  const result = await discoverMultiSourceRange({ ...input,
+    adapters: discoverySourceAdapters.filter(adapter => adapter.id === 'apis_guru'),
+    fetcher: async url => {
+      requests++
+      if (url.endsWith('/amazonaws.com.json')) throw new DiscoveryResponseTooLargeError()
+      return original(url)
+    } })
+  assert.equal(result.items.length, 2); assert.equal(result.sourceExhausted, false)
+  assert.ok(result.items.every(item => item.candidate?.sourceId === 'apis_guru'))
+  assert.equal(requests, 4, 'One catalog, one oversized head and two healthy providers')
+})
+
+test('quarantining an entire Guru window still respects the existing per-slot HTTP cap', async () => {
+  const f = harness(); f.gurus.push(...Array.from({ length: 20 }, (_, i) => `large${i}.example`))
+  const input = f.input(0, 1), original = input.fetcher
+  let requests = 0
+  const result = await discoverMultiSourceRange({ ...input,
+    adapters: discoverySourceAdapters.filter(adapter => adapter.id === 'apis_guru'),
+    fetcher: async url => {
+      requests++
+      if (url.endsWith('/providers.json')) return original(url)
+      throw new DiscoveryResponseTooLargeError()
+    } })
+  assert.equal(requests, 6)
+  assert.equal(f.states.get('apis_guru')!.snapshot.entries.filter(entry => entry.quarantine).length, 5)
+  assert.equal(result.items[0].reasonCode, 'source_budget_exhausted')
+  assert.equal(f.states.get('apis_guru')!.snapshot.cursor, 0)
+})
+
+test('Stop immediately after quarantine preserves the next healthy provider for Resume', async () => {
+  const f = harness(); f.gurus.unshift('amazonaws.com')
+  const update = f.store.update
+  f.store.update = async (state, snapshot) => {
+    const saved = await update(state, snapshot)
+    if (snapshot.entries.some(entry => entry.quarantine)) f.stop()
+    return saved
+  }
+  const invoke = () => {
+    const input = f.input(0, 1), original = input.fetcher
+    return discoverMultiSourceRange({ ...input,
+      adapters: discoverySourceAdapters.filter(adapter => adapter.id === 'apis_guru'),
+      fetcher: async url => {
+        if (url.endsWith('/amazonaws.com.json')) throw new DiscoveryResponseTooLargeError()
+        return original(url)
+      } })
+  }
+  assert.equal((await invoke()).items.length, 0)
+  assert.equal(f.states.get('apis_guru')!.snapshot.cursor, 0)
+  f.store.update = update; f.resume()
+  assert.equal((await invoke()).items[0].candidate?.discoveredDomain, 'e.example')
+})
+
+test('all eight sources retain opportunities while an oversized Guru detail is isolated', async () => {
+  const f = harness(), seen = new Map<string, number>(), requests: string[] = []
+  const adapters = discoverySourceAdapters.map(adapter => ({ id: adapter.id,
+    catalog: async () => Array.from({ length: 12 }, (_, i) => ({ id: `${adapter.id}-${i}`, domain: `${adapter.id.replaceAll('_', '')}${i}.example` })),
+    candidate: async (entry: { id: string; domain: string }, fetcher: import('../../src/lib/admin-worker/discovery/fetch').DiscoveryFetcher) => {
+      await fetcher(`https://catalog.example/${entry.id}`)
+      if (adapter.id === 'apis_guru' && entry.id.endsWith('-0')) throw new DiscoveryResponseTooLargeError()
+      return { sourceType: 'api_directory' as const, sourceId: adapter.id, sourceRecordId: entry.id,
+        sourceUrl: `https://catalog.example/${entry.id}`, discoveredName: entry.domain, discoveredDomain: entry.domain,
+        discoveredProduct: 'API', discoveredDocsUrl: `https://${entry.domain}/docs` }
+    } }))
+  let charged = 0
+  f.store.request = async () => { charged++; return charged <= 40 }
+  const output = await discoverMultiSourceRange({ ...f.input(0, 32), adapters, fetcher: async url => {
+    requests.push(url); return { url, status: 200, contentType: 'application/json', body: '{}' }
+  } })
+  for (const item of output.items) if (item.candidate?.sourceId) seen.set(item.candidate.sourceId, (seen.get(item.candidate.sourceId) ?? 0) + 1)
+  assert.equal(seen.size, 8); assert.ok([...seen.values()].every(count => count >= 3 && count <= 5))
+  assert.equal(charged, requests.length); assert.equal(requests.length, 33)
+  assert.ok(output.items.every(item => item.candidate !== null))
+  const replay = await discoverMultiSourceRange({ ...f.input(0, 32), adapters, fetcher: async () => { throw new Error('Resume must reuse durable work') } })
+  assert.deepEqual(replay.items, output.items); assert.equal(charged, 33)
+})
 
 test('Public API Lists bounds, sanitizes and deduplicates observations without inventing evidence', () => {
   const entries = parsePublicApiLists({ entries: [

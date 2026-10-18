@@ -390,7 +390,7 @@ export async function resolveDiscoveryLead(input: {
 }
 
 export async function claimDeferredCandidates(runId: string, batchId: string, limit = 5): Promise<DurableCandidate[]> {
-  const claimed = await createServiceClient().rpc('mahshar_worker_claim_deferred_candidates', {
+  const claimed = await createServiceClient().rpc('mahshar_worker_lease_deferred_candidates', {
     p_run_id: runId, p_claim_key: `deferred:${runId}`, p_limit: limit,
   }) as DbResult
   if (claimed.error) fail('worker_deferred_claim', claimed.error)
@@ -410,6 +410,15 @@ export async function claimDeferredCandidates(runId: string, batchId: string, li
     candidate.processingLeaseId = leases.get(candidate.id) ?? null
     return candidate
   }) : []
+}
+
+export async function beginDeferredCandidate(runId: string, candidate: DurableCandidate, deadlineMs: number): Promise<boolean> {
+  const result = await createServiceClient().rpc('mahshar_worker_begin_deferred_candidate', {
+    p_run_id: runId, p_candidate_id: candidate.id, p_lease_id: candidate.processingLeaseId,
+    p_deadline_at: new Date(deadlineMs).toISOString(),
+  }) as DbResult
+  if (result.error || typeof result.data !== 'boolean') fail('worker_deferred_begin', result.error)
+  return result.data as boolean
 }
 
 export async function getReusableProvenance(leadId: string, maxAgeMs = 30 * 24 * 60 * 60 * 1000): Promise<ProvenanceFact[]> {

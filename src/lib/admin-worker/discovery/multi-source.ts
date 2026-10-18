@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { catalogRevision, discoverySourceAdapters, type DiscoverySourceAdapter, type DiscoverySourceId, type DiscoverySourceState, type SourceEntry } from './sources/adapter'
-import { boundedDiscoveryFetch, type DiscoveryFetcher } from './fetch'
+import { DiscoveryResponseTooLargeError, boundedDiscoveryFetch, type DiscoveryFetcher } from './fetch'
 import { WorkerMailInfrastructureError, type ProviderHistory } from './provider-history'
 import { sourceObservation, type DiscoverySourceStore, type SourceObservation } from './source-repository'
 import type { SourceWorkLoader, SourceWorkMaterializer } from './registry'
@@ -127,6 +127,12 @@ export async function discoverMultiSourceRange(input: {
       }
       catch (error) { await failure(state, error); return null }
       const revision = catalogRevision(entries)
+      // A catalog refresh must not re-download a known oversized detail record.
+      const quarantined = state.snapshot.entries.filter(entry => entry.quarantine)
+      const quarantine = new Map(quarantined.map(entry => [entry.id, entry.quarantine]))
+      entries = entries.map(entry => quarantine.has(entry.id) ? { ...entry, quarantine: quarantine.get(entry.id) } : entry)
+      entries.push(...quarantined.filter(entry => !entries.some(current => current.id === entry.id)))
+      if (entries.length > 2000 || Buffer.byteLength(JSON.stringify(entries, null, 1)) > 500_000) throw new Error('discovery_catalog_too_large')
       let cursor = advancePage ? 0 : state.snapshot.cursor
       if (advancePage || revision !== state.snapshot.revision) {
         const consumed = new Set(advancePage ? [] : state.snapshot.entries.slice(0, cursor).map(entry => entry.id))
@@ -156,7 +162,15 @@ export async function discoverMultiSourceRange(input: {
       states.set(adapter.id, state = saved)
     }
     prepared.add(adapter.id)
-    return state.snapshot.cursor < state.snapshot.entries.length ? state : null
+    const prefix = state.snapshot.entries.slice(0, state.snapshot.cursor)
+    const pending = state.snapshot.entries.slice(state.snapshot.cursor)
+    if (pending[0]?.quarantine && pending.some(entry => !entry.quarantine)) {
+      const saved = await input.sourceStore.update(state, { ...state.snapshot,
+        entries: [...prefix, ...pending.filter(entry => !entry.quarantine), ...pending.filter(entry => entry.quarantine)] })
+      if (!saved) throw new SourcePaused('discovery_stopped')
+      states.set(adapter.id, state = saved)
+    }
+    return state.snapshot.cursor < state.snapshot.entries.length && !state.snapshot.entries[state.snapshot.cursor].quarantine ? state : null
   }
   for (let ordinal = input.start; ordinal < input.end; ordinal += 1) {
     if (!await active()) break
@@ -166,6 +180,7 @@ export async function discoverMultiSourceRange(input: {
       continue
     }
     let observed = false
+    let quarantinedRecord = false
     try {
       for (let offset = 0; offset < adapters.length; offset += 1) {
         const adapter = adapters[(input.rootRunNumber - 1 + ordinal + offset) % adapters.length]
@@ -190,6 +205,17 @@ export async function discoverMultiSourceRange(input: {
         if (!invalidProfile && !invalidIdentity && !history.length) {
           try { candidate = await adapter.candidate(entry, fetcher(adapter, ordinal), input.rootRunNumber + ordinal) }
           catch (error) {
+            if (adapter.id === 'apis_guru' && error instanceof DiscoveryResponseTooLargeError) {
+              // Retain the unprocessed entry, classified separately from provider filtering.
+              const { entries, cursor } = state.snapshot
+              const saved = await input.sourceStore.update(state, { ...state.snapshot,
+                entries: [...entries.slice(0, cursor), ...entries.slice(cursor + 1),
+                  { ...entry, quarantine: { reason: 'discovery_response_too_large', checkedAt: new Date(now()).toISOString() } }] })
+              if (!saved) throw new SourcePaused('discovery_stopped')
+              states.set(adapter.id, saved)
+              quarantinedRecord = true
+              continue
+            }
             if (!(error instanceof SourceHttpFailure && [404, 410].includes(error.status))) { await failure(state, error); continue }
           }
           reasonCode = 'source_record_invalid'
@@ -216,7 +242,12 @@ export async function discoverMultiSourceRange(input: {
       break
     }
     // Exhausted or cooling sources have no eligible work in this run. Their cursors remain durable.
-    if (!observed) return { items, sourceExhausted: true, deadlineReached: deadline() }
+    if (!observed) {
+      // Every other source had its turn. Retry the same unconsumed ordinal at the
+      // next healthy entry; the existing per-slot HTTP cap still bounds this loop.
+      if (quarantinedRecord) { ordinal -= 1; continue }
+      return { items, sourceExhausted: true, deadlineReached: deadline() }
+    }
   }
   return { items, sourceExhausted: false, deadlineReached: deadline() }
 }

@@ -40,7 +40,7 @@ function range(overrides: Partial<DiscoveryRangeDependencies> = {}): Partial<Dis
       deadlineAt: new Date(Date.now() + 10 * 60_000).toISOString(), qualifiedCount: 0, qualifiedTarget: 50 }),
     getDiscoveryCandidates: async () => [candidate()], processDiscoveryCandidate: async () => result(),
     claimMailRecoveryCandidates: async () => [], claimContactEnrichmentCandidates: async () => [],
-    claimDeferredCandidates: async () => [], ...overrides }
+    beginDeferredCandidate: async () => true, claimDeferredCandidates: async () => [], ...overrides }
 }
 beforeEach(() => { reset(); boundary.rpcOverride = null; boundary.unavailable = false; boundary.unavailableTable = null })
 

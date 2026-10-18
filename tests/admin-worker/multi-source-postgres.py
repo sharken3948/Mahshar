@@ -251,6 +251,8 @@ with tempfile.TemporaryDirectory(prefix='mahshar-multi-source-pg-') as directory
         print('PASS: directory observations create no providers, qualified leads, Pending Emails or invitations', flush=True)
         if '--expanded' in __import__('sys').argv:
             exec(compile((ROOT / 'tests/admin-worker/source-expansion-postgres.py').read_text(), 'source-expansion-postgres.py', 'exec'))
+        if '--recovery' in __import__('sys').argv:
+            exec(compile((ROOT / 'tests/admin-worker/recovery-attempts-postgres.py').read_text(), 'recovery-attempts-postgres.py', 'exec'))
     finally:
         if started:
             run([BIN / 'pg_ctl', '-D', socket / 'data', '-m', 'immediate', '-w', 'stop'])

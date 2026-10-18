@@ -15,7 +15,7 @@ import { refreshMailIdentity } from './mail-recovery'
 import { getProviderHistory, WorkerMailInfrastructureError } from './provider-history'
 import {
   recoverPendingEmails, claimPendingSourceCandidates, claimMailRecoveryCandidates, finishMailRecovery,
-  applyContactActionability, claimContactEnrichmentCandidates, claimDeferredCandidates, claimDiscoveryBudget, getDiscoveryCandidates, getDiscoveryRunContext,
+  applyContactActionability, claimContactEnrichmentCandidates, beginDeferredCandidate, claimDeferredCandidates, claimDiscoveryBudget, getDiscoveryCandidates, getDiscoveryRunContext,
   getMaterializedSourceWork, getReusableProvenance, getSavedContactResearch, markDiscoveryCandidate, materializeSourceWork, preflightCandidate, resolveDiscoveryLead,
   saveContactResearch, saveDiscoveryCandidate, saveProvenance, saveQualification,
 } from './repository'
@@ -171,7 +171,7 @@ export async function processDiscoveryCandidate(
     // The durable ledger scopes equivalent research to the logical batch, including Resume.
     const identity = researchIdentity(candidate, domain, productKey)
     const research = await deps.researchCandidate({
-      candidate, normalizedDomain: domain,
+      candidate, normalizedDomain: domain, deadlineMs,
       claimResearchBudget: purpose => deps.claimDiscoveryBudget(runId, 'research', `research:${identity}:${purpose}`),
     })
     facts = research.facts
@@ -267,6 +267,7 @@ export type DiscoveryRangeDependencies = {
   claimDiscoveryBudget: typeof claimDiscoveryBudget
   saveContactResearch: typeof saveContactResearch
   applyContactActionability: typeof applyContactActionability
+  beginDeferredCandidate: typeof beginDeferredCandidate
   claimDeferredCandidates: typeof claimDeferredCandidates
   getDiscoveryCandidates: typeof getDiscoveryCandidates
   getDiscoveryRunContext: typeof getDiscoveryRunContext
@@ -283,7 +284,7 @@ const defaultRangeDependencies: DiscoveryRangeDependencies = {
   getProviderHistory, prioritizeDiscoveryProviders,
   claimContactEnrichmentCandidates, getReusableProvenance, getSavedContactResearch, discoverProviderContacts,
   claimDiscoveryBudget, saveContactResearch, applyContactActionability,
-  claimDeferredCandidates, getDiscoveryCandidates, getDiscoveryRunContext, saveDiscoveryCandidate,
+  beginDeferredCandidate, claimDeferredCandidates, getDiscoveryCandidates, getDiscoveryRunContext, saveDiscoveryCandidate,
   markDiscoveryCandidate, getMaterializedSourceWork, materializeSourceWork,
   discoverApiDirectoryRange, processDiscoveryCandidate,
 }
@@ -339,7 +340,7 @@ async function enrichExistingLeads(
 async function drainDeferredWithDependencies(
   runId: string, batchId: string, deadlineMs: number, remaining: number, deps: DiscoveryRangeDependencies,
 ): Promise<CandidateOutcome[]> {
-  if (remaining <= 0) return []
+  if (remaining <= 0 || Date.now() >= deadlineMs) return []
   if (deps.acquisition && !await deps.acquisition.running()) return []
   const candidates = await deps.claimDeferredCandidates(runId, batchId, Math.min(DEFERRED_SLICE, remaining))
   const outcomes: CandidateOutcome[] = []
@@ -348,6 +349,7 @@ async function drainDeferredWithDependencies(
     if (Date.now() >= deadlineMs || (deps.acquisition && !await deps.acquisition.running())) break
     let result: CandidateOutcome
     try {
+      if (!await deps.beginDeferredCandidate(runId, candidate, deadlineMs)) continue
       result = await deps.processDiscoveryCandidate(runId, candidate, deadlineMs, {}, true)
       outcomes.push(result)
       credited += result.qualified
@@ -372,7 +374,7 @@ export async function processDiscoveryRange(
     }
     // Guard every new external request (including redirects) and inference. Legacy
     // discovery keeps its original adapters and behavior when no epoch is supplied.
-    const fetcher: typeof boundedDiscoveryFetch = (url, options) => boundedDiscoveryFetch(url, { ...options, beforeRequest: async () => { await guard(); await options?.beforeRequest?.() } })
+    const fetcher: typeof boundedDiscoveryFetch = (url, options) => boundedDiscoveryFetch(url, { ...options, beforeRequest: async requestedUrl => { await guard(); await options?.beforeRequest?.(requestedUrl) } })
     const contact = deps.discoverProviderContacts
     deps.discoverProviderContacts = input => contact({ ...input, fetcher, searchAdapter: createPublicContactSearchAdapter(fetcher) })
     const source = deps.discoverApiDirectoryRange

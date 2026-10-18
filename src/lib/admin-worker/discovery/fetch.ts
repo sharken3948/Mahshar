@@ -2,7 +2,7 @@ import 'server-only'
 import { safeOutboundFetch } from '@/lib/outbound-fetch'
 import { WORKER_EXTERNAL_RESPONSE_LIMIT, WORKER_EXTERNAL_TIMEOUT_MS } from '../constants'
 
-export type DiscoveryFetcher = (url: string, options?: { maxBytes?: number; accept?: string; timeoutMs?: number; beforeRequest?: () => Promise<void> }) => Promise<{
+export type DiscoveryFetcher = (url: string, options?: { maxBytes?: number; accept?: string; timeoutMs?: number; beforeRequest?: (url?: string) => Promise<void>; validateUrl?: (url: string) => boolean }) => Promise<{
   url: string
   status: number
   contentType: string
@@ -10,20 +10,25 @@ export type DiscoveryFetcher = (url: string, options?: { maxBytes?: number; acce
   body: string
 }>
 
+export class DiscoveryResponseTooLargeError extends Error {
+  constructor() { super('discovery_response_too_large') }
+}
+
 export type DiscoveryTransport = (url: string, init: RequestInit, timeoutMs: number) => Promise<Response>
 
 const defaultTransport: DiscoveryTransport = (url, init, timeoutMs) => safeOutboundFetch(url, init, { timeoutMs })
 
 export async function boundedDiscoveryFetch(
   input: string,
-  options: { maxBytes?: number; accept?: string; timeoutMs?: number; beforeRequest?: () => Promise<void> } = {},
+  options: { maxBytes?: number; accept?: string; timeoutMs?: number; beforeRequest?: (url?: string) => Promise<void>; validateUrl?: (url: string) => boolean } = {},
   transport: DiscoveryTransport = defaultTransport,
 ): Promise<{ url: string; status: number; contentType: string; body: string; retryAfter?: string | null }> {
   const maxBytes = Math.min(options.maxBytes ?? WORKER_EXTERNAL_RESPONSE_LIMIT, WORKER_EXTERNAL_RESPONSE_LIMIT)
   const timeoutMs = Math.min(options.timeoutMs ?? WORKER_EXTERNAL_TIMEOUT_MS, WORKER_EXTERNAL_TIMEOUT_MS)
   let current = input
   for (let redirects = 0; redirects <= 2; redirects += 1) {
-    await options.beforeRequest?.()
+    if (options.validateUrl && !options.validateUrl(current)) throw new Error('discovery_reference_not_authorized')
+    await options.beforeRequest?.(current)
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
     let response: Response
@@ -54,7 +59,10 @@ export async function boundedDiscoveryFetch(
       continue
     }
     const declared = Number(response.headers.get('content-length'))
-    if (Number.isFinite(declared) && declared > maxBytes) throw new Error('discovery_response_too_large')
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      await response.body?.cancel()
+      throw new DiscoveryResponseTooLargeError()
+    }
     const reader = response.body?.getReader()
     const chunks: Uint8Array[] = []
     let size = 0
@@ -63,7 +71,7 @@ export async function boundedDiscoveryFetch(
         const part = await reader.read()
         if (part.done) break
         size += part.value.byteLength
-        if (size > maxBytes) { await reader.cancel(); throw new Error('discovery_response_too_large') }
+        if (size > maxBytes) { await reader.cancel(); throw new DiscoveryResponseTooLargeError() }
         chunks.push(part.value)
       }
     }

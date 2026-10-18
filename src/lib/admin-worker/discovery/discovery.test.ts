@@ -255,6 +255,7 @@ test('Workflow deferred claim replay and Resume do not requalify completed work'
     getDiscoveryRunContext: async runId => ({ batchId: runId === 'root' ? 'root' : 'root', rootRunNumber: 1,
       deadlineAt: new Date(Date.now() + 60_000).toISOString(), qualifiedCount: 0, qualifiedTarget: 50 }),
     getDiscoveryCandidates: async () => [],
+    beginDeferredCandidate: async () => true,
     claimDeferredCandidates: async () => ++claimCalls === 1 ? [deferred] : [],
     discoverApiDirectoryRange: async () => ({ items: [], sourceExhausted: true, deadlineReached: false }),
     saveDiscoveryCandidate: async () => {},
@@ -337,6 +338,7 @@ test('deferred draining claims only remaining target slots at 47, 49, and 50', a
       claimContactEnrichmentCandidates: async () => [],
       getDiscoveryRunContext: async () => ({ batchId: 'target-run', rootRunNumber: 1,
         deadlineAt: new Date(Date.now() + 60_000).toISOString(), qualifiedCount, qualifiedTarget: 50 }),
+      beginDeferredCandidate: async () => true,
       claimDeferredCandidates: async (_runId, _batchId, limit = 5) => { claimedLimit = limit; return deferred.slice(0, limit) },
       getDiscoveryCandidates: async () => [],
       processDiscoveryCandidate: async () => {

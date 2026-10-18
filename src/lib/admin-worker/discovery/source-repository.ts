@@ -39,7 +39,10 @@ export function sourceState(value: unknown): DiscoverySourceState {
     || ![state.fetchedAt, state.refreshAfter, state.retryAfter].every(date => date === null || (typeof date === 'string' && Number.isFinite(Date.parse(date))))
     || !(state.revision === null || /^[a-f0-9]{64}$/.test(state.revision))
     || !state.entries.every(entry => entry && typeof entry.id === 'string' && entry.id.length <= 253
-      && typeof entry.domain === 'string' && entry.domain.length <= 253)) {
+      && typeof entry.domain === 'string' && entry.domain.length <= 253
+      && (entry.quarantine === undefined || (item.sourceId === 'apis_guru'
+        && entry.quarantine?.reason === 'discovery_response_too_large'
+        && typeof entry.quarantine.checkedAt === 'string' && Number.isFinite(Date.parse(entry.quarantine.checkedAt)))))) {
     throw new WorkerMailInfrastructureError('worker_discovery_source_invalid')
   }
   return item
