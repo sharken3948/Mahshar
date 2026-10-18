@@ -1,4 +1,6 @@
 import 'server-only'
+import { discoverMultiSourceRange } from './multi-source'
+import type { DiscoverySourceStore } from './source-repository'
 import { boundedDiscoveryFetch, type DiscoveryFetcher } from './fetch'
 import { fetchApisGuruCandidates, fetchApisGuruProviderNames } from './sources/apis-guru'
 import type { RawCandidate } from './types'
@@ -35,6 +37,7 @@ function candidateResult(value: unknown, ordinal: number): CandidateResult | nul
 
 export async function discoverApiDirectoryRange(input: {
   rootRunNumber: number
+  sourceStore?: DiscoverySourceStore
   start: number
   end: number
   loadSourceWork: SourceWorkLoader
@@ -44,6 +47,8 @@ export async function discoverApiDirectoryRange(input: {
   fetcher?: DiscoveryFetcher
   deadlineMs?: number
 }): Promise<{ items: Array<{ ordinal: number; candidate: RawCandidate | null; reasonCode?: string }>; sourceExhausted: boolean; deadlineReached: boolean }> {
+  // Finish an already materialized pre-upgrade batch with its original stable plan.
+  if (input.sourceStore && !await input.loadSourceWork('providers:plan')) return discoverMultiSourceRange({ ...input, sourceStore: input.sourceStore })
   const fetcher = input.fetcher ?? boundedDiscoveryFetch
   const planKey = 'providers:plan'
   let plan = providerPlan(await input.loadSourceWork(planKey))

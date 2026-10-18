@@ -34,6 +34,8 @@ function candidateRow(value: unknown): DurableCandidate {
     discoveryBatchId: item.discovery_batch_id,
     ordinal: item.ordinal as number,
     sourceType: item.source_type as DurableCandidate['sourceType'],
+    sourceId: item.source_id as DurableCandidate['sourceId'] ?? undefined,
+    sourceRecordId: typeof item.source_record_id === 'string' ? item.source_record_id : undefined,
     sourceUrl: item.source_url,
     discoveredName: item.discovered_name,
     discoveredDomain: typeof item.discovered_domain === 'string' ? item.discovered_domain : undefined,
@@ -74,6 +76,22 @@ export async function recoverPendingEmails(runId: string): Promise<void> {
     })
     if (saved.error || typeof saved.data !== 'boolean') throw new WorkerMailInfrastructureError('worker_mail_checkpoint_unavailable')
   }
+}
+
+/** Unfinished observations retain their original IDs, payloads and existing completion leases. */
+export async function claimPendingSourceCandidates(runId: string): Promise<DurableCandidate[]> {
+  const result = await createServiceClient().rpc('mahshar_worker_claim_pending_sources', { p_run_id: runId }) as DbResult
+  if (result.error || !Array.isArray(result.data) || result.data.length > 5) {
+    throw new WorkerMailInfrastructureError('worker_pending_source_claim_unavailable')
+  }
+  try {
+    const candidates = result.data.map(candidateRow)
+    if (new Set(candidates.map(candidate => candidate.id)).size !== candidates.length
+      || candidates.some(candidate => candidate.status !== 'pending' || !candidate.sourceId || !candidate.processingLeaseId)) {
+      throw new Error('worker_pending_source_claim_invalid')
+    }
+    return candidates
+  } catch { throw new WorkerMailInfrastructureError('worker_pending_source_claim_invalid') }
 }
 
 export async function claimMailRecoveryCandidates(runId: string, kind: 'legacy' | 'contact'): Promise<DurableCandidate[]> {
@@ -217,6 +235,7 @@ export async function getDiscoveryCandidates(batchId: string, start: number, end
 
 export function discoveryCandidateRecord(batchId: string, ordinal: number, candidate: RawCandidate | null, reasonCode?: string): {
     discovery_batch_id: string; ordinal: number; source_type: 'api_directory'; source_url: string;
+    source_id?: RawCandidate['sourceId']; source_record_id?: string;
     discovered_name: string; discovered_domain: string | null; discovered_product: string | null;
     discovered_contract_url: string | null;
     discovered_docs_url: string | null; discovered_pricing_url: string | null;
@@ -231,6 +250,7 @@ export function discoveryCandidateRecord(batchId: string, ordinal: number, candi
     if (!providerName || !productName) return discoveryCandidateRecord(batchId, ordinal, null, 'external_name_invalid')
     return {
     discovery_batch_id: batchId, ordinal, source_type: candidate.sourceType,
+    ...(candidate.sourceId ? { source_id: candidate.sourceId, source_record_id: candidate.sourceRecordId } : {}),
     source_url: canonicalExternalUrl(candidate.sourceUrl) ?? 'https://api.apis.guru/v2/providers.json', discovered_name: providerName,
     discovered_domain: candidate.discoveredDomain?.slice(0, 253) ?? null,
     discovered_product: productName,

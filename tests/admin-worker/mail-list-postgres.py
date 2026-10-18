@@ -55,7 +55,7 @@ with tempfile.TemporaryDirectory(prefix='mahshar-mail-test-') as directory:
         sql('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;')
         migrations = sorted((ROOT / 'supabase/migrations').glob('*.sql'), key=lambda p: p.name.split('_')[0])
         for migration in migrations:
-            if migration != MIGRATION:
+            if migration.name < MIGRATION.name:
                 sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
         if '--historical-snapshot' in sys.argv:
             # Optional audit mode: replay an explicitly supplied read-only metadata
@@ -166,6 +166,11 @@ with tempfile.TemporaryDirectory(prefix='mahshar-mail-test-') as directory:
                 actual = sql(f"SELECT pg_get_functiondef('{signature}'::regprocedure);")
                 assert actual == definition.strip(), signature
         print('PASS: all 45 migrations, rollback and original data/function preservation', flush=True)
+        # Later migrations depend on the registry schema; run eligibility checks
+        # against the fully upgraded schema in chronological order.
+        for migration in migrations:
+            if migration.name > MIGRATION.name:
+                sql('BEGIN;\n' + migration.read_text() + '\nCOMMIT;')
 
         for role in ['anon', 'authenticated', 'service_role']:
             for privilege in ['INSERT','UPDATE','DELETE','TRUNCATE','TRIGGER','REFERENCES']:

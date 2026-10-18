@@ -182,6 +182,8 @@ The Admin Worker dashboard separates distinct discovered/qualified providers, va
 
 See [Admin Acquisition controls and activation boundaries](docs/admin-acquisition.md).
 
+Admin Worker discovery alternates between APIs.guru and the MIT-licensed Public API Lists JSON dataset, with durable source cursors, cached catalogs and bounded recovery of unfinished observations. Both sources share existing provider history, qualification, verified-contact and Pending Emails checks; other discovery sources remain disabled. Discovery requires an authorized Worker Start and never sends email automatically. See [Admin Worker discovery](docs/admin-worker-discovery.md).
+
 Pending Emails is a separate Admin-only Automation page at `/admin/operations/pending-emails` for tracking emails sent externally. It uses verified, qualified Worker contacts independently of invitation drafts and preserves permanent manual-sending history without sending email or fabricating delivery receipts. The registry migration is installed in Production. Historical reconciliation/import and Worker processing require separate operator authorization; this deployment does not start the Worker or enable email delivery. See [Admin Pending Emails](docs/admin-pending-emails.md).
 
 ## Wallet Funding

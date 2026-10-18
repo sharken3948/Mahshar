@@ -5,6 +5,8 @@ export type BudgetClaimResult = 'claimed' | 'replayed' | 'exhausted' | 'deadline
 
 export type RawCandidate = {
   sourceType: DiscoverySourceType
+  sourceId?: import('./sources/adapter').DiscoverySourceId
+  sourceRecordId?: string
   sourceUrl: string
   discoveredName: string
   discoveredDomain?: string

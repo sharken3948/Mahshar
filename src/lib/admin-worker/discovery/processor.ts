@@ -3,6 +3,7 @@ import { normalizeWorkerIdentity, normalizeWorkerProductKey } from '../normaliza
 import { WORKER_QUALIFICATION_MODEL, qualificationDisposition, qualifyCandidate } from './qualification'
 import { deterministicCandidateFilter } from './filters'
 import { discoverApiDirectoryRange } from './registry'
+import { discoverySourceStore } from './source-repository'
 import { researchCandidate } from './research'
 import { prioritizeDiscoveryProviders, researchIdentity, researchRetryAfter } from './research-history'
 import { discoverProviderContacts } from './contact'
@@ -13,7 +14,7 @@ import { assessTraction } from './traction'
 import { refreshMailIdentity } from './mail-recovery'
 import { getProviderHistory, WorkerMailInfrastructureError } from './provider-history'
 import {
-  recoverPendingEmails, claimMailRecoveryCandidates, finishMailRecovery,
+  recoverPendingEmails, claimPendingSourceCandidates, claimMailRecoveryCandidates, finishMailRecovery,
   applyContactActionability, claimContactEnrichmentCandidates, claimDeferredCandidates, claimDiscoveryBudget, getDiscoveryCandidates, getDiscoveryRunContext,
   getMaterializedSourceWork, getReusableProvenance, getSavedContactResearch, markDiscoveryCandidate, materializeSourceWork, preflightCandidate, resolveDiscoveryLead,
   saveContactResearch, saveDiscoveryCandidate, saveProvenance, saveQualification,
@@ -250,6 +251,8 @@ export async function processDiscoveryCandidate(
 }
 
 export type DiscoveryRangeDependencies = {
+  claimPendingSourceCandidates: typeof claimPendingSourceCandidates
+  discoverySourceStore: typeof discoverySourceStore
   recoverPendingEmails: typeof recoverPendingEmails
   claimMailRecoveryCandidates: typeof claimMailRecoveryCandidates
   finishMailRecovery: typeof finishMailRecovery
@@ -276,7 +279,7 @@ export type DiscoveryRangeDependencies = {
 }
 
 const defaultRangeDependencies: DiscoveryRangeDependencies = {
-  recoverPendingEmails, claimMailRecoveryCandidates, finishMailRecovery, refreshMailIdentity,
+  discoverySourceStore, recoverPendingEmails, claimPendingSourceCandidates, claimMailRecoveryCandidates, finishMailRecovery, refreshMailIdentity,
   getProviderHistory, prioritizeDiscoveryProviders,
   claimContactEnrichmentCandidates, getReusableProvenance, getSavedContactResearch, discoverProviderContacts,
   claimDiscoveryBudget, saveContactResearch, applyContactActionability,
@@ -369,7 +372,7 @@ export async function processDiscoveryRange(
     }
     // Guard every new external request (including redirects) and inference. Legacy
     // discovery keeps its original adapters and behavior when no epoch is supplied.
-    const fetcher: typeof boundedDiscoveryFetch = (url, options) => boundedDiscoveryFetch(url, { ...options, beforeRequest: guard })
+    const fetcher: typeof boundedDiscoveryFetch = (url, options) => boundedDiscoveryFetch(url, { ...options, beforeRequest: async () => { await guard(); await options?.beforeRequest?.() } })
     const contact = deps.discoverProviderContacts
     deps.discoverProviderContacts = input => contact({ ...input, fetcher, searchAdapter: createPublicContactSearchAdapter(fetcher) })
     const source = deps.discoverApiDirectoryRange
@@ -409,7 +412,7 @@ export async function processDiscoveryRange(
     try {
       discovered = await deps.discoverApiDirectoryRange({
         providerHistory: deps.getProviderHistory, prioritizeProviders: deps.prioritizeDiscoveryProviders,
-        rootRunNumber: context.rootRunNumber, start, end,
+        rootRunNumber: context.rootRunNumber, start, end, sourceStore: deps.discoverySourceStore(runId),
         loadSourceWork: claimKey => deps.getMaterializedSourceWork(context.batchId, claimKey),
         materializeSourceWork: (claimKey, kind, result) => deps.materializeSourceWork(runId, claimKey, kind, result),
         deadlineMs,
@@ -455,6 +458,25 @@ export async function processDiscoveryRange(
   const canRecover = async () => !hardLimitReached && !results.some(item => item.targetReached)
     && !recoveryOutcomes.some(item => item.targetReached) && qualified < context.qualifiedTarget
     && Date.now() < recoveryDeadline && (!deps.acquisition || await deps.acquisition.running())
+  if (await canRecover()) {
+    const unfinished = await deps.claimPendingSourceCandidates(runId)
+    for (const candidate of unfinished) {
+      if (!await canRecover()) break
+      try {
+        // Pending work uses ordinary preflight and cooldown checks, not a forced research retry.
+        const result = await deps.processDiscoveryCandidate(runId, candidate, recoveryDeadline)
+        recoveryOutcomes.push({ ...result, discovered: 0 })
+        qualified += result.qualified
+        if (['source_budget_exhausted', 'research_budget_exhausted', 'groq_budget_exhausted', 'contact_budget_exhausted'].includes(result.reasonCode)) {
+          hardLimitReached = true
+        }
+        await deps.acquisition?.afterProvider()
+      } catch (error) {
+        if (error instanceof WorkerMailInfrastructureError) throw error
+        // The pending row stays durable; its existing lease permits bounded recovery after expiry.
+      }
+    }
+  }
   if (await canRecover()) {
     const retained = await deps.claimMailRecoveryCandidates(runId, 'legacy')
     for (const candidate of retained) {

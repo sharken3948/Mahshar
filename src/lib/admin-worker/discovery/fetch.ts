@@ -2,10 +2,11 @@ import 'server-only'
 import { safeOutboundFetch } from '@/lib/outbound-fetch'
 import { WORKER_EXTERNAL_RESPONSE_LIMIT, WORKER_EXTERNAL_TIMEOUT_MS } from '../constants'
 
-export type DiscoveryFetcher = (url: string, options?: { maxBytes?: number; accept?: string; timeoutMs?: number }) => Promise<{
+export type DiscoveryFetcher = (url: string, options?: { maxBytes?: number; accept?: string; timeoutMs?: number; beforeRequest?: () => Promise<void> }) => Promise<{
   url: string
   status: number
   contentType: string
+  retryAfter?: string | null
   body: string
 }>
 
@@ -17,7 +18,7 @@ export async function boundedDiscoveryFetch(
   input: string,
   options: { maxBytes?: number; accept?: string; timeoutMs?: number; beforeRequest?: () => Promise<void> } = {},
   transport: DiscoveryTransport = defaultTransport,
-): Promise<{ url: string; status: number; contentType: string; body: string }> {
+): Promise<{ url: string; status: number; contentType: string; body: string; retryAfter?: string | null }> {
   const maxBytes = Math.min(options.maxBytes ?? WORKER_EXTERNAL_RESPONSE_LIMIT, WORKER_EXTERNAL_RESPONSE_LIMIT)
   const timeoutMs = Math.min(options.timeoutMs ?? WORKER_EXTERNAL_TIMEOUT_MS, WORKER_EXTERNAL_TIMEOUT_MS)
   let current = input
@@ -73,6 +74,7 @@ export async function boundedDiscoveryFetch(
       url: current,
       status: response.status,
       contentType: response.headers.get('content-type')?.slice(0, 120) ?? '',
+      retryAfter: response.headers.get('retry-after')?.slice(0, 128) ?? null,
       body: new TextDecoder().decode(bytes),
     }
   }

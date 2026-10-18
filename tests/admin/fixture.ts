@@ -8,6 +8,7 @@ export function createServiceClient() {
       if (boundary.unavailable) return { data: null, error: { code: '42P01' } }
       if (args[0] === 'mahshar_worker_mail_recover') return { data: { processed: 0, cursorBefore: null, cursorAfter: null }, error: null }
       if (args[0] === 'mahshar_worker_mail_checkpoint_recovery') return { data: true, error: null }
+      if (args[0] === 'mahshar_worker_claim_pending_sources') return { data: [], error: null }
       if (args[0] === 'mahshar_worker_mail_claim_recovery') return { data: [], error: null }
       if (args[0] === 'mahshar_worker_mail_finish_recovery') return { data: null, error: null }
       if (args[0] === 'mahshar_worker_mail_discovery_state') return { data: ((args[1] as { p_domains: string[] }).p_domains).map(domain => ({ domain, provider_id: null, reason: null })), error: null }
