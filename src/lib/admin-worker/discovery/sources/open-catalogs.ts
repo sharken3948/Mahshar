@@ -10,6 +10,10 @@ const SHARED_HOSTS = ['rapidapi.com', 'postman.com', 'github.com', 'apify.com', 
   'public-api-lists.github.io', 'apis.guru', 'api.market', 'zylalabs.com', 'allthingsdev.co']
 const APIFY_USERNAME = /^(?!\.{1,2}$)[a-zA-Z0-9_.-]{1,100}$/
 
+export class ApifyPublisherMismatchError extends Error {
+  constructor() { super('apify_publisher_mismatch') }
+}
+
 function externalDomain(url: string): string | null {
   try {
     const domain = normalizeWorkerIdentity('domain', new URL(url).hostname)
@@ -75,8 +79,10 @@ export async function resolveApifyProvider(entry: SourceEntry, fetcher: Discover
   if (!entry.publisher || !APIFY_USERNAME.test(entry.publisher)) throw new Error('apify_publisher_invalid')
   const response = await boundedJson<{ data?: { username?: string; profile?: { websiteUrl?: string } } }>(fetcher,
     'https://api.apify.com/v2/users/' + encodeURIComponent(entry.publisher))
-  if (response.data?.username !== entry.publisher) throw new Error('apify_publisher_mismatch')
-  const url = canonicalExternalUrl(response.data.profile?.websiteUrl)
+  const username = response.data?.username
+  if (typeof username !== 'string' || !APIFY_USERNAME.test(username)
+    || username.toLowerCase() !== entry.publisher.toLowerCase()) throw new ApifyPublisherMismatchError()
+  const url = canonicalExternalUrl(response.data?.profile?.websiteUrl)
   const domain = url?.startsWith('https://') ? externalDomain(url) : null
   return domain && url ? { ...entry, domain, url } : entry
 }

@@ -178,3 +178,24 @@ test('unchanged terminal contract failures retain their existing horizon and his
   boundary.unavailableTable = 'worker_candidates'
   await assert.rejects(researchRetryAfter(candidate(), 'apideck.com', 'ats'), WorkerMailInfrastructureError)
 })
+
+test('old directory-keyword rejection is not a research attempt and cannot impose a thirty-day cooldown', async () => {
+  const previous = prior({ status: 'filtered', reason_code: 'callable_api_unverified', processing_attempt: 0 })
+  const retained = JSON.stringify(previous)
+  state.tables.worker_candidates = [previous]
+  assert.equal(await researchRetryAfter(candidate(), 'apideck.com', 'ats'), null)
+  let researched = 0
+  const result = await processDiscoveryCandidate(batch, candidate(), Date.now() + 60000, {
+    preflightCandidate: async () => ({ action: 'continue' }), markDiscoveryCandidate: async () => {},
+    researchCandidate: async () => {
+      researched++
+      return { facts: [], docsVerified: false, failureCode: 'structured_api_contract_missing', compatibilityFailure: null }
+    },
+  })
+  assert.equal(researched, 1); assert.equal(result.qualified, 0)
+  assert.equal(result.reasonCode, 'structured_api_contract_missing')
+  assert.equal(JSON.stringify(previous), retained, 'Retained historical records are not rewritten')
+  const temporary = prior({ id: 'actual-research', reason_code: 'official_docs_unreachable' })
+  state.tables.worker_candidates.push(temporary)
+  assert.equal(await researchRetryAfter(candidate(), 'apideck.com', 'ats'), Date.parse(temporary.updated_at) + 60 * 60_000)
+})

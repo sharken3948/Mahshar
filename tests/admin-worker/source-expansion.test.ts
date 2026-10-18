@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { discoverySourceCatalog, sourceCatalogUrl } from '../../src/lib/admin-worker/discovery/sources/catalog'
 import { discoverySourceAdapters, type DiscoverySourceId, type DiscoverySourceState } from '../../src/lib/admin-worker/discovery/sources/adapter'
-import { parseMarkdownCatalog, apifyCatalog, resolveApifyProvider } from '../../src/lib/admin-worker/discovery/sources/open-catalogs'
+import { parseMarkdownCatalog, apifyCatalog, resolveApifyProvider, directoryObservation } from '../../src/lib/admin-worker/discovery/sources/open-catalogs'
 import { discoverMultiSourceRange } from '../../src/lib/admin-worker/discovery/multi-source'
 import { sourceState, type DiscoverySourceStore, type SourceObservation } from '../../src/lib/admin-worker/discovery/source-repository'
 import { WorkerMailInfrastructureError } from '../../src/lib/admin-worker/discovery/provider-history'
@@ -10,6 +10,10 @@ import { processDiscoveryCandidate } from '../../src/lib/admin-worker/discovery/
 import type { DurableCandidate } from '../../src/lib/admin-worker/discovery/types'
 import { recoverPendingEmails } from '../../src/lib/admin-worker/discovery/repository'
 import { boundary } from '../admin/fixture'
+import { normalizeWorkerIdentity } from '../../src/lib/admin-worker/normalization'
+import { prioritizeDiscoveryProviders } from '../../src/lib/admin-worker/discovery/research-history'
+import { deterministicCandidateFilter } from '../../src/lib/admin-worker/discovery/filters'
+import { researchCandidate } from '../../src/lib/admin-worker/discovery/research'
 
 const active = ['apis_guru', 'public_api_lists', 'github_public_apis', 'public_apis_dev', 'apify_store']
 function harness() {
@@ -56,6 +60,170 @@ function harness() {
     next:()=>{batch++;running=true},stop:()=>{running=false},resume:()=>{running=true},
     known:()=>{known=true},lose:()=>{loseObservation=true},quota:()=>{quota=true},advance:()=>{now+=24*3600_000+1}}
 }
+
+test('Run 24 unsupported APIs.guru identities cannot abort a five-source window or manufacture unavailable providers', async () => {
+  const h = harness(); const base = { ...h.input(30), rootRunNumber: 29 }
+  const unsupported = ['api.gov.uk', 'googleapis.com', 'httpbin.org', 'readme.io']
+  assert.throws(() => normalizeWorkerIdentity('domain', unsupported[0]), /worker_identity_invalid/)
+  const result = await discoverMultiSourceRange({ ...base,
+    prioritizeProviders: async domains => {
+      assert.ok(domains.every(domain => !unsupported.includes(domain)))
+      return prioritizeDiscoveryProviders(domains)
+    },
+    fetcher: async url => {
+      if (!url.endsWith('providers.json')) return base.fetcher(url)
+      h.requests.push(url)
+      return { url, status: 200, contentType: 'application/json', body: JSON.stringify({ data: ['acme.com', ...unsupported] }) }
+    },
+  })
+  assert.equal(result.items.length, 30)
+  assert.deepEqual(result.items.slice(0, 5).map(item => item.candidate?.sourceId),
+    ['public_apis_dev', 'apify_store', 'apis_guru', 'public_api_lists', 'github_public_apis'])
+  for (const id of active) assert.ok(h.states.get(id as DiscoverySourceId)!.snapshot.cursor > 0, id)
+  const invalid = result.items.filter(item => item.reasonCode === 'provider_identity_invalid')
+  assert.equal(invalid.length, 4)
+  assert.ok(invalid.every(item => item.candidate === null && unsupported.includes(item.domain!)))
+  assert.ok(result.items.every(item => item.reasonCode !== 'source_adapter_unavailable'))
+  assert.equal(h.states.get('apis_guru')!.snapshot.cursor, 5)
+  assert.equal(h.requests.filter(url => url.endsWith('providers.json')).length, 1)
+  assert.ok(!h.requests.some(url => unsupported.some(domain => url.endsWith(`/${domain}.json`))))
+  const requests = h.requests.length
+  const replay = await discoverMultiSourceRange({ ...base, fetcher: async () => { throw Error('Replay cannot fetch') } })
+  assert.deepEqual(replay.items, result.items); assert.equal(h.requests.length, requests)
+})
+
+test('a source-specific prioritization failure backs off that source while both public datasets receive their turns', async () => {
+  const h = harness(); const base = h.input(10)
+  const result = await discoverMultiSourceRange({ ...base,
+    prioritizeProviders: async domains => {
+      if (domains.includes('guru-failure.example')) throw Error('source_specific_failure')
+      return domains
+    },
+    fetcher: async url => url.endsWith('providers.json') ? { url, status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: ['guru-failure.example'] }) } : base.fetcher(url),
+  })
+  assert.ok(h.states.get('apis_guru')!.snapshot.retryAfter)
+  assert.ok(result.items.some(item => item.candidate?.sourceId === 'public_api_lists'))
+  assert.ok(result.items.some(item => item.candidate?.sourceId === 'github_public_apis'))
+  assert.ok(result.items.every(item => item.reasonCode !== 'source_adapter_unavailable'))
+})
+
+test('Apify publisher identity accepts only ASCII case differences and still requires external website verification', async () => {
+  for (const publisher of ['amygraphics', 'AmyGraphics', 'AMYGRAPHICS']) {
+    const entry = { id: 'actor', domain: '', publisher, title: 'Catalog product' }
+    const resolved = await resolveApifyProvider(entry, async url => ({ url, status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: { username: 'AmyGraphics', profile: { websiteUrl: 'https://docs.acme.com/' } } }) }))
+    assert.equal(resolved.domain, 'acme.com')
+    assert.equal(directoryObservation('apify_store', resolved)?.discoveredContractUrl, undefined)
+    for (const username of ['AmyGraphicsOther', '../AmyGraphics', 'AmyGraphics ', 'ΑmyGraphics', null]) {
+      await assert.rejects(resolveApifyProvider(entry, async url => ({ url, status: 200, contentType: 'application/json',
+        body: JSON.stringify({ data: { username, profile: { websiteUrl: 'https://unrelated.example/' } } }) })), /apify_publisher_mismatch/)
+    }
+    for (const websiteUrl of ['http://acme.com/', 'https://127.0.0.1/', 'https://apify.com/acme', undefined]) {
+      const unresolved = await resolveApifyProvider(entry, async url => ({ url, status: 200, contentType: 'application/json',
+        body: JSON.stringify({ data: { username: 'AmyGraphics', profile: { websiteUrl } } }) }))
+      assert.equal(unresolved.domain, ''); assert.equal(directoryObservation('apify_store', unresolved), null)
+    }
+  }
+})
+
+function profileFailureInput(h: ReturnType<typeof harness>, status: number, mismatch = false) {
+  const base = h.input(5)
+  return { ...base, fetcher: async (url: string) => {
+    if (url.startsWith(sourceCatalogUrl('apify_store') + '?')) return { url, status: 200, contentType: 'application/json',
+      body: JSON.stringify({ data: { offset: 0, total: 2, count: 2, items: [
+        { id: 'failed', username: 'unavailable', title: 'First product' }, { id: 'healthy', username: 'acme', title: 'Healthy product' },
+      ] } }) }
+    if (url.endsWith('/users/unavailable')) return { url, status, contentType: 'application/json', retryAfter: '60',
+      body: JSON.stringify({ data: { username: mismatch ? 'unrelated' : 'Unavailable', profile: { websiteUrl: 'https://unavailable.example/' } } }) }
+    return base.fetcher(url)
+  } }
+}
+
+test('permanent Apify profile mismatches and missing profiles consume only the invalid record and continue safely', async () => {
+  for (const status of [200, 404, 410]) {
+    const h = harness(); const base = profileFailureInput(h, status, true)
+    const result = await discoverMultiSourceRange({ ...base, adapters: discoverySourceAdapters.filter(a => a.id === 'apify_store') })
+    assert.equal(result.items.length, 2)
+    assert.equal(result.items[0].candidate, null); assert.equal(result.items[0].reasonCode, 'source_record_invalid')
+    assert.equal(result.items[1].candidate?.sourceRecordId, 'healthy')
+    assert.equal(h.states.get('apify_store')!.snapshot.cursor, 2)
+    assert.equal(h.states.get('apify_store')!.snapshot.failures, 0)
+  }
+})
+
+test('transient Apify failures retain the Actor behind other pending profiles across Stop, Resume and cooldown', async () => {
+  for (const status of [429, 503]) {
+    const h = harness(); const failed = profileFailureInput(h, status)
+    const result = await discoverMultiSourceRange(failed)
+    assert.ok(result.items.some(item => item.candidate?.sourceId === 'public_api_lists'))
+    assert.equal(h.states.get('apify_store')!.snapshot.cursor, 0)
+    assert.deepEqual(h.states.get('apify_store')!.snapshot.entries.map(entry => entry.id), ['healthy', 'failed'])
+    assert.ok(h.states.get('apify_store')!.snapshot.retryAfter)
+    h.stop(); assert.equal((await discoverMultiSourceRange(failed)).items.length, 0)
+    h.resume()
+    assert.deepEqual((await discoverMultiSourceRange(failed)).items, result.items)
+    // A due retry uses the persisted catalog, consumes healthy work first and retains the failed Actor.
+    const now = Date.parse(h.states.get('apify_store')!.snapshot.retryAfter!) + 1
+    const retry = profileFailureInput(h, 200)
+    const resumed = await discoverMultiSourceRange({ ...retry, start: 5, end: 15,
+      now: () => now, deadlineMs: now + 60_000 })
+    assert.deepEqual(resumed.items.filter(item => item.candidate?.sourceId === 'apify_store').map(item => item.candidate?.sourceRecordId), ['healthy', 'failed'])
+    assert.equal(h.states.get('apify_store')!.snapshot.cursor, 2)
+  }
+})
+
+test('a lost profile-rotation response retains all Actor IDs and Resume does not retry before cooldown', async () => {
+  const h = harness(); const base = profileFailureInput(h, 503)
+  const update = h.store.update
+  let lose = true; let profileRequests = 0
+  h.store.update = async (state, snapshot) => {
+    const saved = await update(state, snapshot)
+    if (lose && state.sourceId === 'apify_store' && snapshot.failures === 1) {
+      lose = false; throw new WorkerMailInfrastructureError('lost_profile_rotation_response')
+    }
+    return saved
+  }
+  const input = { ...base, fetcher: async (url: string) => {
+    if (url.endsWith('/users/unavailable')) profileRequests++
+    return base.fetcher(url)
+  } }
+  await assert.rejects(discoverMultiSourceRange(input), /lost_profile_rotation_response/)
+  assert.deepEqual(h.states.get('apify_store')!.snapshot.entries.map(entry => entry.id), ['healthy', 'failed'])
+  assert.equal(h.states.get('apify_store')!.snapshot.cursor, 0)
+  await discoverMultiSourceRange(input)
+  assert.equal(profileRequests, 1)
+})
+
+test('the six Run 24 keyword-free directory entries reach technical checks without automatic qualification', async () => {
+  const examples = [
+    ['boardgamegeek.com', 'Board Game Geek', 'https://boardgamegeek.com/wiki/page/BGG_XML_API2', 'Board games, RPG and videogames'],
+    ['lumify.ai', 'Lumify', 'https://lumify.ai/', 'Real-time sports intelligence: scores, odds, betting splits'],
+    ['todoist.com', 'Todoist', 'https://developer.todoist.com/', 'Todo Lists'],
+    ['falcoscan.com', 'FalcoScan', 'https://falcoscan.com/', 'Data on 7,000+ AI products across 29 markets'],
+    ['pinterest.com', 'Pinterest', 'https://developers.pinterest.com/', "The world's catalog of ideas"],
+    ['ap.org', 'Associated Press', 'https://developer.ap.org/', 'Search for news and metadata from Associated Press'],
+  ]
+  for (const [domain, title, url, summary] of examples) {
+    const candidate = directoryObservation('public_apis_dev', { id: domain, domain, title, url, summary })!
+    assert.equal(deterministicCandidateFilter(candidate), null)
+    let fetched = 0
+    const item: DurableCandidate = { ...candidate, id: domain, discoveryBatchId: 'batch', ordinal: 0,
+      normalizedDomain: null, normalizedProductKey: null, status: 'pending', reasonCode: null,
+      providerId: null, productId: null, leadId: null, retryAfter: null, processingLeaseId: null, processingLeaseExpiresAt: null }
+    const result = await processDiscoveryCandidate('run', item, Date.now() + 60_000, {
+      preflightCandidate: async () => ({ action: 'continue' }), researchRetryAfter: async () => null,
+      researchCandidate: input => researchCandidate({ ...input, fetcher: async requested => {
+        fetched++; return { url: requested, status: 200, contentType: 'text/html', body: '<h1>Documentation landing page</h1>' }
+      } }),
+      claimDiscoveryBudget: async () => 'claimed', markDiscoveryCandidate: async () => {},
+      qualifyCandidate: async () => { throw Error('Unverified contracts must never reach Groq') },
+    })
+    assert.ok(fetched > 0, domain); assert.equal(result.qualified, 0); assert.equal(result.persisted, 0)
+    assert.equal(result.reasonCode, 'structured_api_contract_missing')
+    assert.equal(deterministicCandidateFilter({ ...candidate, discoveredDocsUrl: undefined }), 'structured_api_contract_missing')
+  }
+})
 
 test('all fifteen sources have explicit access status; only five approved adapters can dispatch',()=>{
   assert.equal(discoverySourceCatalog.length,15)

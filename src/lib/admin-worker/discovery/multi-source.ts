@@ -4,11 +4,17 @@ import { boundedDiscoveryFetch, type DiscoveryFetcher } from './fetch'
 import { WorkerMailInfrastructureError, type ProviderHistory } from './provider-history'
 import { sourceObservation, type DiscoverySourceStore, type SourceObservation } from './source-repository'
 import type { SourceWorkLoader, SourceWorkMaterializer } from './registry'
+import { normalizeWorkerIdentity } from '../normalization'
+import { ApifyPublisherMismatchError } from './sources/open-catalogs'
 
 const CACHE_MS = 24 * 60 * 60 * 1000
 class SourcePaused extends Error {}
 class SourceHttpFailure extends Error {
   constructor(readonly status: number, readonly retryAt: number | null) { super('discovery_source_http_error') }
+}
+
+function providerDomain(domain: string): string | null {
+  try { return normalizeWorkerIdentity('domain', domain) } catch { return null }
 }
 
 /** Shared catalog dispatcher; lifecycle, research and qualification stay in the existing Worker. */
@@ -83,10 +89,13 @@ export async function discoverMultiSourceRange(input: {
       return response
     }
   }
-  const failure = async (state: DiscoverySourceState, error: unknown) => {
+  const failure = async (state: DiscoverySourceState, error: unknown, rotateEntry = false) => {
     if (error instanceof WorkerMailInfrastructureError || error instanceof SourcePaused) throw error
     const failures = Math.min(16, state.snapshot.failures + 1)
-    const saved = await input.sourceStore.update(state, { ...state.snapshot, failures,
+    const { entries, cursor } = state.snapshot
+    // Retain a failed profile behind the other unconsumed records, including across Resume.
+    const pending = rotateEntry ? [...entries.slice(0, cursor), ...entries.slice(cursor + 1), entries[cursor]] : entries
+    const saved = await input.sourceStore.update(state, { ...state.snapshot, entries: pending, failures,
       retryAfter: new Date(Math.max(now() + Math.min(CACHE_MS, 60_000 * 2 ** (failures - 1)),
         error instanceof SourceHttpFailure ? error.retryAt ?? 0 : 0)).toISOString() })
     if (!saved) throw new SourcePaused('discovery_stopped')
@@ -118,7 +127,8 @@ export async function discoverMultiSourceRange(input: {
         const consumed = new Set(advancePage ? [] : state.snapshot.entries.slice(0, cursor).map(entry => entry.id))
         const prefix = entries.filter(entry => consumed.has(entry.id))
         const rest = entries.filter(entry => !consumed.has(entry.id))
-        const order = input.prioritizeProviders ? await input.prioritizeProviders([...new Set(rest.map(entry => entry.domain).filter(Boolean))]) : rest.map(entry => entry.domain)
+        const domains = [...new Set(rest.map(entry => entry.domain).filter(domain => providerDomain(domain) !== null))]
+        const order = input.prioritizeProviders ? await input.prioritizeProviders(domains) : domains
         const ranks = new Map(order.map((domain, index) => [domain, index]))
         rest.sort((a, b) => (ranks.get(a.domain) ?? Infinity) - (ranks.get(b.domain) ?? Infinity))
         prioritized = true
@@ -133,7 +143,7 @@ export async function discoverMultiSourceRange(input: {
     if (freshPlan && !prioritized && !prepared.has(adapter.id) && input.prioritizeProviders && state.snapshot.cursor < state.snapshot.entries.length) {
       const prefix = state.snapshot.entries.slice(0, state.snapshot.cursor)
       const rest = state.snapshot.entries.slice(state.snapshot.cursor)
-      const order = await input.prioritizeProviders([...new Set(rest.map(entry => entry.domain).filter(Boolean))])
+      const order = await input.prioritizeProviders([...new Set(rest.map(entry => entry.domain).filter(domain => providerDomain(domain) !== null))])
       const ranks = new Map(order.map((domain, index) => [domain, index]))
       rest.sort((a, b) => (ranks.get(a.domain) ?? Infinity) - (ranks.get(b.domain) ?? Infinity))
       const saved = await input.sourceStore.update(state, { ...state.snapshot, entries: [...prefix, ...rest] })
@@ -154,17 +164,25 @@ export async function discoverMultiSourceRange(input: {
     try {
       for (let offset = 0; offset < adapters.length; offset += 1) {
         const adapter = adapters[(input.rootRunNumber - 1 + ordinal + offset) % adapters.length]
-        const state = await prepare(adapter, ordinal)
+        let state: DiscoverySourceState | null
+        try { state = await prepare(adapter, ordinal) }
+        catch (error) { await failure(await read(adapter.id), error); continue }
         if (!state) continue
         let entry = state.snapshot.entries[state.snapshot.cursor]
+        let invalidProfile = false
         if (adapter.resolve) {
           try { entry = await adapter.resolve(entry, fetcher(adapter, ordinal)) }
-          catch (error) { await failure(state, error); continue }
+          catch (error) {
+            if (error instanceof ApifyPublisherMismatchError || (error instanceof SourceHttpFailure && [404, 410].includes(error.status))) invalidProfile = true
+            else { await failure(state, error, true); continue }
+          }
         }
-        const history = entry.domain && input.providerHistory ? await input.providerHistory([entry.domain]) : []
+        const domain = providerDomain(entry.domain)
+        const invalidIdentity = !!entry.domain && domain === null
+        const history = !invalidProfile && domain && input.providerHistory ? await input.providerHistory([domain]) : []
         let candidate: SourceObservation['candidate'] = null
-        let reasonCode = 'provider_identity_processed'
-        if (!history.length) {
+        let reasonCode = invalidProfile ? 'source_record_invalid' : invalidIdentity ? 'provider_identity_invalid' : 'provider_identity_processed'
+        if (!invalidProfile && !invalidIdentity && !history.length) {
           try { candidate = await adapter.candidate(entry, fetcher(adapter, ordinal), input.rootRunNumber + ordinal) }
           catch (error) {
             if (!(error instanceof SourceHttpFailure && [404, 410].includes(error.status))) { await failure(state, error); continue }

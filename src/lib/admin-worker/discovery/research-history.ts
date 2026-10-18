@@ -48,7 +48,7 @@ export async function researchRetryAfter(candidate: RawCandidate, domain: string
   if (result.error || !Array.isArray(result.data)) throw new WorkerMailInfrastructureError('worker_research_history_unavailable')
   const identity = researchIdentity(candidate, domain, productKey)
   const attempts = result.data.filter(row => ['filtered', 'deferred'].includes(row.status)
-    && row.reason_code && !['provider_retry_not_due', 'provider_identity_processed'].includes(row.reason_code)
+    && row.reason_code && !['provider_retry_not_due', 'provider_identity_processed', 'callable_api_unverified'].includes(row.reason_code)
     && researchIdentity({ discoveredContractUrl: row.discovered_contract_url ?? undefined,
       discoveredDocsUrl: row.discovered_docs_url ?? undefined }, domain, productKey) === identity)
   if (!attempts.length) return null

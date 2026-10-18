@@ -13,6 +13,6 @@ export function deterministicCandidateFilter(candidate: RawCandidate): string | 
   if (PROHIBITED.test(evidence)) return 'prohibited_service'
   if (OBSOLETE.test(evidence)) return 'obsolete_product'
   if (UNSUPPORTED_PROTOCOL.test(evidence)) return 'unsupported_protocol'
-  if (!/\b(?:api|openapi|rest|http|json)\b/i.test(evidence)) return 'callable_api_unverified'
+  // Safe references permit technical research; directory wording is not API verification.
   return null
 }

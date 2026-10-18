@@ -174,7 +174,7 @@ test('Stop and deadlines prevent requests and cursor advancement; Resume retains
   assert.equal((await discoverMultiSourceRange(h.input())).items.length, 0)
   assert.equal(h.requests.length, 0)
   h.resume()
-  const expired = h.input(); expired.deadlineMs = Date.now() - 1
+  const expired = h.input(); expired.deadlineMs = expired.now() - 1
   assert.equal((await discoverMultiSourceRange(expired)).deadlineReached, true)
   assert.equal(h.requests.length, 0)
   const observe = h.store.observe
@@ -369,6 +369,28 @@ function processingHarness() {
     run: () => processDiscoveryRange(String(batch), 0, 10, dependencies),
   }
 }
+
+test('unexpected source and infrastructure failures preserve the frontier without synthetic filtered candidates', async () => {
+  for (const error of [new Error('unexpected_source_error'), new WorkerMailInfrastructureError('database_unavailable')]) {
+    const h = processingHarness()
+    h.dependencies.discoverApiDirectoryRange = async () => { throw error }
+    await assert.rejects(h.run(), error)
+    assert.equal(h.records.size, 0); assert.equal(h.researched.length, 0)
+  }
+})
+
+test('source budget control signals stop without creating or counting a fictional provider', async () => {
+  for (const mode of ['thrown', 'returned'] as const) {
+    const h = processingHarness()
+    h.dependencies.discoverApiDirectoryRange = async () => {
+      if (mode === 'thrown') throw Error('source_budget_exhausted')
+      return { items: [{ ordinal: 0, candidate: null, reasonCode: 'source_budget_exhausted' }], sourceExhausted: false, deadlineReached: false }
+    }
+    const result = await h.run()
+    assert.equal(result.hardLimitReached, true); assert.equal(result.nextIndex, 0)
+    assert.deepEqual(result.outcomes, []); assert.equal(h.records.size, 0)
+  }
+})
 
 for (const reason of ['target', 'budget', 'stop', 'crash'] as const) {
   test(`unprocessed observations survive ${reason} and are recovered in bounded slices on separate Starts`, async () => {

@@ -403,6 +403,7 @@ export async function processDiscoveryRange(
   }
   let sourceExhausted = false
   let sourceDeadlineReached = false
+  let sourceBudgetReached = false
   if (existing.size < end - start) {
     if (deps.acquisition && !await deps.acquisition.running()) return {
       outcomes: [], nextIndex: start,
@@ -420,21 +421,22 @@ export async function processDiscoveryRange(
     } catch (error) {
       if (error instanceof WorkerMailInfrastructureError) throw error
       const deadlineReached = Date.now() >= deadlineMs
-      const sourceBudgetReached = error instanceof Error && error.message === 'source_budget_exhausted'
-      discovered = { items: deadlineReached ? [] : Array.from({ length: sourceBudgetReached ? 1 : end - start }, (_, index) => ({
-        ordinal: start + index, candidate: null,
-        reasonCode: sourceBudgetReached ? 'source_budget_exhausted' : 'source_adapter_unavailable',
-      })), sourceExhausted: false, deadlineReached }
+      sourceBudgetReached = error instanceof Error && error.message === 'source_budget_exhausted'
+      if (!deadlineReached && !sourceBudgetReached) throw error
+      discovered = { items: [], sourceExhausted: false, deadlineReached }
     }
     sourceExhausted = discovered.sourceExhausted
     sourceDeadlineReached = discovered.deadlineReached
-    for (const item of discovered.items) if (!existing.has(item.ordinal)) await deps.saveDiscoveryCandidate(context.batchId, item.ordinal, item.candidate, item.reasonCode)
+    for (const item of discovered.items) {
+      if (item.candidate === null && item.reasonCode === 'source_budget_exhausted') { sourceBudgetReached = true; continue }
+      if (!existing.has(item.ordinal)) await deps.saveDiscoveryCandidate(context.batchId, item.ordinal, item.candidate, item.reasonCode)
+    }
     candidates = await deps.getDiscoveryCandidates(context.batchId, start, end)
   }
   const byOrdinal = new Map(candidates.map(candidate => [candidate.ordinal, candidate]))
   const results: CandidateOutcome[] = []
   let nextIndex = start
-  let hardLimitReached = false
+  let hardLimitReached = sourceBudgetReached
   let qualified = context.qualifiedCount
   for (let ordinal = start; ordinal < end; ordinal += 1) {
     if (deps.acquisition && !await deps.acquisition.running()) break
