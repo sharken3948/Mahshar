@@ -6,6 +6,7 @@ import { sourceObservation, type DiscoverySourceStore, type SourceObservation } 
 import type { SourceWorkLoader, SourceWorkMaterializer } from './registry'
 import { normalizeWorkerIdentity } from '../normalization'
 import { ApifyPublisherMismatchError } from './sources/open-catalogs'
+import { discoverySourceCatalog } from './sources/catalog'
 
 const CACHE_MS = 24 * 60 * 60 * 1000
 class SourcePaused extends Error {}
@@ -29,10 +30,13 @@ export async function discoverMultiSourceRange(input: {
   now?: () => number
 }): Promise<{ items: SourceObservation[]; sourceExhausted: boolean; deadlineReached: boolean }> {
   const now = input.now ?? Date.now
+  const configured = input.adapters ?? discoverySourceAdapters
+  if (configured.some(adapter => discoverySourceCatalog.find(source => source.id === adapter.id)?.status !== 'ACTIVE-READY')) {
+    throw new WorkerMailInfrastructureError('worker_discovery_source_not_authorized')
+  }
   if (now() >= (input.deadlineMs ?? Infinity) || !await input.sourceStore.running()) {
     return { items: [], sourceExhausted: false, deadlineReached: now() >= (input.deadlineMs ?? Infinity) }
   }
-  const configured = input.adapters ?? discoverySourceAdapters
   let plan = await input.loadSourceWork('sources:plan') as { kind: string; multiSource: number; providers: string[] } | null
   const freshPlan = !plan
   if (!plan) plan = await input.materializeSourceWork('sources:plan', 'provider_plan', {

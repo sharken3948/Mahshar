@@ -233,6 +233,30 @@ test('all fifteen sources have explicit access status; only five approved adapte
   for(const source of discoverySourceCatalog.filter(s=>s.status!=='ACTIVE-READY'))assert.throws(()=>sourceCatalogUrl(source.id),/not_authorized/)
 })
 
+test('all ten disabled registrations are rejected before any source transport, state or budget operation', async () => {
+  for (const source of discoverySourceCatalog.filter(source => source.status !== 'ACTIVE-READY')) {
+    const h = harness()
+    let operations = 0
+    const forbidden = async (): Promise<never> => { operations++; throw Error('Disabled source performed I/O') }
+    const input = h.input()
+    await assert.rejects(discoverMultiSourceRange({ ...input,
+      adapters: [{ id: source.id, catalog: forbidden, candidate: forbidden }],
+      sourceStore: { read: forbidden, update: forbidden, observe: forbidden, running: forbidden, request: forbidden },
+      loadSourceWork: forbidden, materializeSourceWork: forbidden, fetcher: forbidden,
+    }), /worker_discovery_source_not_authorized/)
+    assert.equal(operations, 0, source.id)
+    assert.equal(h.observed.length, 0)
+  }
+})
+
+test('adding a disabled adapter beside healthy adapters fails closed instead of silently enabling catalog extraction', async () => {
+  const h = harness()
+  await assert.rejects(discoverMultiSourceRange({ ...h.input(), adapters: [...discoverySourceAdapters,
+    { id: 'api_market', catalog: async () => { throw Error('No authenticated gateway may be called') }, candidate: async () => null },
+  ] }), /worker_discovery_source_not_authorized/)
+  assert.equal(h.requests.length, 0); assert.equal(h.work.size, 0)
+})
+
 test('both MIT Markdown parsers reject shared hosts and unsafe URLs without inventing contract/contact evidence',()=>{
   const entries=parseMarkdownCatalog('| [Weather](https://api.acme.com/docs) | JSON API |\n| [Weather](https://api.acme.com/docs) | duplicate |\n| [Tool](https://apify.com/a/b) | Actor |\n| [Bad](https://127.0.0.1) | bad |\n| [Wrong](http://plain.example) | insecure |')
   assert.equal(entries.length,1);assert.equal(entries[0].domain,'acme.com')

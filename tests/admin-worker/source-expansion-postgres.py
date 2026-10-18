@@ -24,7 +24,8 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
 assert sorted(limited) == ['claimed','source_exhausted']
 assert sql(f"SELECT source_query_count FROM worker_runs WHERE id='{request_run}';") == '40'
 assert request('public_apis_dev') == 'claimed'
-failure(f"SET ROLE service_role; SELECT mahshar_worker_claim_discovery_request('{request_run}','rapidapi',gen_random_uuid());", 'worker_discovery_source_not_authorized')
+for disabled_source in ['rapidapi','postman','zyla','apilayer','api_market','allthingsdev','apyhub','apis_io','api_tracker','api_directory']:
+    failure(f"SET ROLE service_role; SELECT mahshar_worker_claim_discovery_request('{request_run}',{quote(disabled_source)},gen_random_uuid());", 'worker_discovery_source_not_authorized')
 assert sql(f"SELECT source_query_count FROM worker_runs WHERE id='{request_run}';") == '41'
 data(f"mahshar_worker_advance_target_run('{request_run}',0,10,0,0,0,0,0,0,0,0,false,false,false)")
 stop_run(request_run,10)
