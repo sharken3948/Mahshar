@@ -81,7 +81,10 @@ export function PendingEmailsClient() {
     <section className={styles.pageHeading}>
       <div><span className={styles.eyebrow}>Admin only · Automation</span><h1>Pending Emails</h1>
         <p>Send emails externally, then mark them as sent here. This page never sends email.</p></div>
-      <button type="button" className={styles.rowButton} disabled={loading || !!marking} onClick={() => void load()}>Refresh</button>
+      <button type="button" className={styles.rowButton} disabled={loading || !!marking} onClick={() => {
+          if (cursor !== null) { setData(null); setCursors([null]) }
+          else void load()
+        }}>Refresh</button>
     </section>
     <p className={styles.probeNote}>Verified contact readiness does not establish outreach permission. Mark as Sent records your declaration, not verified delivery.</p>
     {failure && <div role="alert" className={styles.degradedBanner}>{failure}</div>}

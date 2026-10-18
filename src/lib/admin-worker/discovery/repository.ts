@@ -5,6 +5,7 @@ import { workerMailRpc } from '../mail-list-rpc'
 import { MAIL_UUID } from '../mail-list-types'
 import { getProviderHistory, WorkerMailInfrastructureError } from './provider-history'
 import { canonicalExternalUrl, durableExternalName, durableExternalSummary } from './sanitize'
+import { sourceTrustRank } from './research'
 import type { BudgetClaimResult, CandidateOutcome, ContactResearchResult, DurableCandidate, ProvenanceFact, RawCandidate, WorkerQualification, WorkerTraction } from './types'
 
 type DbError = { message?: string; code?: string } | null
@@ -425,7 +426,17 @@ export function provenanceRecords(leadId: string, facts: ProvenanceFact[]): Arra
   lead_id: string; source_type: ProvenanceFact['sourceType']; source_role: ProvenanceFact['sourceRole'];
   url: string; title: string | null; factual_summary: string | null; checked_at: string; naming_evidence?: import('../invitation-names').OfficialNameProof[]
 }> {
-  return facts.slice(0, 5).map(fact => ({
+  const rank = (fact: ProvenanceFact) => fact.sourceType !== 'website' ? 6
+    : fact.sourceRole === 'official_docs' ? 0 : sourceTrustRank(fact)
+  const unique = new Map<string, ProvenanceFact>()
+  for (const fact of facts) {
+    const url = canonicalExternalUrl(fact.url)
+    if (!url) continue
+    const previous = unique.get(url)
+    if (!previous || rank(fact) < rank(previous)
+      || (rank(fact) === rank(previous) && Date.parse(fact.checkedAt) > Date.parse(previous.checkedAt))) unique.set(url, { ...fact, url })
+  }
+  return [...unique.values()].sort((a, b) => rank(a) - rank(b)).slice(0, 5).map(fact => ({
     ...(fact.namingEvidence ? { naming_evidence: fact.namingEvidence.slice(0, 8) } : {}),
     lead_id: leadId, source_type: fact.sourceType, source_role: fact.sourceRole,
     url: canonicalExternalUrl(fact.url), title: durableExternalSummary(fact.title, 256) ?? null,

@@ -1,11 +1,10 @@
 import 'server-only'
-import { createHash } from 'node:crypto'
 import { normalizeWorkerIdentity, normalizeWorkerProductKey } from '../normalization'
 import { WORKER_QUALIFICATION_MODEL, qualificationDisposition, qualifyCandidate } from './qualification'
 import { deterministicCandidateFilter } from './filters'
 import { discoverApiDirectoryRange } from './registry'
 import { researchCandidate } from './research'
-import { canonicalExternalUrl } from './sanitize'
+import { prioritizeDiscoveryProviders, researchIdentity, researchRetryAfter } from './research-history'
 import { discoverProviderContacts } from './contact'
 import { buildContactClaimKey } from './contact-claim-key'
 import { boundedDiscoveryFetch } from './fetch'
@@ -26,6 +25,7 @@ const DEFERRED_SLICE = 5
 export type DiscoveryProcessorDependencies = {
   preflightCandidate: typeof preflightCandidate
   researchCandidate: typeof researchCandidate
+  researchRetryAfter: typeof researchRetryAfter
   resolveDiscoveryLead: typeof resolveDiscoveryLead
   claimDiscoveryBudget: typeof claimDiscoveryBudget
   getReusableProvenance: typeof getReusableProvenance
@@ -39,7 +39,7 @@ export type DiscoveryProcessorDependencies = {
 }
 
 const defaultDependencies: DiscoveryProcessorDependencies = {
-  preflightCandidate, researchCandidate, resolveDiscoveryLead, claimDiscoveryBudget,
+  preflightCandidate, researchCandidate, researchRetryAfter, resolveDiscoveryLead, claimDiscoveryBudget,
   getReusableProvenance, saveProvenance, saveQualification, markDiscoveryCandidate, qualifyCandidate,
   discoverProviderContacts, getSavedContactResearch, saveContactResearch,
 }
@@ -156,17 +156,22 @@ export async function processDiscoveryCandidate(
   }
 
   let facts: ProvenanceFact[] = []
-  if (candidate.leadId) facts = await deps.getReusableProvenance(candidate.leadId)
+  const reusableLeadId = candidate.leadId ?? preflight.leadId
+  if (reusableLeadId) facts = await deps.getReusableProvenance(reusableLeadId)
   if (!facts.some(fact => fact.sourceRole === 'official_docs')) {
-    // The durable ledger scopes this identity to the logical batch, including Resume.
-    // Equivalent fresh/deferred candidates must not claim separate research budgets.
-    const researchIdentity = createHash('sha256').update(JSON.stringify([
-      domain, productKey, canonicalExternalUrl(candidate.discoveredContractUrl) ?? null,
-      canonicalExternalUrl(candidate.discoveredDocsUrl) ?? null,
-    ])).digest('hex')
+    if (!retryDeferred) {
+      const retryAfter = await deps.researchRetryAfter(candidate, domain, productKey)
+      if (retryAfter !== null && retryAfter > Date.now()) {
+        const result = outcome('deferred', 'provider_retry_not_due', { discovered, deferred: 1 })
+        await deps.markDiscoveryCandidate(candidate, result, domain, productKey)
+        return result
+      }
+    }
+    // The durable ledger scopes equivalent research to the logical batch, including Resume.
+    const identity = researchIdentity(candidate, domain, productKey)
     const research = await deps.researchCandidate({
       candidate, normalizedDomain: domain,
-      claimResearchBudget: purpose => deps.claimDiscoveryBudget(runId, 'research', `research:${researchIdentity}:${purpose}`),
+      claimResearchBudget: purpose => deps.claimDiscoveryBudget(runId, 'research', `research:${identity}:${purpose}`),
     })
     facts = research.facts
     if (!research.docsVerified || research.compatibilityFailure) {
@@ -250,6 +255,7 @@ export type DiscoveryRangeDependencies = {
   finishMailRecovery: typeof finishMailRecovery
   refreshMailIdentity: typeof refreshMailIdentity
   getProviderHistory: typeof getProviderHistory
+  prioritizeDiscoveryProviders: typeof prioritizeDiscoveryProviders
   acquisition?: { running(): Promise<boolean>; afterProvider(): Promise<unknown> }
   claimContactEnrichmentCandidates: typeof claimContactEnrichmentCandidates
   getReusableProvenance: typeof getReusableProvenance
@@ -271,7 +277,7 @@ export type DiscoveryRangeDependencies = {
 
 const defaultRangeDependencies: DiscoveryRangeDependencies = {
   recoverPendingEmails, claimMailRecoveryCandidates, finishMailRecovery, refreshMailIdentity,
-  getProviderHistory,
+  getProviderHistory, prioritizeDiscoveryProviders,
   claimContactEnrichmentCandidates, getReusableProvenance, getSavedContactResearch, discoverProviderContacts,
   claimDiscoveryBudget, saveContactResearch, applyContactActionability,
   claimDeferredCandidates, getDiscoveryCandidates, getDiscoveryRunContext, saveDiscoveryCandidate,
@@ -336,7 +342,7 @@ async function drainDeferredWithDependencies(
   const outcomes: CandidateOutcome[] = []
   let credited = 0
   for (const candidate of candidates) {
-    if (deps.acquisition && !await deps.acquisition.running()) break
+    if (Date.now() >= deadlineMs || (deps.acquisition && !await deps.acquisition.running())) break
     let result: CandidateOutcome
     try {
       result = await deps.processDiscoveryCandidate(runId, candidate, deadlineMs, {}, true)
@@ -387,51 +393,22 @@ export async function processDiscoveryRange(
   if (context.qualifiedCount >= context.qualifiedTarget) {
     return { outcomes: [], nextIndex: start, sourceExhausted: false, deadlineReached: false, hardLimitReached: false }
   }
-  const enrichmentOutcomes = await enrichExistingLeads(runId, deadlineMs, context.qualifiedTarget - context.qualifiedCount, deps)
-  const enrichmentQualified = enrichmentOutcomes.reduce((sum, item) => sum + item.qualified, 0)
-  if (context.qualifiedCount + enrichmentQualified >= context.qualifiedTarget) {
-    return { outcomes: enrichmentOutcomes, nextIndex: start, sourceExhausted: false, deadlineReached: false, hardLimitReached: false }
-  }
-  const deferredOutcomes = start === 0 && runId === context.batchId
-    ? await drainDeferredWithDependencies(runId, context.batchId, deadlineMs,
-      context.qualifiedTarget - context.qualifiedCount - enrichmentQualified, deps) : []
-  const deferredQualified = deferredOutcomes.reduce((sum, item) => sum + item.qualified, 0)
-  const legacyOutcomes: CandidateOutcome[] = []
-  if (context.qualifiedCount + enrichmentQualified + deferredQualified < context.qualifiedTarget
-    && (!deps.acquisition || await deps.acquisition.running()) && Date.now() < deadlineMs) {
-    const retained = await deps.claimMailRecoveryCandidates(runId, 'legacy')
-    for (const candidate of retained) {
-      if (deps.acquisition && !await deps.acquisition.running()) break
-      if (Date.now() >= deadlineMs) break
-      const result = await deps.processDiscoveryCandidate(runId, candidate, deadlineMs, {}, true)
-      await deps.finishMailRecovery(candidate.id, result.reasonCode)
-      legacyOutcomes.push({ ...result, discovered: 0 })
-      await deps.acquisition?.afterProvider()
-      if (result.targetReached) break
-    }
-  }
-  const recoveryOutcomes = [...enrichmentOutcomes, ...deferredOutcomes, ...legacyOutcomes]
-  const legacyQualified = legacyOutcomes.reduce((sum, item) => sum + item.qualified, 0)
-
-  if (context.qualifiedCount + enrichmentQualified + deferredQualified + legacyQualified >= context.qualifiedTarget) {
-    return { outcomes: recoveryOutcomes, nextIndex: start, sourceExhausted: false, deadlineReached: false, hardLimitReached: false }
-  }
   let candidates = await deps.getDiscoveryCandidates(context.batchId, start, end)
   const existing = new Set(candidates.map(candidate => candidate.ordinal))
   if (Date.now() >= deadlineMs) {
-    return { outcomes: recoveryOutcomes, nextIndex: start, sourceExhausted: false, deadlineReached: true, hardLimitReached: false }
+    return { outcomes: [], nextIndex: start, sourceExhausted: false, deadlineReached: true, hardLimitReached: false }
   }
   let sourceExhausted = false
   let sourceDeadlineReached = false
   if (existing.size < end - start) {
     if (deps.acquisition && !await deps.acquisition.running()) return {
-      outcomes: recoveryOutcomes, nextIndex: start,
+      outcomes: [], nextIndex: start,
       sourceExhausted: false, deadlineReached: false, hardLimitReached: false,
     }
     let discovered: Awaited<ReturnType<typeof discoverApiDirectoryRange>>
     try {
       discovered = await deps.discoverApiDirectoryRange({
-        providerHistory: deps.getProviderHistory,
+        providerHistory: deps.getProviderHistory, prioritizeProviders: deps.prioritizeDiscoveryProviders,
         rootRunNumber: context.rootRunNumber, start, end,
         loadSourceWork: claimKey => deps.getMaterializedSourceWork(context.batchId, claimKey),
         materializeSourceWork: (claimKey, kind, result) => deps.materializeSourceWork(runId, claimKey, kind, result),
@@ -455,7 +432,7 @@ export async function processDiscoveryRange(
   const results: CandidateOutcome[] = []
   let nextIndex = start
   let hardLimitReached = false
-  let qualified = context.qualifiedCount + enrichmentQualified + deferredQualified + legacyQualified
+  let qualified = context.qualifiedCount
   for (let ordinal = start; ordinal < end; ordinal += 1) {
     if (deps.acquisition && !await deps.acquisition.running()) break
     const candidate = byOrdinal.get(ordinal)
@@ -471,6 +448,34 @@ export async function processDiscoveryRange(
       break
     }
   }
-  return { outcomes: [...recoveryOutcomes, ...results], nextIndex, sourceExhausted,
+  // Fresh ordinals always run first. Existing recovery queues retain their own
+  // leases, attempt limits and cooldowns, with at most one minute between chunks.
+  const recoveryOutcomes: CandidateOutcome[] = []
+  const recoveryDeadline = Math.min(deadlineMs, Date.now() + 60_000)
+  const canRecover = async () => !hardLimitReached && !results.some(item => item.targetReached)
+    && !recoveryOutcomes.some(item => item.targetReached) && qualified < context.qualifiedTarget
+    && Date.now() < recoveryDeadline && (!deps.acquisition || await deps.acquisition.running())
+  if (await canRecover()) {
+    const retained = await deps.claimMailRecoveryCandidates(runId, 'legacy')
+    for (const candidate of retained) {
+      if (!await canRecover()) break
+      const result = await deps.processDiscoveryCandidate(runId, candidate, recoveryDeadline, {}, true)
+      await deps.finishMailRecovery(candidate.id, result.reasonCode)
+      recoveryOutcomes.push({ ...result, discovered: 0 })
+      qualified += result.qualified
+      await deps.acquisition?.afterProvider()
+      if (result.targetReached) break
+    }
+  }
+  if (await canRecover()) {
+    const enriched = await enrichExistingLeads(runId, recoveryDeadline, context.qualifiedTarget - qualified, deps)
+    recoveryOutcomes.push(...enriched)
+    qualified += enriched.reduce((sum, item) => sum + item.qualified, 0)
+  }
+  if (start === 0 && runId === context.batchId && await canRecover()) {
+    recoveryOutcomes.push(...await drainDeferredWithDependencies(runId, context.batchId, recoveryDeadline,
+      context.qualifiedTarget - qualified, deps))
+  }
+  return { outcomes: [...results, ...recoveryOutcomes], nextIndex, sourceExhausted,
     deadlineReached: sourceDeadlineReached || Date.now() >= deadlineMs, hardLimitReached }
 }

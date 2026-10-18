@@ -209,7 +209,7 @@ test('retained legacy work uses the existing processor, remains resumable, and o
         qualified: 1, persisted: 1, reviewCandidate: 0, deferred: 0, tractionScored: 1 }
     },
   }
-  const result = await processDiscoveryRange(id, 0, 5, dependencies)
+  const result = await processDiscoveryRange(id, 0, 0, dependencies)
   assert.deepEqual(processed, ['0']); assert.deepEqual(finished, ['0']); assert.equal(result.nextIndex, 0)
 })
 
@@ -236,17 +236,19 @@ test('evidence refresh requires fresh owned documentation, respects budgets and 
   await assert.rejects(refreshMailIdentity(id,candidate,undefined,{...dependencies,save:async()=>{throw new Error('database unavailable')}}),/database unavailable/)
 })
 
-test('retained processing does not spend a fresh slot or start after deferred work reaches the qualified target', async () => {
-  let legacyClaims=0
-  const result=await processDiscoveryRange(id,0,5,{
-    recoverPendingEmails:async()=>{}, claimContactEnrichmentCandidates:async()=>[],
-    getDiscoveryRunContext:async()=>({batchId:id,rootRunNumber:1,deadlineAt:new Date(Date.now()+60000).toISOString(),qualifiedCount:49,qualifiedTarget:50}),
-    claimDeferredCandidates:async()=>[{id,status:'deferred'} as DurableCandidate],
-    processDiscoveryCandidate:async()=>({status:'persisted',reasonCode:'qualified',discovered:0,duplicate:0,filtered:0,qualified:1,persisted:1,reviewCandidate:0,deferred:0,tractionScored:1,targetReached:true}),
-    claimMailRecoveryCandidates:async()=>{legacyClaims++;return[]},
+test('fresh work reaches the qualified target before any retained recovery claims', async () => {
+  let legacyClaims = 0
+  const result = await processDiscoveryRange(id, 0, 1, {
+    recoverPendingEmails: async () => {},
+    getDiscoveryRunContext: async () => ({ batchId: id, rootRunNumber: 1,
+      deadlineAt: new Date(Date.now() + 60000).toISOString(), qualifiedCount: 49, qualifiedTarget: 50 }),
+    getDiscoveryCandidates: async () => [{ id, ordinal: 0, status: 'pending' } as DurableCandidate],
+    processDiscoveryCandidate: async () => ({ status: 'persisted', reasonCode: 'qualified', discovered: 1,
+      duplicate: 0, filtered: 0, qualified: 1, persisted: 1, reviewCandidate: 0, deferred: 0, tractionScored: 1, targetReached: true }),
+    claimMailRecoveryCandidates: async () => { legacyClaims++; return [] },
   })
-  assert.equal(legacyClaims,0);assert.equal(result.nextIndex,0)
-  assert.equal(result.outcomes.reduce((count,item)=>count+item.discovered,0),0)
+  assert.equal(legacyClaims, 0); assert.equal(result.nextIndex, 1)
+  assert.equal(result.outcomes.reduce((count, item) => count + item.discovered, 0), 1)
 })
 
 test('source database RPC failures remain infrastructure errors even after the initial readiness check', async () => {

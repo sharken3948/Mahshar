@@ -40,6 +40,7 @@ export async function discoverApiDirectoryRange(input: {
   loadSourceWork: SourceWorkLoader
   materializeSourceWork: SourceWorkMaterializer
   providerHistory?: (domains: string[]) => Promise<ProviderHistory[]>
+  prioritizeProviders?: (domains: string[]) => Promise<string[]>
   fetcher?: DiscoveryFetcher
   deadlineMs?: number
 }): Promise<{ items: Array<{ ordinal: number; candidate: RawCandidate | null; reasonCode?: string }>; sourceExhausted: boolean; deadlineReached: boolean }> {
@@ -50,8 +51,9 @@ export async function discoverApiDirectoryRange(input: {
     const providers = await fetchApisGuruProviderNames(fetcher)
     const startOffset = ((input.rootRunNumber - 1) * 50) % providers.length
     const rotated = [...providers.slice(startOffset), ...providers.slice(0, startOffset)]
+    const prioritized = input.prioritizeProviders ? await input.prioritizeProviders(rotated) : rotated
     plan = providerPlan(await input.materializeSourceWork(planKey, 'provider_plan', {
-      kind: 'provider_plan', providers: rotated.slice(0, 300), sourceExhausted: rotated.length <= 300,
+      kind: 'provider_plan', providers: prioritized.slice(0, 300), sourceExhausted: rotated.length <= 300,
     }))
     if (!plan) throw new Error('source_budget_exhausted')
   }
