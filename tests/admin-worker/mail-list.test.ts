@@ -158,6 +158,7 @@ test('missing migration stops before context, budgets, source requests, candidat
   const { WorkerMailInfrastructureError } = await import('../../src/lib/admin-worker/discovery/provider-history')
   let actions = 0
   boundary.rpcOverride = async name => {
+    if (name === 'mahshar_worker_discovery_ready') return { data: true, error: null }
     assert.equal(name, 'mahshar_worker_mail_recover')
     return { data: null, error: { code: 'PGRST202', message: 'missing required RPC' } }
   }
@@ -314,6 +315,7 @@ test('reconciliation checkpoints only after the provider transaction and safely 
   let fail = true
   boundary.rpcOverride = async (name, args) => {
     calls.push(name)
+    if (name === 'mahshar_worker_discovery_ready') return { data: true, error: null }
     if (name === 'mahshar_worker_mail_recover') {
       assert.deepEqual(args, { p_run_id: id, p_limit: 25 })
       return { data: { processed: 25, cursorBefore: null, cursorAfter: id }, error: null }
@@ -325,8 +327,8 @@ test('reconciliation checkpoints only after the provider transaction and safely 
   await assert.rejects(recoverPendingEmails(id), /checkpoint_unavailable/)
   fail = false
   await recoverPendingEmails(id)
-  assert.deepEqual(calls, ['mahshar_worker_mail_recover','mahshar_worker_mail_checkpoint_recovery',
-    'mahshar_worker_mail_recover','mahshar_worker_mail_checkpoint_recovery'])
-  boundary.rpcOverride = async () => ({ data: 0, error: null })
+  assert.deepEqual(calls, ['mahshar_worker_discovery_ready','mahshar_worker_mail_recover','mahshar_worker_mail_checkpoint_recovery',
+    'mahshar_worker_discovery_ready','mahshar_worker_mail_recover','mahshar_worker_mail_checkpoint_recovery'])
+  boundary.rpcOverride = async name => ({ data: name === 'mahshar_worker_discovery_ready' ? true : 0, error: null })
   await assert.rejects(recoverPendingEmails(id), /infrastructure_unavailable/)
 })

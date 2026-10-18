@@ -6,6 +6,7 @@ export function createServiceClient() {
     rpc: async (...args: Parameters<typeof db.rpc>) => {
       if (boundary.rpcOverride) return boundary.rpcOverride(String(args[0]), args[1] as Record<string, unknown>)
       if (boundary.unavailable) return { data: null, error: { code: '42P01' } }
+      if (args[0] === 'mahshar_worker_discovery_ready') return { data: true, error: null }
       if (args[0] === 'mahshar_worker_mail_recover') return { data: { processed: 0, cursorBefore: null, cursorAfter: null }, error: null }
       if (args[0] === 'mahshar_worker_mail_checkpoint_recovery') return { data: true, error: null }
       if (args[0] === 'mahshar_worker_claim_pending_sources') return { data: [], error: null }

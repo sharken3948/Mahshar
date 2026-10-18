@@ -63,6 +63,8 @@ function candidateRow(value: unknown): DurableCandidate {
 
 /** Bounded database recovery also verifies the required migration before any source or Groq work. */
 export async function recoverPendingEmails(runId: string): Promise<void> {
+  const schema = await createServiceClient().rpc('mahshar_worker_discovery_ready')
+  if (schema.error || schema.data !== true) throw new WorkerMailInfrastructureError('worker_discovery_schema_unavailable')
   const result = await workerMailRpc('mahshar_worker_mail_recover', { p_run_id: runId, p_limit: 25 })
   const value = result.data
   const cursor = (input: unknown) => input === null || (typeof input === 'string' && MAIL_UUID.test(input))

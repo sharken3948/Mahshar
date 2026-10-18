@@ -1,12 +1,13 @@
 import 'server-only'
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { createServiceClient } from '@/lib/supabase/server'
 import { WorkerMailInfrastructureError } from './provider-history'
 import { discoveryCandidateRecord } from './repository'
-import { DISCOVERY_SOURCE_IDS, PUBLIC_API_LISTS_URL, type DiscoverySourceId, type DiscoverySourceState, type SourceSnapshot } from './sources/adapter'
+import { DISCOVERY_SOURCE_IDS, type DiscoverySourceId, type DiscoverySourceState, type SourceSnapshot } from './sources/adapter'
+import { sourceCatalogUrl } from './sources/catalog'
 import type { RawCandidate } from './types'
 
-export type SourceObservation = { kind: 'candidate'; ordinal: number; candidate: RawCandidate | null; reasonCode?: string }
+export type SourceObservation = { kind: 'candidate'; ordinal: number; candidate: RawCandidate | null; reasonCode?: string; domain?: string }
 export function sourceObservation(value: unknown, ordinal: number): SourceObservation {
   const result = value as SourceObservation | null
   const candidate = result?.candidate
@@ -32,6 +33,7 @@ export function sourceState(value: unknown): DiscoverySourceState {
   const state = item?.snapshot
   if (!item || !DISCOVERY_SOURCE_IDS.includes(item.sourceId) || !Number.isSafeInteger(item.version) || item.version < 0
     || !state || !Array.isArray(state.entries) || state.entries.length > 2000
+    || !(state.nextPage === undefined || state.nextPage === null || (typeof state.nextPage === 'string' && /^\d{1,7}$/.test(state.nextPage)))
     || !Number.isInteger(state.cursor) || state.cursor < 0 || state.cursor > state.entries.length
     || !Number.isInteger(state.failures) || state.failures < 0 || state.failures > 16
     || ![state.fetchedAt, state.refreshAfter, state.retryAfter].every(date => date === null || (typeof date === 'string' && Number.isFinite(Date.parse(date))))
@@ -64,9 +66,9 @@ export function discoverySourceStore(runId: string): DiscoverySourceStore {
       const record = discoveryCandidateRecord(runId, result.ordinal, result.candidate, result.reasonCode)
       const saved = await db.rpc('mahshar_worker_discovery_source_observe', {
         p_run_id: runId, p_source_id: state.sourceId, p_version: state.version,
-        p_result: result, p_record: { ...record, discovered_domain: entry.domain,
-          ...(!result.candidate ? { discovered_name: entry.domain,
-            source_url: state.sourceId === 'public_api_lists' ? PUBLIC_API_LISTS_URL : 'https://api.apis.guru/v2/providers.json' } : {}),
+        p_result: result, p_record: { ...record, discovered_domain: (result.candidate?.discoveredDomain ?? result.domain ?? entry.domain) || null,
+          ...(!result.candidate ? { discovered_name: entry.domain || entry.title || state.sourceId,
+            source_url: sourceCatalogUrl(state.sourceId) } : {}),
           source_id: state.sourceId, source_record_id: entry.id, source_revision: state.snapshot.revision },
       })
       if (saved.error) throw new WorkerMailInfrastructureError('worker_discovery_observation_unavailable')
@@ -78,8 +80,11 @@ export function discoverySourceStore(runId: string): DiscoverySourceStore {
       return result.data.status === 'running' && Date.parse(result.data.deadline_at) > Date.now()
     },
     async request(key) {
-      const result = await db.rpc('mahshar_worker_claim_budget_v2', { p_run_id: runId, p_budget: 'source',
-        p_claim_key: `attempt:${createHash('sha256').update(key).digest('hex').slice(0, 32)}:${randomUUID()}` })
+      const sourceId = key.split(':')[1] as DiscoverySourceId
+      if (!DISCOVERY_SOURCE_IDS.includes(sourceId)) throw new WorkerMailInfrastructureError('worker_discovery_request_source_invalid')
+      const result = await db.rpc('mahshar_worker_claim_discovery_request', { p_run_id: runId, p_source_id: sourceId,
+        p_attempt_id: randomUUID() })
+      if (!result.error && result.data === 'source_exhausted') throw new Error('discovery_source_request_limit')
       if (result.error || !['claimed', 'replayed', 'exhausted', 'deadline_reached'].includes(String(result.data))) {
         throw new WorkerMailInfrastructureError('worker_discovery_budget_unavailable')
       }

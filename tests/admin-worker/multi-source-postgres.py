@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory(prefix='mahshar-multi-source-pg-') as directory
             else:
                 raise AssertionError('Expected failure: ' + marker)
         sql('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;')
-        baseline = sorted((ROOT / 'supabase/migrations').glob('*.sql'), key=lambda p: p.name.split('_')[0])
+        baseline = sorted((p for p in (ROOT / 'supabase/migrations').glob('*.sql') if p.name.split('_')[0] <= '20261018000100'), key=lambda p: p.name.split('_')[0])
         assert len(baseline) == 46
         for migration in baseline:
             if migration != MIGRATION:
@@ -249,6 +249,8 @@ with tempfile.TemporaryDirectory(prefix='mahshar-multi-source-pg-') as directory
         assert all(unchanged[table] == original[table] for table in tables if table not in ['worker_control','worker_runs'])
         assert sql('SELECT count(*) FROM admin_outreach_messages;') == '0'
         print('PASS: directory observations create no providers, qualified leads, Pending Emails or invitations', flush=True)
+        if '--expanded' in __import__('sys').argv:
+            exec(compile((ROOT / 'tests/admin-worker/source-expansion-postgres.py').read_text(), 'source-expansion-postgres.py', 'exec'))
     finally:
         if started:
             run([BIN / 'pg_ctl', '-D', socket / 'data', '-m', 'immediate', '-w', 'stop'])

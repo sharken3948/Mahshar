@@ -4,18 +4,22 @@ import { canonicalExternalUrl, durableExternalName, durableExternalSummary } fro
 import { boundedJson, type DiscoveryFetcher } from '../fetch'
 import { fetchApisGuruCandidates, fetchApisGuruProviderNames } from './apis-guru'
 import type { RawCandidate } from '../types'
+import { type DiscoverySourceId } from './catalog'
+import { apifyCatalog, resolveApifyProvider, directoryObservation, markdownCatalog } from './open-catalogs'
 
-export const DISCOVERY_SOURCE_IDS = ['apis_guru', 'public_api_lists'] as const
-export type DiscoverySourceId = typeof DISCOVERY_SOURCE_IDS[number]
-export type SourceEntry = { id: string; domain: string; candidate?: RawCandidate }
+export { DISCOVERY_SOURCE_IDS, type DiscoverySourceId } from './catalog'
+export type SourceEntry = { id: string; domain: string; candidate?: RawCandidate; title?: string; url?: string; summary?: string; publisher?: string }
+export type SourcePage = { entries: SourceEntry[]; nextPage: string | null }
 export type SourceSnapshot = {
   entries: SourceEntry[]; cursor: number; revision: string | null; fetchedAt: string | null
   refreshAfter: string | null; retryAfter: string | null; failures: number
+  nextPage?: string | null
 }
 export type DiscoverySourceState = { sourceId: DiscoverySourceId; version: number; snapshot: SourceSnapshot }
 export type DiscoverySourceAdapter = {
   id: DiscoverySourceId
-  catalog(fetcher: DiscoveryFetcher): Promise<SourceEntry[]>
+  catalog(fetcher: DiscoveryFetcher, page?: string | null): Promise<SourceEntry[] | SourcePage>
+  resolve?(entry: SourceEntry, fetcher: DiscoveryFetcher): Promise<SourceEntry>
   candidate(entry: SourceEntry, fetcher: DiscoveryFetcher, selection: number): Promise<RawCandidate | null>
 }
 
@@ -63,6 +67,12 @@ export const discoverySourceAdapters: readonly DiscoverySourceAdapter[] = [
     catalog: async fetcher => parsePublicApiLists(await boundedJson(fetcher, PUBLIC_API_LISTS_URL)),
     candidate: async entry => entry.candidate ?? null,
   },
+  ...(['github_public_apis', 'public_apis_dev'] as const).map(id => ({ id,
+    catalog: (fetcher: DiscoveryFetcher) => markdownCatalog(id, fetcher),
+    candidate: async (entry: SourceEntry) => directoryObservation(id, entry),
+  })),
+  { id: 'apify_store', catalog: apifyCatalog, resolve: resolveApifyProvider,
+    candidate: async entry => directoryObservation('apify_store', entry) },
 ]
 
 export function catalogRevision(entries: SourceEntry[]): string {

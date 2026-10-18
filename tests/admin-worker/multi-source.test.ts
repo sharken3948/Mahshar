@@ -49,6 +49,7 @@ function harness() {
   }
   const input = (start = 0, end = 4) => ({
     rootRunNumber: batch, start, end, sourceStore: store, now: () => now, deadlineMs: now + 60_000,
+    adapters: discoverySourceAdapters.filter(adapter => ['apis_guru', 'public_api_lists'].includes(adapter.id)),
     providerHistory: async (domains: string[]) => domains.flatMap(domain => history.has(domain) ? [history.get(domain)!] : []),
     prioritizeProviders: async (domains: string[]) => [...domains.filter(domain => !history.has(domain)), ...domains.filter(domain => history.has(domain))],
     loadSourceWork: async (key: string) => work.get(`${batch}:${key}`) ?? null,
@@ -277,15 +278,15 @@ test('the service repository uses the actual RPC contracts and preserves skipped
   const calls: Array<{ name: string; args: Record<string, unknown> }> = []
   boundary.rpcOverride = async (name, args) => {
     calls.push({ name, args })
-    if (name === 'mahshar_worker_claim_budget_v2') return { data: 'claimed', error: null }
+    if (name === 'mahshar_worker_claim_discovery_request') return { data: 'claimed', error: null }
     if (name === 'mahshar_worker_discovery_source_update') return { data: { ...snapshot, version: 1 }, error: null }
     if (name === 'mahshar_worker_discovery_source_observe') return { data: args.p_result, error: null }
     throw new Error('Unexpected source RPC')
   }
   try {
     const store = discoverySourceStore('20000000-0000-4000-8000-000000000001')
-    assert.equal(await store.request('fixture'), true)
-    assert.equal(calls[0].args.p_budget, 'source')
+    assert.equal(await store.request('source:apis_guru:fixture'), true)
+    assert.equal(calls[0].args.p_source_id, 'apis_guru')
     assert.equal((await store.update(snapshot, snapshot.snapshot))!.version, 1)
     assert.equal(calls[1].args.p_version, 0)
     await store.observe(snapshot, { kind: 'candidate', ordinal: 0, candidate: null, reasonCode: 'provider_identity_processed' })
@@ -295,7 +296,7 @@ test('the service repository uses the actual RPC contracts and preserves skipped
     assert.equal(record.discovered_domain, 'known.example')
     assert.equal(record.source_revision, 'a'.repeat(64))
     boundary.rpcOverride = async () => ({ data: 'unexpected_response', error: null })
-    await assert.rejects(store.request('fixture'), /worker_discovery_budget_unavailable/)
+    await assert.rejects(store.request('source:apis_guru:fixture'), /worker_discovery_budget_unavailable/)
     boundary.rpcOverride = async () => ({ data: {}, error: null })
     await assert.rejects(store.observe(snapshot, { kind: 'candidate', ordinal: 0, candidate: null }), /worker_discovery_observation_invalid/)
   } finally { boundary.rpcOverride = null }
@@ -414,9 +415,9 @@ test('HTTP dispatches require fresh charges after lost persistence; replayed cla
   const limit = 3
   let http = 0
   boundary.rpcOverride = async (name, args) => {
-    assert.equal(name, 'mahshar_worker_claim_budget_v2')
-    const key = String(args.p_claim_key)
-    assert.match(key, /^[a-z0-9:_-]{1,120}$/)
+    assert.equal(name, 'mahshar_worker_claim_discovery_request')
+    const key = String(args.p_attempt_id)
+    assert.match(key, /^[a-f0-9-]{36}$/)
     if (claims.has(key)) return { data: 'replayed', error: null }
     if (claims.size >= limit) return { data: 'exhausted', error: null }
     claims.add(key)
@@ -437,7 +438,7 @@ test('HTTP dispatches require fresh charges after lost persistence; replayed cla
     assert.equal(http, limit)
     assert.equal(claims.size, limit)
     boundary.rpcOverride = async () => ({ data: 'replayed', error: null })
-    assert.equal(await h.store.request('same_workflow_step'), false)
+    assert.equal(await h.store.request('source:apis_guru:same_workflow_step'), false)
   } finally { boundary.rpcOverride = null }
 })
 
@@ -447,7 +448,7 @@ test('failed requests and uncertain claim responses consume bounded allowance co
   let loseResponse = true
   boundary.rpcOverride = async (_name, args) => {
     if (claims.size >= 3) return { data: 'exhausted', error: null }
-    const key = String(args.p_claim_key)
+    const key = String(args.p_attempt_id)
     assert.ok(!claims.has(key)); claims.add(key)
     if (loseResponse) { loseResponse = false; return { data: null, error: { message: 'connection_lost_after_commit' } } }
     return { data: 'claimed', error: null }
@@ -472,7 +473,7 @@ test('redirect HTTP attempts each charge the shared budget and stop before an un
   let http = 0
   boundary.rpcOverride = async (_name, args) => {
     if (claims.size >= 2) return { data: 'exhausted', error: null }
-    const key = String(args.p_claim_key)
+    const key = String(args.p_attempt_id)
     assert.ok(!claims.has(key)); claims.add(key)
     return { data: 'claimed', error: null }
   }

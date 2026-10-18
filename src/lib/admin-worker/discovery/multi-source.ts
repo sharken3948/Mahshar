@@ -97,30 +97,35 @@ export async function discoverMultiSourceRange(input: {
     let state = await read(adapter.id)
     let prioritized = false
     if (unavailable.has(adapter.id) || (state.snapshot.retryAfter && Date.parse(state.snapshot.retryAfter) > now())) return null
-    if (!state.snapshot.refreshAfter || Date.parse(state.snapshot.refreshAfter) <= now()) {
+    const advancePage = state.snapshot.cursor >= state.snapshot.entries.length && state.snapshot.nextPage != null
+    if (advancePage || !state.snapshot.refreshAfter || Date.parse(state.snapshot.refreshAfter) <= now()) {
       let entries: SourceEntry[]
+      let nextPage: string | null = null
       try {
-        entries = await adapter.catalog(fetcher(adapter, ordinal))
+        const page = await adapter.catalog(fetcher(adapter, ordinal), advancePage ? state.snapshot.nextPage : null)
+        entries = Array.isArray(page) ? page : page.entries
+        nextPage = Array.isArray(page) ? null : page.nextPage
+        if (advancePage && nextPage === state.snapshot.nextPage) throw new Error('discovery_source_page_stalled')
         // Leave headroom for snapshot metadata and PostgreSQL JSONB spacing.
-        if (!entries.length || entries.length > 2000 || Buffer.byteLength(JSON.stringify(entries, null, 1)) > 500_000) {
+        if (entries.length > 2000 || Buffer.byteLength(JSON.stringify(entries, null, 1)) > 500_000) {
           throw new Error('discovery_catalog_too_large')
         }
       }
       catch (error) { await failure(state, error); return null }
       const revision = catalogRevision(entries)
-      let cursor = state.snapshot.cursor
-      if (revision !== state.snapshot.revision) {
-        const consumed = new Set(state.snapshot.entries.slice(0, cursor).map(entry => entry.id))
+      let cursor = advancePage ? 0 : state.snapshot.cursor
+      if (advancePage || revision !== state.snapshot.revision) {
+        const consumed = new Set(advancePage ? [] : state.snapshot.entries.slice(0, cursor).map(entry => entry.id))
         const prefix = entries.filter(entry => consumed.has(entry.id))
         const rest = entries.filter(entry => !consumed.has(entry.id))
-        const order = input.prioritizeProviders ? await input.prioritizeProviders([...new Set(rest.map(entry => entry.domain))]) : rest.map(entry => entry.domain)
+        const order = input.prioritizeProviders ? await input.prioritizeProviders([...new Set(rest.map(entry => entry.domain).filter(Boolean))]) : rest.map(entry => entry.domain)
         const ranks = new Map(order.map((domain, index) => [domain, index]))
         rest.sort((a, b) => (ranks.get(a.domain) ?? Infinity) - (ranks.get(b.domain) ?? Infinity))
         prioritized = true
         entries = [...prefix, ...rest]
         cursor = prefix.length
       } else entries = state.snapshot.entries
-      const saved = await input.sourceStore.update(state, { entries, cursor, revision,
+      const saved = await input.sourceStore.update(state, { entries, cursor, revision, nextPage,
         fetchedAt: new Date(now()).toISOString(), refreshAfter: new Date(now() + CACHE_MS).toISOString(), retryAfter: null, failures: 0 })
       if (!saved) throw new SourcePaused('discovery_stopped')
       states.set(adapter.id, state = saved)
@@ -128,7 +133,7 @@ export async function discoverMultiSourceRange(input: {
     if (freshPlan && !prioritized && !prepared.has(adapter.id) && input.prioritizeProviders && state.snapshot.cursor < state.snapshot.entries.length) {
       const prefix = state.snapshot.entries.slice(0, state.snapshot.cursor)
       const rest = state.snapshot.entries.slice(state.snapshot.cursor)
-      const order = await input.prioritizeProviders([...new Set(rest.map(entry => entry.domain))])
+      const order = await input.prioritizeProviders([...new Set(rest.map(entry => entry.domain).filter(Boolean))])
       const ranks = new Map(order.map((domain, index) => [domain, index]))
       rest.sort((a, b) => (ranks.get(a.domain) ?? Infinity) - (ranks.get(b.domain) ?? Infinity))
       const saved = await input.sourceStore.update(state, { ...state.snapshot, entries: [...prefix, ...rest] })
@@ -151,8 +156,12 @@ export async function discoverMultiSourceRange(input: {
         const adapter = adapters[(input.rootRunNumber - 1 + ordinal + offset) % adapters.length]
         const state = await prepare(adapter, ordinal)
         if (!state) continue
-        const entry = state.snapshot.entries[state.snapshot.cursor]
-        const history = input.providerHistory ? await input.providerHistory([entry.domain]) : []
+        let entry = state.snapshot.entries[state.snapshot.cursor]
+        if (adapter.resolve) {
+          try { entry = await adapter.resolve(entry, fetcher(adapter, ordinal)) }
+          catch (error) { await failure(state, error); continue }
+        }
+        const history = entry.domain && input.providerHistory ? await input.providerHistory([entry.domain]) : []
         let candidate: SourceObservation['candidate'] = null
         let reasonCode = 'provider_identity_processed'
         if (!history.length) {
@@ -162,7 +171,7 @@ export async function discoverMultiSourceRange(input: {
           }
           reasonCode = 'source_record_invalid'
         }
-        const result: SourceObservation = { kind: 'candidate', ordinal, candidate, reasonCode }
+        const result: SourceObservation = { kind: 'candidate', ordinal, candidate, reasonCode, domain: entry.domain || undefined }
         const saved = await input.sourceStore.observe(state, result)
         if (!saved) {
           budgetReached = await active()
