@@ -2,16 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAdminRequest } from '@/components/AdminAccess'
-import type { ListingCountsDto, OperationsSnapshotDto, RecentPaymentsDto, TreasuryBalanceDto } from '@/lib/admin/operations-types'
+import type { GatewayTreasuryDto, ListingCountsDto, OperationsSnapshotDto, RecentPaymentsDto, TreasuryBalanceDto } from '@/lib/admin/operations-types'
 import { formatState, SectionState, StatusBadge, timeLabel, type OperationsPhase } from './operations-ui'
 import { TreasuryCard } from './treasury-card'
+import { GatewayTreasuryCard } from './gateway-treasury-card'
 import styles from './operations.module.css'
 
 type Phase = OperationsPhase
 type Resource<T> = { phase: Phase; data: T | null }
-type ResourceKey = 'counts' | 'snapshot' | 'payments' | 'treasury'
+type ResourceKey = 'counts' | 'snapshot' | 'payments' | 'treasury' | 'gatewayTreasury'
 
-const refreshAfter = { counts: 300_000, snapshot: 60_000, payments: 60_000, treasury: 60_000 } as const
+const refreshAfter = { counts: 300_000, snapshot: 60_000, payments: 60_000, treasury: 60_000, gatewayTreasury: 60_000 } as const
 
 function createRequestPool(limit: number) {
   let active = 0
@@ -46,11 +47,12 @@ export function OverviewClient() {
   const pool = useMemo(() => createRequestPool(2), [])
   const mounted = useRef(true)
   const initialized = useRef(false)
-  const lastAttempt = useRef<Record<ResourceKey, number>>({ counts: 0, snapshot: 0, payments: 0, treasury: 0 })
+  const lastAttempt = useRef<Record<ResourceKey, number>>({ counts: 0, snapshot: 0, payments: 0, treasury: 0, gatewayTreasury: 0 })
   const [counts, setCounts] = useState<Resource<ListingCountsDto>>({ phase: 'loading', data: null })
   const [snapshot, setSnapshot] = useState<Resource<OperationsSnapshotDto>>({ phase: 'loading', data: null })
   const [payments, setPayments] = useState<Resource<RecentPaymentsDto>>({ phase: 'loading', data: null })
   const [treasury, setTreasury] = useState<Resource<TreasuryBalanceDto>>({ phase: 'loading', data: null })
+  const [gatewayTreasury, setGatewayTreasury] = useState<Resource<GatewayTreasuryDto>>({ phase: 'loading', data: null })
 
   // React development Strict Mode runs effect setup, cleanup, then setup again.
   // Re-arm the mounted flag on every setup so a completed Admin read can leave
@@ -77,11 +79,12 @@ export function OverviewClient() {
   const refreshSnapshot = useCallback(() => load('snapshot', '/api/admin/operations/snapshot', setSnapshot, value => value.total === 0), [load])
   const refreshPayments = useCallback(() => load('payments', '/api/admin/operations/recent-payments', setPayments, value => value.payments.length === 0), [load])
   const refreshTreasury = useCallback(() => load('treasury', '/api/admin/operations/treasury', setTreasury, () => false), [load])
+  const refreshGatewayTreasury = useCallback(() => load('gatewayTreasury', '/api/admin/operations/gateway-treasury', setGatewayTreasury, () => false), [load])
 
   useEffect(() => {
     if (!initialized.current) {
       initialized.current = true
-      void refreshCounts(); void refreshSnapshot(); void refreshPayments(); void refreshTreasury()
+      void refreshCounts(); void refreshSnapshot(); void refreshPayments(); void refreshTreasury(); void refreshGatewayTreasury()
     }
     const refreshIfVisible = (key: ResourceKey, refresh: () => Promise<void>) => {
       if (document.visibilityState === 'visible' && Date.now() - lastAttempt.current[key] >= refreshAfter[key]) void refresh()
@@ -90,16 +93,17 @@ export function OverviewClient() {
     const snapshotTimer = window.setInterval(() => refreshIfVisible('snapshot', refreshSnapshot), refreshAfter.snapshot)
     const paymentsTimer = window.setInterval(() => refreshIfVisible('payments', refreshPayments), refreshAfter.payments)
     const treasuryTimer = window.setInterval(() => refreshIfVisible('treasury', refreshTreasury), refreshAfter.treasury)
+    const gatewayTreasuryTimer = window.setInterval(() => refreshIfVisible('gatewayTreasury', refreshGatewayTreasury), refreshAfter.gatewayTreasury)
     const visibility = () => {
       if (document.visibilityState !== 'visible') return
-      refreshIfVisible('counts', refreshCounts); refreshIfVisible('snapshot', refreshSnapshot); refreshIfVisible('payments', refreshPayments); refreshIfVisible('treasury', refreshTreasury)
+      refreshIfVisible('counts', refreshCounts); refreshIfVisible('snapshot', refreshSnapshot); refreshIfVisible('payments', refreshPayments); refreshIfVisible('treasury', refreshTreasury); refreshIfVisible('gatewayTreasury', refreshGatewayTreasury)
     }
     document.addEventListener('visibilitychange', visibility)
     return () => {
-      window.clearInterval(countsTimer); window.clearInterval(snapshotTimer); window.clearInterval(paymentsTimer); window.clearInterval(treasuryTimer)
+      window.clearInterval(countsTimer); window.clearInterval(snapshotTimer); window.clearInterval(paymentsTimer); window.clearInterval(treasuryTimer); window.clearInterval(gatewayTreasuryTimer)
       document.removeEventListener('visibilitychange', visibility)
     }
-  }, [refreshCounts, refreshPayments, refreshSnapshot, refreshTreasury])
+  }, [refreshCounts, refreshPayments, refreshSnapshot, refreshTreasury, refreshGatewayTreasury])
 
   const settlementMax = Math.max(1, ...(snapshot.data?.settlement.map(item => item.count) ?? []))
   const deliveryMax = Math.max(1, ...(snapshot.data?.delivery.map(item => item.count) ?? []))
@@ -109,7 +113,10 @@ export function OverviewClient() {
       <div className={styles.headingStatus}><span/><div><strong>Observing production</strong><small>Admin failures are isolated</small></div></div>
     </section>
 
-    <TreasuryCard resource={treasury} onRetry={refreshTreasury}/>
+    <div className={styles.treasuryPair}>
+      <TreasuryCard resource={treasury} onRetry={refreshTreasury}/>
+      <GatewayTreasuryCard resource={gatewayTreasury} onRetry={refreshGatewayTreasury}/>
+    </div>
 
     <section className={styles.metrics} aria-label="Listing counts">
       <MetricCard label="Total API Listings" value={counts.data?.total ?? null} tone="blue" resource={counts}/>

@@ -35,15 +35,64 @@ type VerificationFilter = 'all' | 'verified' | 'unverified'
 let activeReads = 0
 const readWaiters: Array<() => void> = []
 
-/** A per-runtime guardrail; the browser request pool supplies the same bound across Overview endpoints. */
-export async function runAdminDbRead<T>(read: () => PromiseLike<T>): Promise<T> {
-  if (activeReads >= 2) await new Promise<void>(resolve => readWaiters.push(resolve))
-  activeReads += 1
-  try { return await read() }
-  finally {
-    activeReads -= 1
-    readWaiters.shift()?.()
+function readAbortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('Admin database read aborted', 'AbortError')
+}
+
+function releaseAdminRead() {
+  activeReads -= 1
+  readWaiters.shift()?.()
+}
+
+function acquireAdminRead(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(readAbortReason(signal))
+  if (activeReads < 2) {
+    activeReads += 1
+    return Promise.resolve()
   }
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      const index = readWaiters.indexOf(grant)
+      if (index < 0) return
+      readWaiters.splice(index, 1)
+      signal?.removeEventListener('abort', onAbort)
+      reject(readAbortReason(signal!))
+    }
+    const grant = () => {
+      signal?.removeEventListener('abort', onAbort)
+      if (signal?.aborted) {
+        reject(readAbortReason(signal))
+        readWaiters.shift()?.()
+        return
+      }
+      activeReads += 1
+      resolve()
+    }
+    readWaiters.push(grant)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
+  })
+}
+
+/** A per-runtime guardrail; the browser request pool supplies the same bound across Overview endpoints. */
+export async function runAdminDbRead<T>(read: () => PromiseLike<T>, signal?: AbortSignal): Promise<T> {
+  await acquireAdminRead(signal)
+  const task = Promise.resolve().then(() => {
+    if (signal?.aborted) throw readAbortReason(signal)
+    return read()
+  })
+  // Keep the slot until the underlying read settles, even if its caller times out.
+  void task.then(releaseAdminRead, releaseAdminRead)
+  if (!signal) return task
+
+  let onAbort: () => void = () => undefined
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(readAbortReason(signal))
+    signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) onAbort()
+  })
+  try { return await Promise.race([task, aborted]) }
+  finally { signal.removeEventListener('abort', onAbort) }
 }
 
 function dbFailure(scope: string, error: { message?: string } | null): never {

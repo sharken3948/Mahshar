@@ -17,6 +17,20 @@ export type TreasuryBalanceDto = {
   as_of: string
 }
 
+export type GatewayTreasuryDto = {
+  depositor: string
+  total_balance_usdc: string
+  available_balance_usdc: string
+  withdrawing_usdc: string
+  pending_batch_usdc: string | null
+  known_seller_liabilities_usdc: string
+  historical_unallocated_purchases: number
+  unresolved_withdrawals: number
+  coverage: 'known_covered' | 'known_shortfall'
+  ownership: 'verification_pending'
+  as_of: string
+}
+
 export type StateCount = { state: string; count: number }
 
 export type OperationsSnapshotDto = {
