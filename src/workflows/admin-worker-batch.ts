@@ -1,5 +1,4 @@
 import { WORKER_CHUNK_SIZE, WORKER_MAX_BATCH_SIZE } from '@/lib/admin-worker/constants'
-import { sleep } from 'workflow'
 import { acquisitionStillRunningStep, createNextAcquisitionRunStep, failAcquisitionStep, finishAcquisitionCanaryStep, processAcquisitionStep } from '@/lib/admin-worker/acquisition-runtime'
 import {
   claimWorkerRunStep,
@@ -44,14 +43,10 @@ export async function workerBatchWorkflow(runId: string, acquisitionEpoch?: stri
         if (acquisitionEpoch) await failAcquisitionStep(acquisitionEpoch)
         return { runId: currentRunId, status: run.status }
       }
-      // Workflow sleep is durable: the server/browser need not stay alive between batches.
-      do {
-        if (!await acquisitionStillRunningStep(acquisitionEpoch)) return { runId: currentRunId, status: 'stopped' }
-        await sleep('1h')
-        if (!await acquisitionStillRunningStep(acquisitionEpoch)) return { runId: currentRunId, status: 'stopped' }
-        const next = await createNextAcquisitionRunStep(acquisitionEpoch, currentRunId)
-        if (next) { currentRunId = next; break }
-      } while (true)
+      if (!await acquisitionStillRunningStep(acquisitionEpoch)) return { runId: currentRunId, status: 'stopped' }
+      const next = await createNextAcquisitionRunStep(acquisitionEpoch, currentRunId)
+      if (!next) return { runId: currentRunId, status: 'stopped' }
+      currentRunId = next
     } catch (error) {
       try { await failWorkerRunStep(currentRunId) }
       finally { if (acquisitionEpoch) await failAcquisitionStep(acquisitionEpoch) }

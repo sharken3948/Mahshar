@@ -253,6 +253,8 @@ with tempfile.TemporaryDirectory(prefix='mahshar-multi-source-pg-') as directory
             exec(compile((ROOT / 'tests/admin-worker/source-expansion-postgres.py').read_text(), 'source-expansion-postgres.py', 'exec'))
         if '--recovery' in __import__('sys').argv:
             exec(compile((ROOT / 'tests/admin-worker/recovery-attempts-postgres.py').read_text(), 'recovery-attempts-postgres.py', 'exec'))
+        if '--timing' in __import__('sys').argv:
+            exec(compile((ROOT / 'tests/admin-worker/immediate-continuation-postgres.py').read_text(), 'immediate-continuation-postgres.py', 'exec'))
     finally:
         if started:
             run([BIN / 'pg_ctl', '-D', socket / 'data', '-m', 'immediate', '-w', 'stop'])

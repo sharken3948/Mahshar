@@ -1,25 +1,22 @@
 import type { WorkerRunDto, WorkerRunStatus } from '../../src/lib/admin-worker/types'
 
 export const canaryFixture = { events: [] as string[], claimStatus: 'running' as WorkerRunStatus,
-  acquisitionFails: false, sleepCalls: 0, stopDuringSleep: false, running: true,
+  acquisitionFails: false, running: true, stopBeforeContinuation: false,
   failurePersistenceFails: false, finishArgs: [] as string[],
   claimStatuses: [] as WorkerRunStatus[], nextRunIds: [] as (string | null)[],
-  allowSleep: false, stopAfterSleeps: 0, checkpointIndex: 0,
+  checkpointIndex: 0,
   checkpoints: [] as number[], discoveryHook: null as null | ((runId: string) => Promise<void>) }
 
 export function resetCanaryFixture() {
   canaryFixture.events = []
   canaryFixture.claimStatus = 'running'
   canaryFixture.acquisitionFails = false
-  canaryFixture.sleepCalls = 0
-  canaryFixture.stopDuringSleep = false
+  canaryFixture.stopBeforeContinuation = false
   canaryFixture.running = true
   canaryFixture.failurePersistenceFails = false
   canaryFixture.finishArgs = []
   canaryFixture.claimStatuses = []
   canaryFixture.nextRunIds = []
-  canaryFixture.allowSleep = false
-  canaryFixture.stopAfterSleeps = 0
   canaryFixture.checkpointIndex = 0
   canaryFixture.checkpoints = []
   canaryFixture.discoveryHook = null
@@ -62,17 +59,12 @@ export async function failWorkerRunStep() {
   if (canaryFixture.failurePersistenceFails) throw new Error('failure persistence unavailable')
 }
 export async function failAcquisitionStep() { canaryFixture.events.push('fail-acquisition') }
-export async function acquisitionStillRunningStep() { canaryFixture.events.push('continuation-check'); return canaryFixture.running }
+export async function acquisitionStillRunningStep() {
+  canaryFixture.events.push('continuation-check')
+  if (canaryFixture.stopBeforeContinuation) canaryFixture.running = false
+  return canaryFixture.running
+}
 export async function createNextAcquisitionRunStep() {
   canaryFixture.events.push('next-batch')
-  return canaryFixture.nextRunIds.length ? canaryFixture.nextRunIds.shift() : 'next'
-}
-export async function sleep() {
-  canaryFixture.sleepCalls++
-  if (canaryFixture.stopDuringSleep) { canaryFixture.running = false; return }
-  if (canaryFixture.allowSleep) {
-    if (canaryFixture.sleepCalls >= canaryFixture.stopAfterSleeps) canaryFixture.running = false
-    return
-  }
-  throw new Error('canary must not sleep')
+  return canaryFixture.nextRunIds.shift() ?? null
 }
