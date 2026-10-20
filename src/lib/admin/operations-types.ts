@@ -29,13 +29,23 @@ export type GatewayTreasuryDto = {
   historical_calculated_commission_usdc: string
   historical_calculated_purchase_count: number
   total_recorded_gross_commission_usdc: string
+  previously_withdrawn_platform_commission_usdc: string
+  reserved_platform_commission_usdc: string
+  remaining_recorded_platform_commission_usdc: string
+  gateway_platform_balance_usdc: string
   safely_withdrawable_usdc: string | null
+  withdrawal_ready: boolean
+  withdrawal_fee_quote: {
+    amount_usdc: string; source_fee_cap_usdc: string; destination_gas_estimate_usdc: string;
+    mint_value_usdc: string
+  } | null
+  withdrawal_block_reason: string | null
+  unresolved_commission_withdrawals: number
   commission_accounting_issues: number
   unresolved_settlement_attempts: number
   historical_unallocated_purchases: number
   unresolved_withdrawals: number
   coverage: 'known_covered' | 'known_shortfall'
-  ownership: 'verification_pending'
   as_of: string
 }
 

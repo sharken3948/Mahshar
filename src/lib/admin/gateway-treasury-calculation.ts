@@ -1,4 +1,6 @@
-/** Ledger observations only; historical purchases and uncertain payouts remain unresolved. */
+/** Exact recorded amounts; availability is checked independently of commission accrual. */
+export const PLATFORM_COMMISSION_DESTINATION = '0x052650D1764406d702252B20B2294346A594A1ef'
+const ARC_USDC = '0x3600000000000000000000000000000000000000'
 export function usdcMicros(value: unknown): bigint {
   const text = typeof value === 'string' || typeof value === 'number' ? String(value) : ''
   const match = /^(0|[1-9]\d*)(?:\.(\d{1,6}))?$/.exec(text)
@@ -22,6 +24,8 @@ export type CommissionSettlement = {
   binding: Record<string, unknown> | null
 }
 
+export type PlatformWithdrawal = { amount_usdc: string | number; status: string }
+
 function atomic(value: unknown): bigint | null {
   return typeof value === 'string' && /^(?:0|[1-9]\d*)$/.test(value) ? BigInt(value) : null
 }
@@ -42,6 +46,7 @@ export function recordedGrossCommission(purchases: CommissionPurchase[], settlem
     const identities = [attempt.id, attempt.purchase_id, attempt.settlement_identity,
       attempt.fingerprint, attempt.authorization_key]
     if (!purchase || amount === null || seller === null || platform === null ||
+      binding.pay_to !== PLATFORM_COMMISSION_DESTINATION.toLowerCase() || binding.asset !== ARC_USDC ||
       seller <= BigInt(0) || amount !== seller + platform ||
       identities.some(value => typeof value !== 'string' || value.length === 0) ||
       binding.fingerprint !== attempt.fingerprint || binding.authorization_key !== attempt.authorization_key ||
@@ -86,6 +91,74 @@ export function recordedGrossCommission(purchases: CommissionPurchase[], settlem
   }
   return { completedArc, completedArcCount, historical, historicalCount,
     gross: completedArc + historical, accountingIssues }
+}
+
+/** Reservations remain consumed until a definitive Gateway rejection is recorded. */
+export function recordedPlatformCommission(
+  purchases: CommissionPurchase[], settlements: CommissionSettlement[], withdrawals: PlatformWithdrawal[],
+) {
+  const gross = recordedGrossCommission(purchases, settlements)
+  let completed = BigInt(0)
+  let reserved = BigInt(0)
+  let accountingIssues = gross.accountingIssues
+  for (const withdrawal of withdrawals) {
+    const amount = usdcMicros(withdrawal.amount_usdc)
+    if (withdrawal.status === 'minted') completed += amount
+    else if (['reserved', 'preparing', 'submission_unknown', 'pending_mint', 'mint_unknown', 'failed'].includes(withdrawal.status)) {
+      reserved += amount
+    } else if (withdrawal.status !== 'expired') accountingIssues += 1
+  }
+  const remaining = gross.completedArc - completed - reserved
+  if (remaining < BigInt(0)) accountingIssues += 1
+  return { ...gross, accrued: gross.completedArc, completed, reserved,
+    remaining: remaining < BigInt(0) ? BigInt(0) : remaining, accountingIssues }
+}
+
+/** Confirmed payments awaiting accounting remain liabilities; unknown attempts are not confirmed debt. */
+export function confirmedSettlementReserve(purchases: CommissionPurchase[], settlements: CommissionSettlement[]): bigint | null {
+  let reserve = BigInt(0)
+  for (const row of settlements) {
+    if (row.state !== 'SETTLEMENT_CONFIRMED') continue
+    const binding = row.binding
+    const amount = atomic(binding?.amount_atomic)
+    const seller = atomic(binding?.seller_atomic)
+    const platform = atomic(binding?.platform_atomic)
+    if (binding?.network !== 'eip155:5042' || amount === null || seller === null || platform === null ||
+      binding.pay_to !== PLATFORM_COMMISSION_DESTINATION.toLowerCase() || binding.asset !== ARC_USDC ||
+      seller <= BigInt(0) || amount !== seller + platform) return null
+    const linked = purchases.filter(purchase => purchase.settlement_attempt_id === row.id || purchase.id === row.purchase_id)
+    if (linked.length > 1 || (linked.length === 1 &&
+      (linked[0].seller_share_usdc === null || usdcMicros(linked[0].seller_share_usdc) !== seller))) return null
+    if (linked.length === 0) reserve += seller
+  }
+  return reserve
+}
+
+/** Shared display/authorization formula. Legacy per-purchase payouts are not made payable again. */
+export function commissionAllowance(
+  purchases: CommissionPurchase[], settlements: CommissionSettlement[],
+  sellerWithdrawals: Array<{ amount_usdc: string | number; status: string }>,
+  platformWithdrawals: PlatformWithdrawal[], available: bigint,
+) {
+  const commission = recordedPlatformCommission(purchases, settlements, platformWithdrawals)
+  const seller = knownSellerLiabilities(purchases, sellerWithdrawals)
+  const confirmedReserve = confirmedSettlementReserve(purchases, settlements)
+  const activePlatform = platformWithdrawals.some(row =>
+    ['reserved', 'preparing', 'submission_unknown', 'pending_mint', 'mint_unknown', 'failed'].includes(row.status))
+  let blockReason: string | null = commission.accountingIssues > 0 ? 'Commission accounting needs reconciliation.' :
+    confirmedReserve === null ? 'Confirmed seller liabilities need reconciliation.' :
+    activePlatform ? 'A platform withdrawal needs reconciliation.' :
+    seller.unresolvedWithdrawals > 0 ? 'Seller withdrawals need reconciliation.' : null
+  let allowance: bigint | null = null
+  if (blockReason === null && confirmedReserve !== null) {
+    const liquidity = available - seller.outstandingMicros - confirmedReserve - commission.reserved
+    allowance = liquidity <= BigInt(0) ? BigInt(0) :
+      liquidity < commission.remaining ? liquidity : commission.remaining
+    if (allowance === BigInt(0)) blockReason = commission.remaining === BigInt(0) ?
+      'No recorded durable commission remains.' :
+      'Available Gateway funds are reserved for confirmed seller liabilities and platform withdrawals.'
+  }
+  return { commission, seller, confirmedReserve, allowance, blockReason }
 }
 
 export function knownSellerLiabilities(

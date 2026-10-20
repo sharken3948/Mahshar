@@ -3,10 +3,12 @@ import { test } from 'node:test'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { NextRequest } from 'next/server'
 import { privateKeyToAccount } from 'viem/accounts'
-import { readGatewayTreasury } from '../../src/lib/admin/gateway-treasury-data'
+import { readGatewayTreasury as readTreasury, type GatewayTreasuryDependencies } from '../../src/lib/admin/gateway-treasury-data'
 import { clearOperationsCacheForTests } from '../../src/lib/admin/operations-cache'
 import { runAdminDbRead } from '../../src/lib/admin/operations-data'
-import { knownSellerLiabilities, recordedGrossCommission } from '../../src/lib/admin/gateway-treasury-calculation'
+import { commissionAllowance, confirmedSettlementReserve, formatUsdcMicros, knownSellerLiabilities, recordedGrossCommission,
+  recordedPlatformCommission, PLATFORM_COMMISSION_DESTINATION,
+  type CommissionSettlement } from '../../src/lib/admin/gateway-treasury-calculation'
 import { GatewayTreasuryCard } from '../../src/app/admin/operations/gateway-treasury-card'
 import { TreasuryCard } from '../../src/app/admin/operations/treasury-card'
 import { GET as getGatewayTreasuryRoute } from '../../src/app/api/admin/operations/gateway-treasury/route'
@@ -14,6 +16,13 @@ import { GET as getGatewayTreasuryRoute } from '../../src/app/api/admin/operatio
 const privateKey = `0x${'12'.repeat(32)}`
 const wallet = privateKeyToAccount(privateKey as `0x${string}`).address
 const fixedTime = new Date('2026-10-19T12:00:00.000Z')
+const adminRequest = async () => { throw new Error('Network forbidden in rendering tests') }
+function readGatewayTreasury(dependencies: GatewayTreasuryDependencies) {
+  return readTreasury({ readFeeQuote: async amount => ({ amount_usdc: formatUsdcMicros(amount),
+    source_fee_estimate_usdc: '0.003500', source_fee_cap_usdc: '0.004700',
+    destination_gas_estimate_usdc: '0.001200', mint_value_usdc: formatUsdcMicros(amount - BigInt(4700)),
+    max_block_height: '999999999', destination: PLATFORM_COMMISSION_DESTINATION }), ...dependencies })
+}
 const buyer = '0x0000000000000000000000000000000000000001'
 function purchase(id: string, amount: string, seller: string | null, attempt: string | null = null) {
   return { id, api_id: 'api-1', buyer_wallet: buyer, amount_usdc: amount,
@@ -24,6 +33,7 @@ function settlement(id: string, amount: string, seller: string, platform: string
     state: 'ACCOUNTING_COMPLETE', purchase_id: id, settlement_identity: `x402:${id}`,
     binding: { fingerprint: `fingerprint:${id}`, authorization_key: `authorization:${id}`,
       api_id: 'api-1', payer: buyer, network: 'eip155:5042',
+      pay_to: PLATFORM_COMMISSION_DESTINATION.toLowerCase(), asset: '0x3600000000000000000000000000000000000000',
       amount_atomic: amount, seller_atomic: seller, platform_atomic: platform } }
 }
 const ledger = {
@@ -78,12 +88,12 @@ test('authenticated data reader targets the verified Arc depositor and shows kno
   assert.equal(data.historical_unallocated_purchases, 1)
   assert.equal(data.unresolved_withdrawals, 1)
   assert.equal(data.coverage, 'known_covered')
-  assert.equal(data.ownership, 'verification_pending')
-  const html = renderToStaticMarkup(<GatewayTreasuryCard resource={{ phase: 'ready', data }} onRetry={async () => {}} />)
+  assert.equal(data.withdrawal_ready, false)
+  const html = renderToStaticMarkup(<GatewayTreasuryCard request={adminRequest} resource={{ phase: 'ready', data }} onRetry={async () => {}} />)
   assert.match(html, /Total Gateway funds/)
   assert.match(html, /Available Gateway funds/)
   assert.match(html, /Known outstanding seller liabilities/)
-  assert.equal((html.match(/Verification pending/g) ?? []).length, 2)
+  assert.match(html, /Gateway Platform Balance/)
   assert.match(html, /Completed Arc x402 commission \(2 purchases\)/)
   assert.match(html, /Historical calculated commission, no durable binding \(1 purchase\)/)
   assert.match(html, /Total recorded gross commissions/)
@@ -97,13 +107,13 @@ test('shortfall, uncertain seller payouts and legacy rows remain visible; stale 
     fetchBalance: async () => gatewayResponse('1.000000'), readLedger: async () => ledger, now: () => fixedTime,
   })
   assert.equal(data.coverage, 'known_shortfall')
-  const stale = renderToStaticMarkup(<GatewayTreasuryCard resource={{ phase: 'degraded', data }} onRetry={async () => {}} />)
+  const stale = renderToStaticMarkup(<GatewayTreasuryCard request={adminRequest} resource={{ phase: 'degraded', data }} onRetry={async () => {}} />)
   assert.match(stale, /Stale result/)
   assert.match(stale, /exceed available Gateway funds/)
   assert.match(stale, /historical purchases lack recorded seller shares/)
   assert.match(stale, /seller withdrawals need reconciliation/)
   assert.match(stale, /Last successful refresh/)
-  const unavailable = renderToStaticMarkup(<GatewayTreasuryCard resource={{ phase: 'unavailable', data: null }} onRetry={async () => {}} />)
+  const unavailable = renderToStaticMarkup(<GatewayTreasuryCard request={adminRequest} resource={{ phase: 'unavailable', data: null }} onRetry={async () => {}} />)
   assert.match(unavailable, /Unavailable/)
   assert.doesNotMatch(unavailable, /1.000000/)
 })
@@ -138,6 +148,11 @@ test('completed Arc accrual uses exact micros and excludes uncertain, duplicate,
     binding: { ...a.binding, platform_atomic: '3' } }, b])
   assert.equal(mismatched.completedArc, BigInt(1))
   assert.ok(mismatched.accountingIssues > 0)
+  for (const field of ['pay_to', 'asset'] as const) {
+    const wrongPool = { ...a, binding: { ...a.binding, [field]: buyer } }
+    assert.ok(recordedGrossCommission(purchases, [wrongPool, b]).accountingIssues > 0)
+    assert.equal(confirmedSettlementReserve([], [{ ...wrongPool, state: 'SETTLEMENT_CONFIRMED' }]), null)
+  }
   const claimedLegacy = recordedGrossCommission([{ ...purchases[2], tx_hash: 'x402:a' }, ...purchases.slice(0, 2)], [a, b])
   assert.equal(claimedLegacy.historical, BigInt(0))
   assert.ok(claimedLegacy.accountingIssues > 0)
@@ -241,4 +256,120 @@ test('an already aborted queued read never starts and leaves the queue usable', 
   }, controller.signal), error => (error as Error).name === 'TimeoutError')
   assert.equal(executed, false)
   assert.equal(await runAdminDbRead(() => Promise.resolve('healthy')), 'healthy')
+})
+
+test('only confirmed outstanding seller liabilities constrain commission entitlement', () => {
+  const cleanPurchases = ledger.purchases
+  const completed = ledger.settlements.slice(0, 2)
+  const sellerWithdrawals = ledger.withdrawals.filter(row => row.status !== 'pending_mint')
+  const allowance = (settlements: CommissionSettlement[] = completed, available = BigInt(1_679_321),
+    withdrawals: Array<{ amount_usdc: string; status: string }> = []) =>
+    commissionAllowance(cleanPurchases, settlements, sellerWithdrawals, withdrawals, available)
+  assert.equal(allowance().allowance, BigInt(160_000))
+  assert.equal(allowance(ledger.settlements).confirmedReserve, BigInt(0))
+  assert.equal(allowance(ledger.settlements).allowance, BigInt(160_000))
+  assert.equal(allowance(completed, BigInt(1_400_899)).allowance, BigInt(0))
+  assert.equal(allowance(completed, undefined, [{ amount_usdc: '0.050000', status: 'minted' }]).allowance, BigInt(110_000))
+  const reserved = allowance(completed, undefined, [{ amount_usdc: '0.050000', status: 'submission_unknown' }])
+  assert.equal(reserved.commission.remaining, BigInt(110_000))
+  assert.equal(reserved.allowance, null)
+  assert.equal(confirmedSettlementReserve([], [{ ...completed[0], state: 'SETTLEMENT_UNKNOWN', binding: null }]), BigInt(0))
+  assert.equal(allowance([...completed, { ...completed[0], id: 'unknown-null', state: 'SETTLEMENT_UNKNOWN', binding: null }]).allowance, BigInt(160_000))
+  assert.equal(allowance([{ ...completed[0], state: 'PREPARED' }]).confirmedReserve, BigInt(0))
+  assert.equal(allowance([{ ...completed[0], state: 'MANUAL_REVIEW' }]).confirmedReserve, BigInt(0))
+})
+
+test('current bounded allowance enables only fresh controls and respects completed withdrawals', async () => {
+  const clean = { ...ledger, settlements: ledger.settlements.slice(0, 2),
+    withdrawals: ledger.withdrawals.filter(row => row.status !== 'pending_mint'),
+    commissionWithdrawals: [{ amount_usdc: '0.050000', status: 'minted' }],
+  }
+  const deps = { platformAddress: wallet, platformPrivateKey: privateKey,
+    fetchBalance: async () => gatewayResponse('1.679321'), readLedger: async () => clean,
+    now: () => fixedTime }
+  const data = await readGatewayTreasury(deps)
+  assert.equal(data.previously_withdrawn_platform_commission_usdc, '0.050000')
+  assert.equal(data.remaining_recorded_platform_commission_usdc, '0.110000')
+  assert.equal(data.safely_withdrawable_usdc, '0.110000')
+  assert.equal(data.withdrawal_ready, true)
+  assert.equal(data.gateway_platform_balance_usdc, '0.110000')
+  const ready = renderToStaticMarkup(<GatewayTreasuryCard request={adminRequest} resource={{ phase: 'ready', data }} onRetry={async () => {}} />)
+  assert.match(ready, /Fixed destination/)
+  assert.equal((ready.match(/disabled=""/g) ?? []).length, 1)
+  const stale = renderToStaticMarkup(<GatewayTreasuryCard request={adminRequest} resource={{ phase: 'degraded', data }} onRetry={async () => {}} />)
+  assert.equal((stale.match(/disabled=""/g) ?? []).length, 2)
+  const changed = await readGatewayTreasury({ ...deps, fetchBalance: async () => gatewayResponse('1.450900') })
+  assert.equal(changed.safely_withdrawable_usdc, '0.050000')
+  const protectedData = await readGatewayTreasury({ ...deps, readLedger: async () => ({ ...clean, settlements: ledger.settlements }),
+    fetchBalance: async () => gatewayResponse('1.500000') })
+  assert.equal(protectedData.safely_withdrawable_usdc, '0.099100')
+  assert.equal(protectedData.withdrawal_block_reason, null)
+  const blocked = renderToStaticMarkup(<GatewayTreasuryCard request={adminRequest} resource={{ phase: 'ready', data: protectedData }} onRetry={async () => {}} />)
+  assert.equal((blocked.match(/disabled=""/g) ?? []).length, 1)
+})
+
+test('six unknown attempts stay unchanged and do not reduce completed Arc platform entitlement', async () => {
+  const confirmed = settlement('confirmed', '1628200', '1135800', '492400')
+  const unknowns = Array.from({ length: 6 }, (_, index) => ({
+    ...settlement(`unknown-${index}`, '110000', '90000', '20000'),
+    state: 'SETTLEMENT_UNKNOWN', purchase_id: null, settlement_identity: null,
+  }))
+  const current = { purchases: [purchase('confirmed', '1.628200', '1.135800', 'confirmed')],
+    settlements: [confirmed, ...unknowns], withdrawals: [], commissionWithdrawals: [] }
+  const before = JSON.stringify(current)
+  const data = await readGatewayTreasury({ platformAddress: wallet, platformPrivateKey: privateKey,
+    fetchBalance: async () => gatewayResponse('1.679321'), readLedger: async () => current })
+  assert.equal(data.gateway_platform_balance_usdc, '0.492400')
+  assert.equal(data.safely_withdrawable_usdc, '0.492400')
+  assert.equal(data.known_seller_liabilities_usdc, '1.135800')
+  assert.equal(data.withdrawal_fee_quote?.mint_value_usdc, '0.487700')
+  assert.equal(data.withdrawal_ready, true)
+  assert.equal(data.unresolved_settlement_attempts, 6)
+  assert.equal(JSON.stringify(current), before)
+  const html = renderToStaticMarkup(<GatewayTreasuryCard request={adminRequest}
+    resource={{ phase: 'ready', data }} onRetry={async () => {}} />)
+  assert.match(html, /Gateway Platform Balance/)
+  assert.match(html, /6 settlement attempts remain unresolved/)
+  assert.match(html, /does not separately hold or guarantee/)
+  assert.doesNotMatch(html, /Mahshar-owned|uncertainty reserves|possible seller claims/)
+  assert.equal((html.match(/disabled=""/g) ?? []).length, 1)
+})
+
+test('confirmed payments awaiting accounting are counted once, independently of unknown attempts', () => {
+  const pending = { ...settlement('pending', '110000', '90000', '20000'), state: 'SETTLEMENT_CONFIRMED' }
+  assert.equal(confirmedSettlementReserve([], [pending]), BigInt(90_000))
+  assert.equal(confirmedSettlementReserve([purchase('pending', '0.110000', '0.090000', 'pending')], [pending]), BigInt(0))
+  assert.equal(confirmedSettlementReserve([], [{ ...pending, binding: null }]), null)
+  assert.equal(confirmedSettlementReserve([], [{ ...pending, state: 'SETTLEMENT_UNKNOWN', binding: null }]), BigInt(0))
+  const completed = settlement('completed', '1100000', '900000', '200000')
+  const result = commissionAllowance([purchase('completed', '1.100000', '0.900000', 'completed')],
+    [completed, pending], [], [], BigInt(1_100_000))
+  assert.equal(result.allowance, BigInt(110_000))
+})
+
+test('current fee failures disable withdrawal without changing the recorded platform balance', async () => {
+  for (const failure of ['Circle fee estimate unavailable', 'Commission amount does not cover Gateway source fee',
+    'Insufficient Arc gas balance for commission mint']) {
+    const data = await readGatewayTreasury({ platformAddress: wallet, platformPrivateKey: privateKey,
+      fetchBalance: async () => gatewayResponse('1.679321'),
+      readLedger: async () => ({ ...ledger, withdrawals: ledger.withdrawals.filter(row => row.status !== 'pending_mint') }),
+      readFeeQuote: async () => { throw new Error(failure) } })
+    assert.equal(data.gateway_platform_balance_usdc, '0.160000')
+    assert.equal(data.withdrawal_ready, false)
+    assert.equal(data.safely_withdrawable_usdc, null)
+    assert.equal(data.withdrawal_fee_quote, null)
+    const html = renderToStaticMarkup(<GatewayTreasuryCard request={adminRequest}
+      resource={{ phase: 'ready', data }} onRetry={async () => {}} />)
+    assert.equal((html.match(/disabled=""/g) ?? []).length, 2)
+  }
+})
+
+test('a one-micro liquidity shortfall limits the gross debit including its Circle fee cap', () => {
+  const completed = settlement('completed', '1628200', '1135800', '492400')
+  const purchases = [purchase('completed', '1.628200', '1.135800', 'completed')]
+  const limits = commissionAllowance(purchases, [completed], [], [], BigInt(1_628_199))
+  assert.equal(limits.allowance, BigInt(492_399))
+  const spent = commissionAllowance(purchases, [completed], [], [{ amount_usdc: '0.400000', status: 'minted' }], BigInt(9_000_000))
+  assert.equal(spent.commission.remaining, BigInt(92_400))
+  assert.equal(spent.allowance, BigInt(92_400))
 })

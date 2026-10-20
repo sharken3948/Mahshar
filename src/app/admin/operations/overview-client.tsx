@@ -115,7 +115,7 @@ export function OverviewClient() {
 
     <div className={styles.treasuryPair}>
       <TreasuryCard resource={treasury} onRetry={refreshTreasury}/>
-      <GatewayTreasuryCard resource={gatewayTreasury} onRetry={refreshGatewayTreasury}/>
+      <GatewayTreasuryCard request={request} resource={gatewayTreasury} onRetry={refreshGatewayTreasury}/>
     </div>
 
     <section className={styles.metrics} aria-label="Listing counts">
