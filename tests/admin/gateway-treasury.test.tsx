@@ -6,7 +6,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { readGatewayTreasury } from '../../src/lib/admin/gateway-treasury-data'
 import { clearOperationsCacheForTests } from '../../src/lib/admin/operations-cache'
 import { runAdminDbRead } from '../../src/lib/admin/operations-data'
-import { knownSellerLiabilities } from '../../src/lib/admin/gateway-treasury-calculation'
+import { knownSellerLiabilities, recordedGrossCommission } from '../../src/lib/admin/gateway-treasury-calculation'
 import { GatewayTreasuryCard } from '../../src/app/admin/operations/gateway-treasury-card'
 import { TreasuryCard } from '../../src/app/admin/operations/treasury-card'
 import { GET as getGatewayTreasuryRoute } from '../../src/app/api/admin/operations/gateway-treasury/route'
@@ -14,8 +14,28 @@ import { GET as getGatewayTreasuryRoute } from '../../src/app/api/admin/operatio
 const privateKey = `0x${'12'.repeat(32)}`
 const wallet = privateKeyToAccount(privateKey as `0x${string}`).address
 const fixedTime = new Date('2026-10-19T12:00:00.000Z')
+const buyer = '0x0000000000000000000000000000000000000001'
+function purchase(id: string, amount: string, seller: string | null, attempt: string | null = null) {
+  return { id, api_id: 'api-1', buyer_wallet: buyer, amount_usdc: amount,
+    seller_share_usdc: seller, tx_hash: attempt ? `x402:${attempt}` : `legacy:${id}`, settlement_attempt_id: attempt }
+}
+function settlement(id: string, amount: string, seller: string, platform: string) {
+  return { id, api_id: 'api-1', fingerprint: `fingerprint:${id}`, authorization_key: `authorization:${id}`,
+    state: 'ACCOUNTING_COMPLETE', purchase_id: id, settlement_identity: `x402:${id}`,
+    binding: { fingerprint: `fingerprint:${id}`, authorization_key: `authorization:${id}`,
+      api_id: 'api-1', payer: buyer, network: 'eip155:5042',
+      amount_atomic: amount, seller_atomic: seller, platform_atomic: platform } }
+}
 const ledger = {
-  purchases: [{ seller_share_usdc: null }, { seller_share_usdc: '1.500000' }, { seller_share_usdc: '0.100000' }],
+  purchases: [
+    purchase('unallocated', '1.100000', null),
+    purchase('historical', '0.001100', '0.000900'),
+    purchase('settled-1', '1.650000', '1.500000', 'settled-1'),
+    purchase('settled-2', '0.110000', '0.100000', 'settled-2'),
+  ],
+  settlements: [settlement('settled-1', '1650000', '1500000', '150000'),
+    settlement('settled-2', '110000', '100000', '10000'),
+    { ...settlement('uncertain', '200000', '180000', '20000'), state: 'SETTLEMENT_UNKNOWN' }],
   withdrawals: [
     { amount_usdc: '0.200000', status: 'minted' },
     { amount_usdc: '0.100000', status: 'pending_mint' },
@@ -47,7 +67,14 @@ test('authenticated data reader targets the verified Arc depositor and shows kno
   assert.equal(data.total_balance_usdc, '1.779321')
   assert.equal(data.available_balance_usdc, '1.679321')
   assert.equal(data.withdrawing_usdc, '0.100000')
-  assert.equal(data.known_seller_liabilities_usdc, '1.400000')
+  assert.equal(data.known_seller_liabilities_usdc, '1.400900')
+  assert.equal(data.completed_arc_commission_usdc, '0.160000')
+  assert.equal(data.completed_arc_purchase_count, 2)
+  assert.equal(data.historical_calculated_commission_usdc, '0.000200')
+  assert.equal(data.historical_calculated_purchase_count, 1)
+  assert.equal(data.total_recorded_gross_commission_usdc, '0.160200')
+  assert.equal(data.safely_withdrawable_usdc, null)
+  assert.equal(data.unresolved_settlement_attempts, 1)
   assert.equal(data.historical_unallocated_purchases, 1)
   assert.equal(data.unresolved_withdrawals, 1)
   assert.equal(data.coverage, 'known_covered')
@@ -57,7 +84,12 @@ test('authenticated data reader targets the verified Arc depositor and shows kno
   assert.match(html, /Available Gateway funds/)
   assert.match(html, /Known outstanding seller liabilities/)
   assert.equal((html.match(/Verification pending/g) ?? []).length, 2)
-  assert.doesNotMatch(html, /profit|withdraw button|transfer/i)
+  assert.match(html, /Completed Arc x402 commission \(2 purchases\)/)
+  assert.match(html, /Historical calculated commission, no durable binding \(1 purchase\)/)
+  assert.match(html, /Total recorded gross commissions/)
+  assert.match(html, /Withdraw to Platform Wallet/)
+  assert.equal((html.match(/disabled=""/g) ?? []).length, 2)
+  assert.doesNotMatch(html, /profit|\/withdraw\/quote|submit/i)
 })
 
 test('shortfall, uncertain seller payouts and legacy rows remain visible; stale data never claims current availability', async () => {
@@ -85,6 +117,49 @@ test('invalid balance or inconsistent ledger fails closed; historical purchases 
     fetchBalance: async () => gatewayResponse('-1'), readLedger: async () => ledger,
   }), /Invalid treasury ledger amount/)
   assert.throws(() => knownSellerLiabilities([{ seller_share_usdc: null }], [{ amount_usdc: '1', status: 'minted' }]), /exceeds recorded shares/)
+})
+
+test('completed Arc accrual uses exact micros and excludes uncertain, duplicate, and mismatched bindings', () => {
+  const purchases = [purchase('a', '0.000003', '0.000001', 'a'),
+    purchase('b', '0.000002', '0.000001', 'b'), purchase('historical', '0.001100', '0.000900')]
+  const a = settlement('a', '3', '1', '2')
+  const b = settlement('b', '2', '1', '1')
+  const clean = recordedGrossCommission(purchases, [a, b])
+  assert.deepEqual([clean.completedArc, clean.historical, clean.gross], [BigInt(3), BigInt(200), BigInt(203)])
+  assert.equal(clean.accountingIssues, 0)
+
+  const disputed = recordedGrossCommission(purchases, [a, b, { ...a },
+    { ...settlement('unknown', '900000', '800000', '100000'), state: 'SETTLEMENT_UNKNOWN' }])
+  assert.equal(disputed.completedArc, BigInt(1))
+  assert.equal(disputed.historical, BigInt(200))
+  assert.ok(disputed.accountingIssues > 0)
+
+  const mismatched = recordedGrossCommission(purchases, [{ ...a,
+    binding: { ...a.binding, platform_atomic: '3' } }, b])
+  assert.equal(mismatched.completedArc, BigInt(1))
+  assert.ok(mismatched.accountingIssues > 0)
+  const claimedLegacy = recordedGrossCommission([{ ...purchases[2], tx_hash: 'x402:a' }, ...purchases.slice(0, 2)], [a, b])
+  assert.equal(claimedLegacy.historical, BigInt(0))
+  assert.ok(claimedLegacy.accountingIssues > 0)
+})
+
+test('the 37 completed and 18 historical purchase cohorts remain separate in gross commission', () => {
+  const completedPurchases = Array.from({ length: 36 }, (_, index) => purchase(`arc-${index}`, '0.001100', '0.000900', `arc-${index}`))
+  completedPurchases.push(purchase('arc-large', '1.485200', '1.000000', 'arc-large'))
+  const completedSettlements = Array.from({ length: 36 }, (_, index) => settlement(`arc-${index}`, '1100', '900', '200'))
+  completedSettlements.push(settlement('arc-large', '1485200', '1000000', '485200'))
+  const historical = [
+    ...Array.from({ length: 14 }, (_, index) => purchase(`old-small-${index}`, '0.001100', '0.000900')),
+    ...Array.from({ length: 3 }, (_, index) => purchase(`old-large-${index}`, '1.100000', '0.900000')),
+    purchase('old-largest', '1.320000', '1.080000'),
+  ]
+  const commission = recordedGrossCommission([...completedPurchases, ...historical], completedSettlements)
+  assert.equal(commission.completedArcCount, 37)
+  assert.equal(commission.historicalCount, 18)
+  assert.equal(commission.completedArc, BigInt(492400))
+  assert.equal(commission.historical, BigInt(842800))
+  assert.equal(commission.gross, BigInt(1335200))
+  assert.equal(commission.accountingIssues, 0)
 })
 
 test('direct Arc wallet card remains a separate observation', () => {

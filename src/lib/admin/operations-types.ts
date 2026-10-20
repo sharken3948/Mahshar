@@ -24,6 +24,14 @@ export type GatewayTreasuryDto = {
   withdrawing_usdc: string
   pending_batch_usdc: string | null
   known_seller_liabilities_usdc: string
+  completed_arc_commission_usdc: string
+  completed_arc_purchase_count: number
+  historical_calculated_commission_usdc: string
+  historical_calculated_purchase_count: number
+  total_recorded_gross_commission_usdc: string
+  safely_withdrawable_usdc: string | null
+  commission_accounting_issues: number
+  unresolved_settlement_attempts: number
   historical_unallocated_purchases: number
   unresolved_withdrawals: number
   coverage: 'known_covered' | 'known_shortfall'

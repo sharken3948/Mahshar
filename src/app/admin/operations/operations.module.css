@@ -218,6 +218,11 @@
 .gatewayTreasuryUnavailable strong { color: #b4bfd2; }
 .gatewayTreasuryUnavailable p { color: #8494ad; }
 .gatewayTreasuryCard button { width: fit-content; padding: 9px 13px; border: 1px solid var(--ops-border); border-radius: 8px; color: #aab8ce; background: rgba(255, 255, 255, .025); font: inherit; cursor: pointer; }
+.gatewayWithdrawControls { display: grid; gap: 8px; color: #a5b7d0; font-size: 13px; }
+.gatewayWithdrawControls > div { display: flex; gap: 9px; flex-wrap: wrap; }
+.gatewayWithdrawControls input { width: 150px; min-width: 0; padding: 9px; border: 1px solid var(--ops-border); border-radius: 8px; color: #f4f8ff; background: #111a2c; font: inherit; }
+.gatewayWithdrawControls button:disabled, .gatewayWithdrawControls input:disabled { opacity: .5; cursor: not-allowed; }
+.gatewayWithdrawControls small { overflow-wrap: anywhere; color: #8494ad; }
 
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .metricCard,
