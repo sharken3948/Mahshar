@@ -2,8 +2,8 @@ import Module from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { getAddress } from 'viem'
 const fixture = fileURLToPath(new URL('./integration-fixture.ts', import.meta.url))
-const next = fileURLToPath(new URL('../marketplace/next.ts', import.meta.url))
-const mocks = new Set(['@circle-fin/x402-batching/server','@circle-fin/x402-batching/client','@circle-fin/app-kit','@circle-fin/adapter-viem-v2','@/lib/payments/server','@/lib/supabase/server','@/lib/proxy','@/lib/memo','@/lib/marketplace/server'])
+const next = fileURLToPath(new URL('./next.ts', import.meta.url))
+const mocks = new Set(['@circle-fin/x402-batching/server','@circle-fin/x402-batching/client','@circle-fin/app-kit','@circle-fin/adapter-viem-v2','@/lib/payments/server','@/lib/supabase/server','@/lib/proxy','@/lib/marketplace/server'])
 const load = Module._load
 Module._load = function(specifier, parent, isMain) {
   if (specifier === 'server-only') return {}

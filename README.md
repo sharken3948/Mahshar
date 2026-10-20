@@ -87,16 +87,17 @@ Mahshar-owned:
 - **Platform EOA:** `0x052650D1764406d702252B20B2294346A594A1ef`
 - **Successful Arc Mainnet transaction:** [`0xa3efb83ad9ac4f2164d36b2579104cb7fb19c986cd623206b27387330e33fa33`](https://explorer.arc.io/tx/0xa3efb83ad9ac4f2164d36b2579104cb7fb19c986cd623206b27387330e33fa33)
 
-The public address above is Mahshar's platform wallet on Arc Mainnet. The linked transaction is a successful call from that wallet to the official Arc Memo contract and can be independently verified in the Arc explorer. It is evidence of Mainnet operation and is not presented as independent proof of an x402 buyer purchase. Private signing material is never committed to the repository.
+The public address above is Mahshar's platform wallet on Arc Mainnet. The linked historical transaction is a successful call from that wallet to the official Arc Memo contract and can be independently verified in the Arc explorer. It is evidence of Mainnet operation and is not presented as independent proof of an x402 buyer purchase. Private signing material is never committed to the repository.
 
-Official Arc/Circle contracts used by Mahshar:
+Automatic Memo writes have been removed. The linked transaction remains historical Mainnet evidence; paid API execution relies on Circle Gateway settlement and durable purchase, delivery, and response records, with no auxiliary platform-wallet transaction.
+
+Official Arc/Circle contracts currently used by Mahshar:
 
 | Contract | Address |
 | --- | --- |
 | Arc USDC | `0x3600000000000000000000000000000000000000` |
 | Gateway Wallet | `0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE` |
 | Gateway Minter | `0x2222222d7164433c4C09B0b0D809a9b52C04C205` |
-| Memo | `0x5294E9927c3306DcBaDb03fe70b92e01cCede505` |
 
 These are official system contracts, not Mahshar contracts. **Mahshar currently deploys no custom smart contract.**
 

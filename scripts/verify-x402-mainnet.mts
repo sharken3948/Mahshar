@@ -148,7 +148,7 @@ function printSideEffects(): void {
   console.log('- Production database: create one api_calls entry')
   console.log('- Seller accounting: credit 0.000900 USDC')
   console.log('- Platform economic share: 0.000200 USDC')
-  console.log('- Platform wallet: may pay a small Arc gas cost for the memo transaction\n')
+  console.log('- Paid API execution submits no auxiliary platform-wallet transaction\n')
 }
 
 async function executePayment(

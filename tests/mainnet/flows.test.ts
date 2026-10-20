@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { state, reset } from './register.mjs'
 import { useBridge } from '../../src/hooks/useBridge'
 import { usdcAmount, bridgeSource, discoverCircleRoutes, MAINNET_CHAINS, validateBridgeResult } from '../../src/lib/circle-bridge'
-import { writeMemo } from '../../src/lib/memo'
 
 function render() { state.cursor = 0; return useBridge() }
 for (const chain of MAINNET_CHAINS.filter(chain => chain.type === 'evm' && chain.chain !== 'Arc')) {
@@ -50,13 +49,6 @@ test('SDK recovery rejects changed destination, token or network',async()=>{
   assert.throws(()=>validateBridgeResult({...result,token:'EURC'} as never,state.owner))
   assert.throws(()=>validateBridgeResult(result,'0x'+'22'.repeat(20)))
   assert.throws(()=>validateBridgeResult({...result,source:{...result.source,chain:{...result.source.chain,isTestnet:true}}},state.owner))
-})
-test('Memo uses verified Mainnet deployment and rejects wrong network or reverted receipt',async()=>{
-  reset();await writeMemo('fixture',state.owner,'purchase-fixture')
-  assert.equal(state.memoCalls[0].address,'0x5294E9927c3306DcBaDb03fe70b92e01cCede505')
-  assert.equal(state.memoCalls[0].functionName,'memo')
-  reset();state.memoChain=1;await assert.rejects(writeMemo('fixture',state.owner,'purchase-fixture'));assert.equal(state.memoCalls.length,0)
-  reset();state.memoStatus='reverted';await assert.rejects(writeMemo('fixture',state.owner,'purchase-fixture'))
 })
 test('production source contains no legacy network or custom bridge executor',()=>{
   assert.equal(existsSync('archive/pre-official-circle'), false)

@@ -334,18 +334,19 @@ add `Payment-Signature` unless deliberately performing a real payment. See
 - Successful Arc Mainnet transaction:
   [`0xa3efb83ad9ac4f2164d36b2579104cb7fb19c986cd623206b27387330e33fa33`](https://explorer.arc.io/tx/0xa3efb83ad9ac4f2164d36b2579104cb7fb19c986cd623206b27387330e33fa33)
 
-The transaction is a successful call from the platform EOA to the official Arc
+The historical transaction is a successful call from the platform EOA to the official Arc
 Memo contract. It is evidence of Mahshar's Mainnet operation, not by itself
 proof of an x402 buyer purchase.
 
-### Official Arc and Circle contracts used by Mahshar
+Automatic Memo writes have been removed. The linked transaction remains historical Mainnet evidence; paid API execution relies on Circle Gateway settlement and durable purchase, delivery, and response records, with no auxiliary platform-wallet transaction.
+
+### Official Arc and Circle contracts currently used by Mahshar
 
 | Contract | Address |
 | --- | --- |
 | Arc USDC | `0x3600000000000000000000000000000000000000` |
 | Gateway Wallet | `0x77777777Dcc4d5A8B6E418Fd04D8997ef11000eE` |
 | Gateway Minter | `0x2222222d7164433c4C09B0b0D809a9b52C04C205` |
-| Memo | `0x5294E9927c3306DcBaDb03fe70b92e01cCede505` |
 
 These are official Arc/Circle system contracts, not Mahshar contracts.
 

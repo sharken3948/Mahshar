@@ -5,7 +5,7 @@ register('./loader.mjs', import.meta.url)
 // Intercept only the same explicit external boundaries used by the ESM loader.
 const replacements = new Map([
   ['@/lib/supabase/server', './fixtures.ts'], ['@/lib/groq', './stubs.ts'],
-  ['@/lib/gateway', './stubs.ts'], ['@/lib/memo', './stubs.ts'],
+  ['@/lib/gateway', './stubs.ts'],
   ['@/lib/url-validation', './stubs.ts'], ['next/server', './next.ts'],
 ])
 const load = Module._load

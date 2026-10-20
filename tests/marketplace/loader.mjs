@@ -1,7 +1,7 @@
 const replacements = new Map([
   ['@/lib/supabase/server', './fixtures.ts'],
   ['@/lib/groq', './stubs.ts'], ['@/lib/gateway', './stubs.ts'],
-  ['@/lib/memo', './stubs.ts'], ['@/lib/url-validation', './stubs.ts'],
+  ['@/lib/url-validation', './stubs.ts'],
   ['next/server', './next.ts'],
 ])
 export async function resolve(specifier, context, next) {

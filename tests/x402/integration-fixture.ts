@@ -48,7 +48,6 @@ export function proxyResponseEnvelope(input: { body: unknown; latencyMs: number;
   return { response: input.body, latency_ms: input.latencyMs, payment: 'ACCOUNTING_COMPLETE', delivery_state: input.deliveryState,
     retryable: input.retryable, attemptId: input.attemptId, purchase_access_token: input.purchaseAccessToken }
 }
-export async function writeMemo() {}
 export function withWallet(handler: (r: Request, wallet: string) => Promise<Response>) {
   return (r: Request) => {
     const wallet = r.headers.get('x-test-principal')

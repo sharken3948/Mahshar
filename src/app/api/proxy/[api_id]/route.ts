@@ -1,9 +1,8 @@
 import { credentialProxyAllowed } from '@/lib/marketplace/listing-security'
-import { NextRequest, NextResponse, after } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { proxyRequest, proxyResponseEnvelope } from '@/lib/proxy'
 import { verifyAndSettlePayment, build402Response, paymentInfrastructureStatus, paymentResponseHeader } from '@/lib/gateway'
 import { paymentErrorMessage } from '@/lib/payments/errors'
-import { writeMemo } from '@/lib/memo'
 import { createServiceClient } from '@/lib/supabase/server'
 import { issuePurchaseAccess } from '@/lib/marketplace/purchase-access'
 import { resolveListingProxyMethod } from '@/lib/proxy-policy'
@@ -164,16 +163,6 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
       ...(result.responsePersisted ? { retrieve_response: '/api/calls/last-response' } : {}),
     }, { status: 503, headers: paidHeaders })
   }
-
-  // Deferred via `after` so the memo tx is guaranteed to complete on Vercel
-  // serverless — a bare fire-and-forget promise freezes when the response ships.
-  if (persistedDeliveryState === 'SUCCEEDED' || persistedDeliveryState === 'FAILED_FINAL') after(() =>
-    writeMemo(
-      listing.name as string,
-      sellerAddress,
-      paymentResult.callId ?? apiId,
-    ).catch(err => console.error('[memo] failed:', (err as Error).message ?? err))
-  )
 
   return NextResponse.json(
     proxyResponseEnvelope({ body: result.body, latencyMs: result.latencyMs, deliveryState: persistedDeliveryState,

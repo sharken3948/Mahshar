@@ -62,3 +62,7 @@ python3 tests/x402/postgres.py
 ```
 
 The PostgreSQL test uses a fresh temporary cluster, a private Unix socket, and no TCP listener. It never opens existing canary databases. Integration fixtures forbid wallet/RPC/payout clients and replace facilitator/database/upstream boundaries; they exercise the real gateway, pricing, proxy handlers, and recovery validation without live financial calls.
+
+## Auxiliary blockchain records
+
+Paid proxy routes do not schedule Arc Memo transactions. Circle Gateway verification and settlement, durable purchase accounting, delivery claims and completion, and purchase-scoped response recovery provide the payment and execution records. No Memo receipt or event is required for those flows, seller earnings, or platform commissions. Seller and Admin commission withdrawals retain their separate Gateway authorization, mint, and receipt checks. Historical Memo transactions remain historical evidence, not x402 purchase proofs.
