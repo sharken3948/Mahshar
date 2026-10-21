@@ -1,6 +1,7 @@
 """Executed by multi-source-postgres.py --expanded --additional --recovery; disposable database only."""
 migration = ROOT / 'supabase/migrations/20261019000100_admin_worker_recovery_attempts.sql'
-assert len(list((ROOT / 'supabase/migrations').glob('*.sql'))) == 51
+# Check this historical migration prefix, independent of newer releases.
+assert len([p for p in (ROOT / 'supabase/migrations').glob('*.sql') if p.name.split('_')[0] <= migration.name.split('_')[0]]) == 50
 before = snapshots()
 candidate_fingerprint = sql("SELECT md5(coalesce(string_agg(to_jsonb(t)::text,'' ORDER BY id),'')) FROM worker_candidates t;")
 old_rpc = sql("SELECT pg_get_functiondef('public.mahshar_worker_claim_deferred_candidates(uuid,text,integer)'::regprocedure);")

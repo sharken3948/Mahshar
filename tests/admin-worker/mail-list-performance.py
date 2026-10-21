@@ -60,7 +60,9 @@ with tempfile.TemporaryDirectory(prefix='mahshar-mail-performance-') as director
             return f'{kind:08d}-0000-4000-8000-{n:012d}'
         sql('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS; CREATE EXTENSION pgrowlocks;')
         for path in sorted((ROOT / 'supabase/migrations').glob('*.sql'), key=lambda p: p.name.split('_')[0]):
-            if path != MIGRATION:
+            # Benchmark the historical registry migration on its actual prior
+            # schema; later migrations depend on columns it creates.
+            if path.name.split('_')[0] < MIGRATION.name.split('_')[0]:
                 sql('BEGIN;\n' + path.read_text() + '\nCOMMIT;')
         run_id = sql('SELECT (mahshar_worker_create_target_run(false)).id;')
         sql(f"UPDATE worker_runs SET status='running',deadline_at=clock_timestamp()+interval '1 hour' WHERE id='{run_id}';")

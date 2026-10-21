@@ -5,7 +5,10 @@ import { test } from 'node:test'
 const read = (path: string) => readFileSync(path, 'utf8')
 
 test('Agents page claims are backed by the public machine contract and examples', () => {
-  const discovery = read('src/app/api/agent/discover/route.ts')
+  const discoveryRoute = read('src/app/api/agent/discover/route.ts')
+  const discovery = read('src/lib/agent-discovery-document.ts')
+  assert.match(discoveryRoute, /from '@\/lib\/agent-discovery-document'/)
+  assert.match(discoveryRoute, /return limited \?\? readAgentDiscovery\(request\)/)
   const contract = read('src/lib/marketplace/agent-contract.ts')
   const openapi = read('openapi.yaml')
   const guide = read('docs/agent-integration.md')

@@ -1,3 +1,4 @@
+import { ResourceBudgetError } from '@/lib/resource-budget'
 import { NextRequest, NextResponse } from 'next/server';
 import { matchApis } from '@/lib/groq';
 import { createServiceClient } from '@/lib/supabase/server';
@@ -40,6 +41,9 @@ export async function POST(request: NextRequest) {
   try {
     matchResult = await matchApis(query, apis as Pick<ApiListing, 'id' | 'name' | 'description' | 'category'>[])
   } catch (err: unknown) {
+    if (err instanceof ResourceBudgetError) return NextResponse.json({ error: err.message }, {
+      status: err.unavailable ? 503 : 429, headers: { 'Retry-After': String(err.retryAfter), 'Cache-Control': 'no-store' },
+    })
     const message = err instanceof Error ? err.message : String(err)
     return NextResponse.json({ error: message }, { status: 500 })
   }

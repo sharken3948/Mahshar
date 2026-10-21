@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
+import { withDeadline } from '@/lib/request-deadline'
 
 export const runtime = 'nodejs'
 const PRUNE_LIMIT = 1000
@@ -47,6 +48,25 @@ export async function GET(request: NextRequest) {
     console.error(`[response-prune] wallet auth pruning failed: ${authError?.message ?? 'invalid count'}`)
     return NextResponse.json({ error: 'prune_failed' }, { status: 503,
       headers: { 'Cache-Control': 'no-store' } })
+  }
+  // Operational retention is independent of response recovery and wallet-auth cleanup.
+  // A missing migration or maintenance failure must not change their existing result.
+  try {
+    await withDeadline(2500, async signal => {
+    for (let pass = 0; pass < 5; pass++) {
+      const { data: resourceData, error: resourceError } = await db.rpc('mahshar_prune_resource_records', { p_batch: PRUNE_LIMIT }).abortSignal(signal)
+      const counts = (Array.isArray(resourceData) ? resourceData[0] : resourceData) as Record<string, unknown> | null
+      const values = ['budgets', 'leases', 'rate_limits'].map(key => counts?.[key])
+      if (resourceError || values.some(value => typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > PRUNE_LIMIT)) {
+        console.error('[resource-retention] cleanup unavailable')
+        break
+      }
+      if (values.every(value => value === 0)) break
+      if (pass === 4) console.warn('[resource-retention] batch ceiling reached; check expired-record backlog')
+    }
+    })
+  } catch {
+    console.error('[resource-retention] cleanup unavailable')
   }
   console.info(`[response-prune] cleared ${deleted} expired response bodies, ${challenges} challenges, and ${sessions} sessions`)
   return NextResponse.json({ ok: true, cleared_response_bodies: deleted,

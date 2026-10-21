@@ -1,0 +1,81 @@
+{
+  "baseline": "e77788a7f4342b2e4d23a7b384be38dab13f5759",
+  "scope": "existing application and operational resource protection only",
+  "excluded": [
+    "HTML bot protection",
+    "WAF rules",
+    "browser challenges"
+  ],
+  "local_candidate": "GO",
+  "production_release": "BLOCK_PENDING_VERIFIED_PRODUCTION_RECOVERY",
+  "baseline_css": "documented_non_blocking_per_user_instruction",
+  "new_budget_flags": {
+    "MAHSHAR_GROQ_BUDGET_ENABLED": false,
+    "MAHSHAR_LISTING_CREATE_BUDGET_ENABLED": false,
+    "MAHSHAR_VERIFICATION_BUDGET_ENABLED": false,
+    "MAHSHAR_ONRAMP_BUDGET_ENABLED": false
+  },
+  "calibrated_new_policies": [],
+  "production_evidence": {
+    "source_project_binding_verified": false,
+    "baseline_deployment_recorded": false,
+    "migration_ledger_verified": false,
+    "encrypted_backup_verified": false,
+    "isolated_production_backup_restore_verified": false,
+    "operator_recovery_key_access_verified": false
+  },
+  "note": "False means not verified in this session, not a claim that the owner has no backup. No fake receipt can clear these gates.",
+  "recovery_rehearsal": {
+    "scope": "synthetic_offline_only",
+    "production_backup_verified": false,
+    "synthetic_restore_seconds": 0.683,
+    "status": "PASS",
+    "historical_migrations_restored": 52,
+    "additive_migration_rehearsed": true,
+    "concurrent_index_valid": true,
+    "encrypted_roundtrip_and_corruption_detection": true,
+    "business_tables_preserved": 39,
+    "grants_rls_functions_indexes_restored": true,
+    "unexpected_ledger_and_reapplication_blocked": true,
+    "postflight_permission_drift_rejected": true,
+    "bounded_cleanup_after_restore": true,
+    "synthetic_total_seconds": 6.597
+  },
+  "recovery_rehearsal_log": "/tmp/mahshar-database-regression-7i5ezvd8/tests__infrastructure__recovery-rehearsal.py.log",
+  "existing_evidence": {
+    "typescript_files": 133,
+    "typescript_passed": 1165,
+    "typescript_failed_baseline_only": 1,
+    "existing_database_harnesses_passed": 8,
+    "resource_cleanup_checks_passed": 45,
+    "optimized_build_and_typescript": "PASS",
+    "runtime_unchanged_since_full_regression": true
+  },
+  "next_required_action": "Provide an existing verified Production recovery receipt, or separately authorize source-project/ledger verification plus an encrypted read-only backup and isolated restore on an owner-approved host. No migration or deployment until that gate passes.",
+  "release_order": [
+    "Verify real Production binding, canonical deployment and recoverable encrypted backup/isolated restore receipt",
+    "Approve exact manifest commit without an automatic Production push/deploy",
+    "Read-only migration-preflight ready_to_apply=true, then approve/apply only 20261021000100 through the existing verified migration runner",
+    "Approve/build the retention index concurrently outside any transaction",
+    "Read-only migration-postflight ready_for_application=true",
+    "Approve publish/deploy of exact manifest with every new budget disabled; a connected-branch push may deploy",
+    "Observe low-volume read-only normal functionality and next existing scheduled maintenance; rollback baseline app on regression"
+  ],
+  "activation_ready": {
+    "policy_engine_tested": true,
+    "new_calibrated_numeric_policies": [],
+    "activate_as_part_of_release": false
+  },
+  "runtime_overhead": {
+    "budgets_disabled_extra_rpc": 0,
+    "new_schedule": false,
+    "existing_maintenance_extra_rpc_max": 5,
+    "existing_maintenance_total_deadline_ms": 2500,
+    "retention_index": "one additional narrow B-tree maintained on rate-limit bucket writes",
+    "mcp_lookup": "one indexed listing query plus stats RPC, no discovery self-HTTP"
+  },
+  "runtime_source_files_unchanged": 392,
+  "new_migration_count": 1,
+  "historical_migrations_unchanged": 52,
+  "new_automatic_monitoring_or_schedule": false
+}

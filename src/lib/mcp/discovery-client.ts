@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { withDeadline } from '@/lib/request-deadline'
 
 const MAX_DISCOVERY_RESPONSE_BYTES = 4 * 1024 * 1024
 const MAX_DISCOVERY_OFFSET = 10_000
@@ -106,11 +107,12 @@ export class DiscoverySourceError extends Error {
 
 export type DiscoveryClientOptions = {
   fetcher?: typeof fetch
+  loadPage?: (url: URL, signal: AbortSignal) => Promise<Response>
   origin?: string
   timeoutMs?: number
 }
 
-async function boundedJson(response: Response) {
+async function boundedJson(response: Response, signal: AbortSignal) {
   const declaredLength = response.headers.get('content-length')
   if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > MAX_DISCOVERY_RESPONSE_BYTES) {
     throw new DiscoverySourceError(response.status)
@@ -118,6 +120,8 @@ async function boundedJson(response: Response) {
 
   if (!response.body) throw new DiscoverySourceError(response.status)
   const reader = response.body.getReader()
+  const cancel = () => { void reader.cancel().catch(() => undefined) }
+  signal.addEventListener('abort', cancel, { once: true })
   const chunks: Uint8Array[] = []
   let received = 0
 
@@ -135,6 +139,9 @@ async function boundedJson(response: Response) {
   } catch (error) {
     if (error instanceof DiscoverySourceError) throw error
     throw new DiscoverySourceError(response.status)
+  } finally {
+    signal.removeEventListener('abort', cancel)
+    reader.releaseLock()
   }
 
   const bytes = new Uint8Array(received)
@@ -188,46 +195,37 @@ export function createDiscoveryClient(options: DiscoveryClientOptions = {}) {
   const origin = options.origin ?? configuredMarketplaceOrigin()
   const timeoutMs = options.timeoutMs ?? 10_000
 
-  async function page(limit: number, offset: number) {
+  async function page(limit: number, offset: number, apiId?: string) {
     const url = new URL('/api/agent/discover', origin)
     url.searchParams.set('limit', String(limit))
     url.searchParams.set('offset', String(offset))
+    if (apiId) url.searchParams.set('api_id', apiId)
 
-    let response: Response
     try {
-      response = await fetcher(url, {
-        method: 'GET',
-        cache: 'no-store',
-        redirect: 'error',
-        signal: AbortSignal.timeout(timeoutMs),
+      return await withDeadline(timeoutMs, async signal => {
+        const response = options.loadPage ? await options.loadPage(url, signal) : await fetcher(url, {
+          method: 'GET', cache: 'no-store', redirect: 'error', signal,
+        })
+        if (!response.ok) throw new DiscoverySourceError(response.status)
+        try {
+          const parsed = discoveryPageSchema.parse(await boundedJson(response, signal))
+          return validatePagination(parsed, limit, offset)
+        } catch {
+          throw new DiscoverySourceError(response.status)
+        }
       })
-    } catch {
+    } catch (error) {
+      if (error instanceof DiscoverySourceError) throw error
       throw new DiscoverySourceError()
-    }
-    if (!response.ok) throw new DiscoverySourceError(response.status)
-
-    try {
-      const parsed = discoveryPageSchema.parse(await boundedJson(response))
-      return validatePagination(parsed, limit, offset)
-    } catch {
-      throw new DiscoverySourceError(response.status)
     }
   }
 
   return {
     page,
     async find(apiId: string) {
-      const limit = 100
-      let offset = 0
-
-      while (offset <= MAX_DISCOVERY_OFFSET) {
-        const result = await page(limit, offset)
-        const match = result.apis.find(api => api.id === apiId)
-        if (match) return match
-        if (result.pagination.next_offset === null || result.pagination.next_offset <= offset) return null
-        offset = result.pagination.next_offset
-      }
-      return null
+      if (!z.string().uuid().safeParse(apiId).success) return null
+      const result = await page(100, 0, apiId)
+      return result.apis.find(api => api.id === apiId) ?? null
     },
   }
 }

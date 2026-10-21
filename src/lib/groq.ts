@@ -1,7 +1,9 @@
+import { ResourceBudgetError } from '@/lib/resource-budget'
+import { budgetedCompletion } from '@/lib/groq-completion'
 import { validateDeclaredParameterMetadata, type DeclaredParameter } from '@/lib/marketplace/proxy-target';
 import {
   GROQ_MODEL, UNTRUSTED_CLOSE, UNTRUSTED_OPEN, ensureGroqAvailable, fenceUntrusted,
-  groq, redactSecrets, redactUrlSecrets, safePromptField,
+  redactSecrets, redactUrlSecrets, safePromptField,
 } from '@/lib/groq-neutral';
 
 export {
@@ -247,7 +249,7 @@ export async function scoreApi(listing: ScoreListing, realTestResult?: RealTestR
   for (let attempt = 0; attempt < 2; attempt++) {
     let completion;
     try {
-      completion = await groq.chat.completions.create({
+      completion = await budgetedCompletion('score', {
         model: GROQ_MODEL,
         messages: [
           { role: 'system', content: SCORE_SYSTEM_PROMPT },
@@ -260,6 +262,7 @@ export async function scoreApi(listing: ScoreListing, realTestResult?: RealTestR
       // Transient / network error — surface it so the seller can retry a
       // fresh request. Do not consume the "one retry" budget for these.
       const message = err instanceof Error ? err.message : String(err);
+      if (err instanceof ResourceBudgetError) throw err
       throw new Error(`Groq API error (scoreApi): ${message}`);
     }
     const content = completion.choices[0]?.message?.content ?? '{}';
@@ -316,7 +319,7 @@ export async function matchApis(
   const userPrompt = buildMatchPrompt(query, apis);
   let completion;
   try {
-    completion = await groq.chat.completions.create({
+    completion = await budgetedCompletion('match', {
       model: GROQ_MODEL,
       messages: [
         { role: 'system', content: MATCH_SYSTEM_PROMPT },
@@ -327,6 +330,7 @@ export async function matchApis(
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof ResourceBudgetError) throw err
     throw new Error(`Groq API error (matchApis): ${message}`);
   }
 

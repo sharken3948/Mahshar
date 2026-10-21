@@ -1,3 +1,4 @@
+import { resourceAdmission } from '@/lib/resource-admission'
 import { NextRequest, NextResponse } from 'next/server'
 import { MarketplaceError } from '@/lib/marketplace/operation-authorization'
 import { withWalletSession } from '@/lib/marketplace/server'
@@ -12,6 +13,10 @@ export const POST = withWalletSession(async (request: NextRequest, wallet: strin
   } catch {
     throw new MarketplaceError('Invalid Onramp request', 400)
   }
-  const session = await createMahsharOnrampSession(body, wallet)
-  return NextResponse.json(session)
+  const admission = await resourceAdmission('onramp', wallet)
+  if (admission.response) return admission.response
+  try {
+    const session = await createMahsharOnrampSession(body, wallet)
+    return NextResponse.json(session)
+  } finally { await admission.release() }
 })

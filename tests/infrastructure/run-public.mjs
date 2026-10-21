@@ -1,0 +1,5 @@
+import '../marketplace/latency.test.ts'
+import '../seo/foundation.test.ts'
+import '../../src/lib/seo/listing.test.ts'
+import '../../src/lib/seo/listing-title.test.ts'
+import '../../src/lib/seo/sitemap.test.ts'

@@ -1,5 +1,6 @@
+import { budgetedCompletion } from '@/lib/groq-completion'
 import 'server-only'
-import { GROQ_MODEL, ensureGroqAvailable, fenceUntrusted, groq, safePromptField } from '@/lib/groq-neutral'
+import { GROQ_MODEL, ensureGroqAvailable, fenceUntrusted, safePromptField } from '@/lib/groq-neutral'
 import type { OutreachClassification } from './types'
 
 type CompletionInput = {
@@ -34,7 +35,7 @@ const CLASSIFICATIONS = new Set<OutreachClassification>([
 const DNC = /(?:\b(?:unsubscribe|do not contact|don['’]?t contact|stop (?:emailing|contacting)|remove me from|take me off|no more emails)\b|^\s*stop[.!]?\s*$)/i
 const UNSUPPORTED_REPLY_CLAIMS = /\b(?:guarantee(?:d)? revenue|guarantee(?:d)? traffic|formal partnership|exclusive partnership)\b/i
 
-const defaultCompletion: OutreachCompletion = input => groq.chat.completions.create(input) as unknown as ReturnType<OutreachCompletion>
+const defaultCompletion: OutreachCompletion = input => budgetedCompletion('background', input) as unknown as ReturnType<OutreachCompletion>
 
 function object(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null

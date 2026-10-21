@@ -1,0 +1,2217 @@
+{
+  "baseline": "e77788a7f4342b2e4d23a7b384be38dab13f5759",
+  "status": "corrected_local_candidate_not_released",
+  "recommendation": "Local release package GO. Production execution BLOCK pending verified source binding and real encrypted backup/isolated restore evidence. Baseline CSS is non-blocking per the current user instruction.",
+  "candidate_specific_blockers": "resolved",
+  "corrections": [
+    "MCP local loading, SQL cancellation and bounded response parsing retain a 10-second deadline; ignored cancellation cannot hold the caller indefinitely",
+    "Budget reservation bounded/cancelable at 2000ms; best-effort idempotent release at 250ms; new operational cleanup total bounded/cancelable at 2500ms",
+    "New budgets disabled by default, zero budget RPCs while disabled, canonical Groq parameters preserved; explicit policy enablement and all positive ceilings required",
+    "Removed new process/CDN listing caches, cross-request coalescing, 32-pending-read cap and uncalibrated mutation/Onramp per-minute/body gates; listing state and pricing read fresh",
+    "Agent contract test follows actual delegated code; historical migration fixtures and native ESM mocks repaired without removing security assertions",
+    "Cleanup tested against non-empty aged financial/replay/withdrawal/recovery fixtures and snapshots of every non-operational public table"
+  ],
+  "full_application": {
+    "files": 133,
+    "counts": {
+      "tests": 1166,
+      "pass": 1165,
+      "fail": 1
+    },
+    "candidate_specific_failures": 0,
+    "entire_suite_green": false,
+    "results": [
+      {
+        "file": "src/lib/admin-auth.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 34.2,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__admin-auth.test.ts.log"
+      },
+      {
+        "file": "src/lib/admin-operations-v1.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 132.1,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__admin-operations-v1.test.ts.log"
+      },
+      {
+        "file": "src/lib/admin-operations.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 22,
+          "pass": 22,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 60.1,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__admin-operations.test.ts.log"
+      },
+      {
+        "file": "src/lib/admin-worker/checkpoint.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.0,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__admin-worker__checkpoint.test.ts.log"
+      },
+      {
+        "file": "src/lib/admin-worker/control.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.4,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__admin-worker__control.test.ts.log"
+      },
+      {
+        "file": "src/lib/admin-worker/discovery/contact.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 35,
+          "pass": 35,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.4,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__admin-worker__discovery__contact.test.ts.log"
+      },
+      {
+        "file": "src/lib/admin-worker/discovery/discovery.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 41,
+          "pass": 41,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 54.6,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__admin-worker__discovery__discovery.test.ts.log"
+      },
+      {
+        "file": "src/lib/arc-balance-read.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 64.4,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__arc-balance-read.test.ts.log"
+      },
+      {
+        "file": "src/lib/arc-balance-recovery.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.1,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__arc-balance-recovery.test.ts.log"
+      },
+      {
+        "file": "src/lib/groq.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 21,
+          "pass": 21,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 8.4,
+        "registers": [
+          "tests/infrastructure/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__groq.test.ts.log"
+      },
+      {
+        "file": "src/lib/marketplace/buyer-proxy-request.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.2,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__marketplace__buyer-proxy-request.test.ts.log"
+      },
+      {
+        "file": "src/lib/marketplace/listing-contract-audit.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.3,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__marketplace__listing-contract-audit.test.ts.log"
+      },
+      {
+        "file": "src/lib/marketplace/proxy-target.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.3,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__marketplace__proxy-target.test.ts.log"
+      },
+      {
+        "file": "src/lib/marketplace/request-body-schema.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.9,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__marketplace__request-body-schema.test.ts.log"
+      },
+      {
+        "file": "src/lib/marketplace/request-contract.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.7,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__marketplace__request-contract.test.ts.log"
+      },
+      {
+        "file": "src/lib/marketplace/safe-pattern.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.5,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__marketplace__safe-pattern.test.ts.log"
+      },
+      {
+        "file": "src/lib/marketplace/upstream-auth.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.0,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__marketplace__upstream-auth.test.ts.log"
+      },
+      {
+        "file": "src/lib/outbound-fetch.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.1,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__outbound-fetch.test.ts.log"
+      },
+      {
+        "file": "src/lib/payments/buyer-balance.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 56.1,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__payments__buyer-balance.test.ts.log"
+      },
+      {
+        "file": "src/lib/payments/marketplace-price.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.2,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__payments__marketplace-price.test.ts.log"
+      },
+      {
+        "file": "src/lib/proxy-policy.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.1,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__proxy-policy.test.ts.log"
+      },
+      {
+        "file": "src/lib/proxy-response.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.5,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__proxy-response.test.ts.log"
+      },
+      {
+        "file": "src/lib/request-body.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.7,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__request-body.test.ts.log"
+      },
+      {
+        "file": "src/lib/seo/listing-title.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.0,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__seo__listing-title.test.ts.log"
+      },
+      {
+        "file": "src/lib/seo/listing.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.7,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__seo__listing.test.ts.log"
+      },
+      {
+        "file": "src/lib/seo/sitemap.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.6,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__seo__sitemap.test.ts.log"
+      },
+      {
+        "file": "src/lib/wallet-chain-transition.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.8,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__wallet-chain-transition.test.ts.log"
+      },
+      {
+        "file": "src/lib/withdrawal-outcome.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.1,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/src__lib__withdrawal-outcome.test.ts.log"
+      },
+      {
+        "file": "tests/admin/commission-withdrawal.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 142.2,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin__commission-withdrawal.test.ts.log"
+      },
+      {
+        "file": "tests/admin/gateway-treasury.test.tsx",
+        "exit": 0,
+        "counts": {
+          "tests": 16,
+          "pass": 16,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 66.9,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin__gateway-treasury.test.tsx.log"
+      },
+      {
+        "file": "tests/admin/legacy-discovery-scripts.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 4.7,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin__legacy-discovery-scripts.test.ts.log"
+      },
+      {
+        "file": "tests/admin/ui.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.3,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin__ui.test.ts.log"
+      },
+      {
+        "file": "tests/admin-maintenance/auth.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 64.5,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-maintenance__auth.test.ts.log"
+      },
+      {
+        "file": "tests/admin-maintenance/maintenance.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 20,
+          "pass": 20,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 5.8,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-maintenance__maintenance.test.ts.log"
+      },
+      {
+        "file": "tests/admin-outreach/auth.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 65.1,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-outreach__auth.test.ts.log"
+      },
+      {
+        "file": "tests/admin-outreach/delivery-events.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 57.8,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-outreach__delivery-events.test.ts.log"
+      },
+      {
+        "file": "tests/admin-outreach/inbound.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 67.4,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-outreach__inbound.test.ts.log"
+      },
+      {
+        "file": "tests/admin-outreach/outreach.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 62.7,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-outreach__outreach.test.ts.log"
+      },
+      {
+        "file": "tests/admin-outreach/send-safety.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 72.2,
+        "registers": [
+          "tests/admin/register.mjs",
+          "tests/admin/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-outreach__send-safety.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/acquisition-step.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 55.4,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__acquisition-step.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/acquisition.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.6,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__acquisition.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/additional-catalogs.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 21,
+          "pass": 21,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 50.4,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__additional-catalogs.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/auth.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 56.7,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__auth.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/brevo-delivery.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 25,
+          "pass": 25,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 43.4,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__brevo-delivery.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/canary-adapter.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 42.6,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__canary-adapter.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/canary-workflow.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 13,
+          "pass": 13,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.4,
+        "registers": [
+          "tests/admin-worker/register.mjs",
+          "tests/admin-worker/canary-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__canary-workflow.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/command-errors.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 36.4,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__command-errors.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/contact-coverage.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.7,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__contact-coverage.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/continuous-discovery.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 28.8,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__continuous-discovery.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/continuous-draft.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 44.4,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__continuous-draft.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/continuous.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 52.7,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__continuous.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/contract-discovery.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 42,
+          "pass": 42,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 44.1,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__contract-discovery.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/daily-run-limit.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 55.1,
+        "registers": [
+          "tests/admin-worker/dashboard-ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__daily-run-limit.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/dashboard-ui.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.1,
+        "registers": [
+          "tests/admin-worker/dashboard-ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__dashboard-ui.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/dashboard.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 46.9,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__dashboard.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/draft-evidence.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 38.6,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__draft-evidence.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/foundation.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 40.4,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__foundation.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/invitation-template.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.4,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__invitation-template.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/launch-epoch.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 43.2,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__launch-epoch.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/lead-presentation.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.2,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__lead-presentation.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/live-dashboard.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 48.9,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__live-dashboard.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/mail-list-ui.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 9.4,
+        "registers": [
+          "tests/admin-worker/mail-list-ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__mail-list-ui.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/mail-list.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 17,
+          "pass": 17,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 51.1,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__mail-list.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/multi-source.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 34,
+          "pass": 34,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 43.7,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__multi-source.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/name-evidence.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 44.7,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__name-evidence.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/recovery-attempts.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 46.7,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__recovery-attempts.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/research-dedup.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 47.1,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__research-dedup.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/research-reliability.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 46.6,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__research-reliability.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/review-candidate-ui.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.7,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__review-candidate-ui.test.ts.log"
+      },
+      {
+        "file": "tests/admin-worker/source-expansion.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 25,
+          "pass": 25,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 55.5,
+        "registers": [
+          "tests/admin-worker/contact-coverage-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__admin-worker__source-expansion.test.ts.log"
+      },
+      {
+        "file": "tests/agent/zero-knowledge.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.6,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__agent__zero-knowledge.test.ts.log"
+      },
+      {
+        "file": "tests/bridge-ui/balance-refresh.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.6,
+        "registers": [
+          "tests/bridge-ui/balance-refresh-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__bridge-ui__balance-refresh.test.ts.log"
+      },
+      {
+        "file": "tests/bridge-ui/bridge-state.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 64.2,
+        "registers": [
+          "tests/mainnet/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__bridge-ui__bridge-state.test.ts.log"
+      },
+      {
+        "file": "tests/bridge-ui/estimate.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 64.8,
+        "registers": [
+          "tests/mainnet/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__bridge-ui__estimate.test.ts.log"
+      },
+      {
+        "file": "tests/bridge-ui/interactions.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 73.3,
+        "registers": [
+          "tests/bridge-ui/interaction-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__bridge-ui__interactions.test.ts.log"
+      },
+      {
+        "file": "tests/bridge-ui/journey.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.7,
+        "registers": [
+          "tests/bridge-ui/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__bridge-ui__journey.test.ts.log"
+      },
+      {
+        "file": "tests/bridge-ui/logos.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 29.1,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__bridge-ui__logos.test.ts.log"
+      },
+      {
+        "file": "tests/bridge-ui/presentation.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 57.4,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__bridge-ui__presentation.test.ts.log"
+      },
+      {
+        "file": "tests/bridge-ui/solana.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 59.6,
+        "registers": [
+          "tests/bridge-ui/solana-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__bridge-ui__solana.test.ts.log"
+      },
+      {
+        "file": "tests/bridge-ui/ui.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 60.6,
+        "registers": [
+          "tests/bridge-ui/ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__bridge-ui__ui.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/background-refresh.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 36.2,
+        "registers": [
+          "tests/dashboard/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__background-refresh.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/connect.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 34.1,
+        "registers": [
+          "tests/dashboard/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__connect.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/earnings-ui.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 33.5,
+        "registers": [
+          "tests/dashboard/earnings-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__earnings-ui.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/earnings-withdrawal-history.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.5,
+        "registers": [
+          "tests/dashboard/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__earnings-withdrawal-history.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/edit-listing.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.0,
+        "registers": [
+          "tests/dashboard/edit-listing-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__edit-listing.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/navbar-refresh.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.3,
+        "registers": [
+          "tests/dashboard/navbar-refresh-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__navbar-refresh.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/navbar-ui.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.7,
+        "registers": [
+          "tests/dashboard/navbar-ui-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__navbar-ui.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/presentation.test.ts",
+        "exit": 1,
+        "counts": {
+          "tests": 6,
+          "pass": 5,
+          "fail": 1,
+          "skipped": 0
+        },
+        "seconds": 1.4,
+        "registers": [
+          "tests/dashboard/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__presentation.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/seller-readonly-security.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.3,
+        "registers": [
+          "tests/dashboard/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__seller-readonly-security.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/seller-readonly-ui.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.6,
+        "registers": [
+          "tests/dashboard/seller-readonly-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__seller-readonly-ui.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/transactions.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 16,
+          "pass": 16,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 51.6,
+        "registers": [
+          "tests/marketplace/register.mjs",
+          "tests/dashboard/transactions-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__transactions.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/wallet-action-refresh.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 38.3,
+        "registers": [
+          "tests/dashboard/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__wallet-action-refresh.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/wallet-private-switch.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 44.3,
+        "registers": [
+          "tests/dashboard/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__wallet-private-switch.test.ts.log"
+      },
+      {
+        "file": "tests/dashboard/wallet-refresh.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.4,
+        "registers": [
+          "tests/dashboard/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__dashboard__wallet-refresh.test.ts.log"
+      },
+      {
+        "file": "tests/infrastructure/protection.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 40.5,
+        "registers": [
+          "tests/infrastructure/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__infrastructure__protection.test.ts.log"
+      },
+      {
+        "file": "tests/infrastructure/routes.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 87.9,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__infrastructure__routes.test.ts.log"
+      },
+      {
+        "file": "tests/mainnet/flows.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 36,
+          "pass": 36,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 73.6,
+        "registers": [
+          "tests/mainnet/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__mainnet__flows.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/agent-discovery.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 49.2,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__agent-discovery.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/arc-balance-route.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 47.4,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__arc-balance-route.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/client-session.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 39.9,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__client-session.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/latency.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 2.9,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__latency.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/listing-contract.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.3,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__listing-contract.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/listing-creation-security.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 12,
+          "pass": 12,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 47.5,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__listing-creation-security.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/listing-security-match.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 4,
+          "pass": 4,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.4,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__listing-security-match.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/maintenance.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 49.3,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__maintenance.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/proxy-diagnostic.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 44.9,
+        "registers": [
+          "tests/marketplace/register.mjs",
+          "tests/marketplace/proxy-diagnostic-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__proxy-diagnostic.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/purchase-recovery.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 124.6,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__purchase-recovery.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/rate-limit.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 48.0,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__rate-limit.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/security.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 27,
+          "pass": 27,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 53.7,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__security.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/seller-analysis.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 54.6,
+        "registers": [
+          "tests/marketplace/register.mjs",
+          "tests/marketplace/seller-analysis-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__seller-analysis.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/seller-onboarding.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 10,
+          "pass": 10,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.5,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__seller-onboarding.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/seller-statistics.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.6,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__seller-statistics.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/session-auth.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 8,
+          "pass": 8,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 47.3,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__session-auth.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/verification-contract.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 37.3,
+        "registers": [
+          "tests/marketplace/register.mjs",
+          "tests/marketplace/verification-contract-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__verification-contract.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/verification-size.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 2,
+          "pass": 2,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.6,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__verification-size.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/wallet-switch.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 28,
+          "pass": 28,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 32.5,
+        "registers": [
+          "tests/marketplace/register.mjs",
+          "tests/marketplace/wallet-switch-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__wallet-switch.test.ts.log"
+      },
+      {
+        "file": "tests/marketplace/withdrawal.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 11,
+          "pass": 11,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 130.0,
+        "registers": [
+          "tests/marketplace/register.mjs",
+          "tests/marketplace/withdrawal-register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__marketplace__withdrawal.test.ts.log"
+      },
+      {
+        "file": "tests/mcp/phase1.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 15,
+          "pass": 15,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 81.5,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__mcp__phase1.test.ts.log"
+      },
+      {
+        "file": "tests/mcp/phase2-proxy.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 47.9,
+        "registers": [
+          "tests/x402/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__mcp__phase2-proxy.test.ts.log"
+      },
+      {
+        "file": "tests/mcp/phase2.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 26.8,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__mcp__phase2.test.ts.log"
+      },
+      {
+        "file": "tests/mcp/recovery-errors.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 5,
+          "pass": 5,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 11.3,
+        "registers": [
+          "tests/marketplace/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__mcp__recovery-errors.test.ts.log"
+      },
+      {
+        "file": "tests/onramp/onramp.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 56.4,
+        "registers": [
+          "tests/onramp/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__onramp__onramp.test.ts.log"
+      },
+      {
+        "file": "tests/public-pages/claims.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.4,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__public-pages__claims.test.ts.log"
+      },
+      {
+        "file": "tests/public-pages/education.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 7,
+          "pass": 7,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.3,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__public-pages__education.test.ts.log"
+      },
+      {
+        "file": "tests/public-pages/presentation.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.2,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__public-pages__presentation.test.ts.log"
+      },
+      {
+        "file": "tests/public-pages/provider-conversion.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 6,
+          "pass": 6,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.2,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__public-pages__provider-conversion.test.ts.log"
+      },
+      {
+        "file": "tests/seo/foundation.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 14,
+          "pass": 14,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.2,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__seo__foundation.test.ts.log"
+      },
+      {
+        "file": "tests/test-matrix/routes.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 9,
+          "pass": 9,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 1.3,
+        "registers": [
+          "/tmp/mahshar-infrastructure-protection-e77788a7/tests/infrastructure/basic.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__test-matrix__routes.test.ts.log"
+      },
+      {
+        "file": "tests/x402/delivery-migration.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 1,
+          "pass": 1,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 21.6,
+        "registers": [
+          "tests/x402/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__x402__delivery-migration.test.ts.log"
+      },
+      {
+        "file": "tests/x402/errors.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 3,
+          "pass": 3,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 16.9,
+        "registers": [
+          "tests/x402/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__x402__errors.test.ts.log"
+      },
+      {
+        "file": "tests/x402/integration.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 22,
+          "pass": 22,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 33.9,
+        "registers": [
+          "tests/x402/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__x402__integration.test.ts.log"
+      },
+      {
+        "file": "tests/x402/no-memo.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 35.1,
+        "registers": [
+          "tests/x402/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__x402__no-memo.test.ts.log"
+      },
+      {
+        "file": "tests/x402/settlement.test.ts",
+        "exit": 0,
+        "counts": {
+          "tests": 19,
+          "pass": 19,
+          "fail": 0,
+          "skipped": 0
+        },
+        "seconds": 18.2,
+        "registers": [
+          "tests/x402/register.mjs"
+        ],
+        "log": "/tmp/mahshar-full-regression-0ndv9ns5/tests__x402__settlement.test.ts.log"
+      }
+    ]
+  },
+  "known_baseline_failure": {
+    "file": "tests/dashboard/presentation.test.ts",
+    "test": "app CSS uses readable semantic sizes instead of sub-13px text",
+    "first_failing_source": "src/app/admin/maintenance/maintenance.module.css:3",
+    "test_and_source_byte_identical_to_canonical": true,
+    "baseline_reproduction_log": "/tmp/mahshar-final-release-review/dashboard-baseline.log",
+    "disposition": "Documented unchanged baseline CSS assertion; explicitly non-blocking for this infrastructure release per the latest user instruction. No UI changes or weakened assertions."
+  },
+  "database": {
+    "harnesses": 8,
+    "passed": 8,
+    "failed": 0,
+    "resource_checks": 45,
+    "results": [
+      {
+        "command": [
+          "tests/database/postgres.py"
+        ],
+        "exit": 0,
+        "seconds": 7.0,
+        "log": "/tmp/mahshar-database-regression-0lr_g6zs/tests__database__postgres.py.log"
+      },
+      {
+        "command": [
+          "tests/admin-worker/postgres.py"
+        ],
+        "exit": 0,
+        "seconds": 109.5,
+        "log": "/tmp/mahshar-database-regression-0lr_g6zs/tests__admin-worker__postgres.py.log"
+      },
+      {
+        "command": [
+          "tests/admin-worker/mail-list-postgres.py"
+        ],
+        "exit": 0,
+        "seconds": 31.8,
+        "log": "/tmp/mahshar-database-regression-0lr_g6zs/tests__admin-worker__mail-list-postgres.py.log"
+      },
+      {
+        "command": [
+          "tests/admin-worker/multi-source-postgres.py",
+          "--expanded",
+          "--additional",
+          "--recovery",
+          "--timing"
+        ],
+        "exit": 0,
+        "seconds": 27.9,
+        "log": "/tmp/mahshar-database-regression-0lr_g6zs/tests__admin-worker__multi-source-postgres.py.log"
+      },
+      {
+        "command": [
+          "tests/admin-worker/mail-list-performance.py"
+        ],
+        "exit": 0,
+        "seconds": 69.1,
+        "log": "/tmp/mahshar-database-regression-0lr_g6zs/tests__admin-worker__mail-list-performance.py.log"
+      },
+      {
+        "command": [
+          "tests/admin/commission-withdrawal-postgres.py"
+        ],
+        "exit": 0,
+        "seconds": 9.2,
+        "log": "/tmp/mahshar-database-regression-0lr_g6zs/tests__admin__commission-withdrawal-postgres.py.log"
+      },
+      {
+        "command": [
+          "tests/x402/postgres.py"
+        ],
+        "exit": 0,
+        "seconds": 4.2,
+        "log": "/tmp/mahshar-database-regression-0lr_g6zs/tests__x402__postgres.py.log"
+      },
+      {
+        "command": [
+          "tests/infrastructure/postgres.py"
+        ],
+        "exit": 0,
+        "seconds": 8.2,
+        "log": "/tmp/mahshar-database-regression-0lr_g6zs/tests__infrastructure__postgres.py.log"
+      }
+    ],
+    "coverage": [
+      "53-migration fresh replay",
+      "historical core repairs",
+      "Worker/outreach/Acquisition lifecycle and grants",
+      "multi-source/recovery/immediate continuation",
+      "mail registry and performance",
+      "commission withdrawals",
+      "x402 accounting/replay/delivery/recovery",
+      "rotating identities/concurrency/units/lease expiry/RLS/bounded retention/concurrent index/safe missing-index behavior/financial-history snapshots"
+    ]
+  },
+  "build": {
+    "command": "python3 tests/infrastructure/build-offline.py",
+    "exit_code": 0,
+    "next_version": "16.3.5",
+    "optimized_webpack": true,
+    "typescript_passed": true,
+    "generated_entries": 97,
+    "workflow_compilation_only": {
+      "steps": 25,
+      "workflows": 1
+    },
+    "known_warning": "Existing ox/viem expression-based dependency warning; dependencies unchanged"
+  },
+  "integrity": {
+    "protected_files_byte_identical": 89,
+    "historical_migrations_byte_identical": 52,
+    "additional_migrations": 1,
+    "head": "e77788a7f4342b2e4d23a7b384be38dab13f5759",
+    "git_index_empty": true,
+    "dependencies_match_canonical_lockfile": true,
+    "listing_mutation_route_restored_byte_identical": true,
+    "source_and_tests_frozen_during_final_runs": true
+  },
+  "initial_release_configuration": "All new MAHSHAR_*_BUDGET_ENABLED flags absent/false. No uncalibrated aggregate enforcement or prompt/output change.",
+  "ready_local_controls": [
+    "indexed in-process MCP discovery with bounded execution",
+    "bounded public catalog SQL",
+    "service-only atomic optional request/unit/concurrency policies tested in enabled and disabled modes",
+    "bounded operational retention and concurrent-index preparation",
+    "read-only health SQL and corrected release/rollback documentation"
+  ],
+  "pending_live_work": [
+    "Verify real Production project, deployment baseline and 52-version ledger through a secure approved connection",
+    "Provide a usable encrypted Production backup and successful isolated restore receipt, including recovery-key access and required resource scope",
+    "After separate approval, commit exact manifest, apply only additive migration plus separate concurrent index, then publish/deploy with budgets disabled",
+    "Budget calibration and any provider changes remain separate, inactive work; no policy activation in this release"
+  ],
+  "release_order": [
+    "verified project/backup/restore and separate authorization",
+    "only new transactional migration",
+    "concurrent retention index outside transaction, verify valid/ready/exact definition",
+    "approved candidate deployment with budgets disabled"
+  ],
+  "rollback": "Revert application to recorded canonical baseline deployment; leave additive operational schema/index dormant. Disable individual new policy flags independently. No financial rollback or record deletion.",
+  "live_changes": false,
+  "commit_or_push": false,
+  "real_payments_or_paid_tests": false,
+  "worker_launch_or_email": false,
+  "original_dirty_workspace_changed": false,
+  "limitations": [
+    "Full suite is not entirely green because of one confirmed baseline CSS assertion",
+    "Production peak evidence unavailable; new ceilings are not calibrated or active",
+    "Offline fixtures/build do not prove live provider quality, account limits or deployment behavior",
+    "Public catalog/SEO default bounds are 1000 rows; larger inventories need pagination; existing owner reads and sitemap interval unchanged"
+  ],
+  "release_finalization": {
+    "runtime_source_unchanged": true,
+    "recovery_rehearsal": {
+      "scope": "synthetic_offline_only",
+      "production_backup_verified": false,
+      "synthetic_restore_seconds": 0.683,
+      "status": "PASS",
+      "historical_migrations_restored": 52,
+      "additive_migration_rehearsed": true,
+      "concurrent_index_valid": true,
+      "encrypted_roundtrip_and_corruption_detection": true,
+      "business_tables_preserved": 39,
+      "grants_rls_functions_indexes_restored": true,
+      "unexpected_ledger_and_reapplication_blocked": true,
+      "postflight_permission_drift_rejected": true,
+      "bounded_cleanup_after_restore": true,
+      "synthetic_total_seconds": 6.597
+    },
+    "current_readiness": "docs/infrastructure/release-readiness.json",
+    "authoritative_sequence": "docs/infrastructure/controlled-release.md",
+    "initial_budget_profile": "docs/infrastructure/initial-budget-profile.env",
+    "production_receipt_verified": false,
+    "html_waf_work": "excluded from this release and not a gate",
+    "test_reuse": "Full application, eight existing database harnesses and optimized build evidence reused because runtime source is byte-identical; new recovery/preflight tests run separately.",
+    "recovery_rehearsal_log": "/tmp/mahshar-database-regression-7i5ezvd8/tests__infrastructure__recovery-rehearsal.py.log"
+  }
+}

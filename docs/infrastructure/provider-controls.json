@@ -1,0 +1,87 @@
+{
+  "status": "prepared_only_not_applied",
+  "baseline": "e77788a7f4342b2e4d23a7b384be38dab13f5759",
+  "vercel": {
+    "last_verified_plan": "hobby",
+    "last_verified_firewall": {
+      "active": null,
+      "draft": null,
+      "versions": []
+    },
+    "candidate": {
+      "name": "Observe AI match bursts",
+      "method_equals": "POST",
+      "path_equals": "/api/ai/match",
+      "counting_key": "Client IP",
+      "algorithm": "fixed_window",
+      "window_seconds": 60,
+      "threshold": 60,
+      "action": "log"
+    },
+    "rationale": "Three times the existing 20/minute application IP limit allows observation of persistent bursts with less shared-IP noise. This observes traffic and does not prevent cost consumption.",
+    "publish_allowed": false,
+    "required_preflight": [
+      "Reconfirm Production SHA, team plan and full active/draft/versioned firewall snapshot",
+      "Establish current usage, region-specific pricing and Hobby allowance behavior in the account UI",
+      "Confirm only one new rule and no alteration of existing rules",
+      "Review exact POST plus exact path, Client IP, 60 seconds, threshold 60 and Log action",
+      "Receive separate live-configuration approval"
+    ],
+    "stop_if_unknown": true,
+    "note": "This is a review specification, not a Vercel API payload or executable publisher. The single Hobby rate-limit slot is regional, not a global distributed-IP budget. Never apply challenges to machine interfaces.",
+    "html_scraping": {
+      "status": "UNCONFIGURED_REQUIRES_SEPARATE_APPROVAL",
+      "scope": "HTML /, /marketplace, listing detail and alternative deployment hosts",
+      "effect_of_prepared_ai_log_rule": "none for HTML; no enforcement for AI",
+      "preflight": "Observe normal traffic; establish current Hobby capabilities/pricing/regional behavior and exact rule diff before approval; preserve machine interfaces"
+    }
+  },
+  "groq": {
+    "account_limits": "UNKNOWN",
+    "proposed_after_approval": [
+      "Record actual organization tier, model request/token limits and existing consumers",
+      "Set project model limits compatible with approved application budgets and legitimate usage",
+      "If the existing paid account supports it, set an owner-approved organization USD spend limit and 50/75/90 percent email alerts",
+      "Account for provider spend-accounting delay; do not treat a provider cap as an instantaneous guarantee"
+    ],
+    "upgrade_allowed": false
+  },
+  "supabase": {
+    "organization_plan_last_observed": "free",
+    "project_binding": "must_reconfirm_before_live_actions",
+    "paid_spend_cap": "UNKNOWN_NOT_ASSUMED_APPLICABLE_TO_FREE",
+    "last_observed_pitr": false,
+    "last_observed_available_backups": 0,
+    "proposed_after_approval": [
+      "Confirm correct Production project, quota consumption, connection headroom and alert recipients",
+      "Prepare encrypted logical backup and restore it into an isolated disposable database before migration approval",
+      "Apply only the new additive resource migration and separately approved concurrent retention index; never replay historical migrations",
+      "Verify the existing authenticated daily maintenance cron and CRON_SECRET configuration"
+    ]
+  },
+  "circle_arc_bridge": {
+    "account_quotas_and_billing": "UNKNOWN",
+    "proposed_after_approval": [
+      "Inspect actual Circle Onramp/Gateway API quotas and Arc RPC account limits",
+      "Configure usage alerts and provider-approved quotas with headroom for settlement and response recovery",
+      "Do not place verification, settlement, withdrawal or recovery behind the new AI/operational budgets"
+    ]
+  },
+  "cloudflare_brevo_helius_walletconnect_workflow": {
+    "account_quotas_and_alerts": "UNKNOWN",
+    "proposed_after_approval": [
+      "Inspect Cloudflare Worker triggers, domain/origin restrictions and usage; previous control-plane access was denied",
+      "Inspect Brevo credits, daily send limits, transactional alerts and webhook retry volume; do not send a test email",
+      "Inspect Helius public-key origin restrictions and RPC quotas; keep legitimate Solana wallets compatible",
+      "Inspect WalletConnect project usage and allowed origins including approved agent/client environments",
+      "Inspect Vercel Workflow/Queues execution and storage usage and paused/stopped Worker state"
+    ]
+  },
+  "application_budget_policy": {
+    "status": "disabled_by_default_no_budget_rpc_when_disabled",
+    "enablement": "separate calibrated approval, literal true per-policy flag and all explicit ceilings",
+    "production_peak_evidence": "UNKNOWN_NOT_CALIBRATED",
+    "initial_release": "all new flags absent"
+  },
+  "current_release_scope": "Only the existing compatible application/operational protection candidate. Historical firewall specifications below are excluded and are not required or published by this release. New provider limits and budget activation are separate approvals."
+}

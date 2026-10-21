@@ -99,5 +99,7 @@ async function latencyResponse(database: Database = createServiceClient()) {
 }
 
 export async function GET() {
-  return latencyResponse();
+  const response = await latencyResponse();
+  response.headers.set('Cache-Control', 'no-store');
+  return response;
 }

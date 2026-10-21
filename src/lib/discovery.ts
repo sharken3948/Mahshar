@@ -1,4 +1,5 @@
-import { groq, GROQ_MODEL, DISCOVERY_PROMPT_SYSTEM, buildDiscoveryPrompt, ensureGroqAvailable } from '@/lib/groq';
+import { budgetedCompletion } from '@/lib/groq-completion'
+import { GROQ_MODEL, DISCOVERY_PROMPT_SYSTEM, buildDiscoveryPrompt, ensureGroqAvailable } from '@/lib/groq';
 import { isOutboundUrlShapeAllowed } from '@/lib/outbound-fetch';
 
 // Shared by crawl and retest routes — keeps Groq model/prompt in one place.
@@ -9,7 +10,7 @@ export async function scoreForDiscovery(
   description: string,
 ): Promise<{ score: number; reason: string }> {
   ensureGroqAvailable();
-  const completion = await groq.chat.completions.create({
+  const completion = await budgetedCompletion('background', {
     model: GROQ_MODEL,
     messages: [
       { role: 'system', content: DISCOVERY_PROMPT_SYSTEM },

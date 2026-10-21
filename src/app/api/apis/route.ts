@@ -1,3 +1,4 @@
+import { resourceAdmission } from '@/lib/resource-admission'
 import { withWalletSession, marketplaceErrors, requireWalletSession } from '@/lib/marketplace/server'
 import { assertWalletClaim, normalizedWallet } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server';
@@ -53,20 +54,30 @@ export const GET = marketplaceErrors(async (request: NextRequest) => {
     query = query.ilike('seller_wallet', sellerWallet)
   }
 
+  const offset = Number(searchParams.get('offset') ?? 0)
+  if (!Number.isInteger(offset) || offset < 0 || offset > 10000) return NextResponse.json({ error: 'invalid_offset' }, { status: 400 })
   const limit = searchParams.get('limit')
   if (limit) {
     const parsedLimit = parseInt(limit, 10)
     if (isFinite(parsedLimit) && parsedLimit > 0) query = query.limit(Math.min(parsedLimit, 100))
   }
 
-  const { data, error } = await query.order('created_at', { ascending: false })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const parsedPublicLimit = parseInt(limit ?? '', 10)
+  const publicLimit = Number.isFinite(parsedPublicLimit) && parsedPublicLimit > 0 ? Math.min(parsedPublicLimit, 100) : 1000
+  if (!sellerWallet) query = query.range(offset, offset + publicLimit - 1)
+  const load = async () => {
+    const result = await query.order('created_at', { ascending: false })
+    if (result.error) throw new Error('catalog_read_failed')
+    return result
+  }
+  const { data, error } = await load().catch(() => ({ data: null, error: { message: 'Catalog temporarily unavailable' } }))
+  if (error) return NextResponse.json({ error: 'Catalog temporarily unavailable' }, { status: 503, headers: { 'Retry-After': '5', 'Cache-Control': 'no-store' } });
   const rows = (data ?? []) as unknown as Record<string, unknown>[]
   const audited = rows.map(row => ({ row, contract: validateListingRequestContract(row as Parameters<typeof validateListingRequestContract>[0]) }))
   const apis = sellerWallet
     ? audited.map(({ row, contract }) => ({ ...publicListing(row), request_contract_error: contract.ok ? null : contract.error }))
     : audited.filter(({ contract }) => contract.ok).map(({ row }) => publicListing(row))
-  return NextResponse.json({ apis }, sellerWallet ? { headers: { 'Cache-Control': 'no-store' } } : undefined);
+  return NextResponse.json({ apis }, { headers: { 'Cache-Control': 'no-store' } });
 })
 
 export const POST = withWalletSession(async (request: NextRequest, authenticatedWallet: string) => {
@@ -158,6 +169,8 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     return NextResponse.json({ error: requestContract.error, field: requestContract.field }, { status: 400 });
   }
 
+  const admission = await resourceAdmission('listing-create', authenticatedWallet)
+  if (admission.response) return admission.response
   const urlValidation = await validateEndpointUrl(endpoint_url);
   if (!urlValidation.valid) {
     return NextResponse.json({ error: 'Invalid endpoint URL', reason: urlValidation.error }, { status: 400 });

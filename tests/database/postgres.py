@@ -50,11 +50,11 @@ with tempfile.TemporaryDirectory(prefix='mahshar-schema-test-') as temporary:
                         '-U', 'schema_test', '-d', 'postgres'], input=statement).stdout.strip()
 
         sql('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;')
-        # This suite covers the 20 core migrations; the Worker suite replays
-        # the full chain, including both Worker migrations.
+        # This historical repair suite deliberately stops at the core repair
+        # boundary. Later migrations have their own full-chain regressions.
         migrations = [
             migration for migration in (ROOT / 'supabase/migrations').glob('*.sql')
-            if not migration.name.startswith(('20261001000100_', '20261001000110_'))
+            if migration.name.split('_', 1)[0] <= '20261001000030'
         ]
         versions = [migration.name.split('_', 1)[0] for migration in migrations]
         assert all(version.isdigit() for version in versions), versions

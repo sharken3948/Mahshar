@@ -7,10 +7,12 @@ export const alice = privateKeyToAccount(`0x${'11'.repeat(32)}`)
 export const bob = privateKeyToAccount(`0x${'22'.repeat(32)}`)
 export const origin = 'https://mahshar.xyz'
 export const state = { tables: {} as Record<string, Record<string, any>[]>, upstream: 0, settled: 0,
+  resourceAllowed: true, resourceError: false, resourceCalls: 0, resourcePruneCalls: 0, resourceReleaseCalls: 0, resourcePruneResult: 0, reads: 0,
   rateLimitError: false, rateLimitAllowed: true, failApiCallInsert: false, failApiCallRead: false, pruneCalls: 0, pruneResult: 0,
   failListingInsert: false, urlValidationCalls: 0,
   authPruneCalls: 0, authPruneResult: { challenges: 0, sessions: 0 } }
 export function reset() {
+  state.resourceAllowed = true; state.resourceError = false; state.resourceCalls = 0; state.resourcePruneCalls = 0; state.resourceReleaseCalls = 0; state.resourcePruneResult = 0; state.reads = 0
   state.upstream = 0; state.settled = 0; state.urlValidationCalls = 0
   state.rateLimitError = false; state.rateLimitAllowed = true
   state.failApiCallInsert = false; state.failApiCallRead = false; state.failListingInsert = false
@@ -66,6 +68,7 @@ class Query {
   lte(key: string, value: unknown) { this.predicates.push(r => r[key] <= (value as any)); return this }
   order(key: string, options?: { ascending?: boolean }) { this.orderBy.push({ key, ascending: options?.ascending !== false }); return this }
   limit(n: number) { this.take = n; return this }
+  abortSignal(_signal: AbortSignal) { return this }
   range(from: number, to: number) { this.skip = from; this.take = to - from + 1; return this }
   single<T = unknown>() { this.singleRow = true; return this as Query & PromiseLike<{ data: T; error: null }> }
   maybeSingle() { this.singleRow = true; return this }
@@ -73,6 +76,7 @@ class Query {
   delete() { this.mutation = { kind: 'delete' }; return this }
   insert(value: Record<string, any>) { this.mutation = { kind: 'insert', value }; return this }
   then(resolve: (value: any) => unknown) {
+    if (!this.mutation) state.reads++
     if (this.table === 'api_calls' && !this.mutation && state.failApiCallRead) {
       return Promise.resolve({ data: null, error: { code: 'XX000', message: 'sensitive storage detail' } }).then(resolve)
     }
@@ -112,7 +116,14 @@ class Query {
   }
 }
 export function createServiceClient() {
-  return { from: (name: string) => new Query(name), rpc: async (name: string, args: Record<string, any>) => {
+  return { from: (name: string) => new Query(name), rpc: (name: string, args: Record<string, any>) => {
+    const result = (async () => {
+    if (name === 'mahshar_reserve_resource') {
+      state.resourceCalls++
+      return { data: state.resourceError ? null : [{ allowed: state.resourceAllowed, lease_id: args.p_lease_scope ? randomUUID() : null, retry_after_seconds: 60 }], error: state.resourceError ? { message: 'budget backend unavailable' } : null }
+    }
+    if (name === 'mahshar_prune_resource_records') { state.resourcePruneCalls++; return { data: [{ budgets: state.resourcePruneResult, leases: 0, rate_limits: 0 }], error: state.resourceError ? { message: 'retention backend unavailable' } : null } }
+    if (name === 'mahshar_release_resource') { state.resourceReleaseCalls++; return { data: null, error: null } }
     if (name === 'mahshar_take_rate_limit') {
       if (state.rateLimitError) return { data: null, error: { message: 'limiter unavailable' } }
       return { data: [{ allowed: state.rateLimitAllowed, remaining: state.rateLimitAllowed ? Number(args.p_limit) - 1 : 0,
@@ -163,5 +174,7 @@ export function createServiceClient() {
       return { data: row, error: null }
     }
     throw new Error(`Unexpected test RPC: ${name}`)
+    })()
+    return Object.assign(result, { abortSignal: (_signal: AbortSignal) => result })
   } }
 }

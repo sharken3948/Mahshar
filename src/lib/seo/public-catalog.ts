@@ -38,7 +38,7 @@ export async function getPublicSeoListings(): Promise<PublicSeoListing[]> {
       .from('api_listings')
       .select(SEO_CATALOG_COLUMNS)
       .eq('is_active', true)
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false }).limit(1000)
 
     if (error) {
       console.error('[seo-catalog] listing read failed')

@@ -264,29 +264,19 @@ test('get_api reports an unknown active API ID without accessing private routes'
   assert.deepEqual(body.result.structuredContent, { error: 'api_not_found', api_id: unknownId })
 })
 
-test('get_api follows only consistent bounded discovery pages', async () => {
-  const otherId = '22222222-2222-4222-8222-222222222222'
-  const offsets: number[] = []
+test('get_api uses one indexed discovery request instead of scanning the catalog', async () => {
+  const requested: URL[] = []
   const handler = handlerWith(input => {
-    const url = new URL(String(input))
-    const offset = Number(url.searchParams.get('offset'))
-    offsets.push(offset)
-    if (offset < 200) {
-      return discoveryResponse({
-        apis: Array.from({ length: 100 }, () => ({ ...publicListing, id: otherId })),
-        pagination: { limit: 100, offset, returned: 100, next_offset: offset + 100 },
-      })
-    }
-    return discoveryResponse({
-      pagination: { limit: 100, offset, returned: 1, next_offset: null },
-    })
+    requested.push(new URL(String(input)))
+    return discoveryResponse({ pagination: { limit: 100, offset: 0, returned: 1, next_offset: null } })
   })
   const { body } = await modernRequest(handler, 'tools/call', {
     name: 'get_api', arguments: { api_id: API_ID },
   }, 'get_api')
-
   assert.equal(body.result.structuredContent.api.id, API_ID)
-  assert.deepEqual(offsets, [0, 100, 200])
+  assert.equal(requested.length, 1)
+  assert.equal(requested[0].searchParams.get('api_id'), API_ID)
+  assert.equal(requested[0].searchParams.get('offset'), '0')
 })
 
 test('tool schemas reject pagination overflow, invalid IDs, and unknown arguments', async () => {

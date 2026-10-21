@@ -1,0 +1,5 @@
+import '../x402/delivery-migration.test.ts'
+import '../x402/errors.test.ts'
+import '../x402/integration.test.ts'
+import '../x402/no-memo.test.ts'
+import '../x402/settlement.test.ts'

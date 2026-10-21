@@ -1,6 +1,6 @@
 """Runs after all 50 Production migrations in the disposable multi-source harness."""
 timing_migration = ROOT / 'supabase/migrations/20261019000200_admin_worker_immediate_continuation.sql'
-assert len(list((ROOT / 'supabase/migrations').glob('*.sql'))) == 51
+assert len([p for p in (ROOT / 'supabase/migrations').glob('*.sql') if p.name.split('_')[0] <= timing_migration.name.split('_')[0]]) == 51
 before_timing = snapshots()
 old_mail_recovery = sql("SELECT pg_get_functiondef('public.mahshar_worker_mail_recover(uuid,integer)'::regprocedure);")
 old_source_update = sql("SELECT pg_get_functiondef('public.mahshar_worker_discovery_source_update(uuid,text,bigint,jsonb)'::regprocedure);")

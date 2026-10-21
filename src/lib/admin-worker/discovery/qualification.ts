@@ -1,7 +1,8 @@
+import { budgetedCompletion } from '@/lib/groq-completion'
 import 'server-only'
 import {
   GROQ_MODEL, UNTRUSTED_CLOSE, UNTRUSTED_OPEN, ensureGroqAvailable, fenceUntrusted,
-  groq, redactSecrets, redactUrlSecrets,
+  redactSecrets, redactUrlSecrets,
 } from '@/lib/groq-neutral'
 import { WORKER_FIT_THRESHOLD, WORKER_REVIEW_THRESHOLD } from '../constants'
 import type { ProvenanceFact, RawCandidate, WorkerQualification } from './types'
@@ -55,7 +56,7 @@ export const WORKER_QUALIFICATION_SYSTEM = `You qualify public APIs for Mahshar,
 
 async function callGroq(system: string, prompt: string): Promise<unknown> {
   ensureGroqAvailable()
-  const completion = await groq.chat.completions.create({
+  const completion = await budgetedCompletion('background', {
     model: GROQ_MODEL,
     messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
     response_format: { type: 'json_object' }, temperature: 0.1,
