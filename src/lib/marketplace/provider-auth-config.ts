@@ -1,6 +1,8 @@
 import type { AuthType } from '@/types'
 
-export const PROVIDER_AUTH_TYPES = ['public', 'apikey', 'bearer', 'queryparam', 'basic', 'headers', 'authorization'] as const satisfies readonly AuthType[]
+export const PROVIDER_AUTH_TYPES = ['public', 'apikey', 'bearer', 'queryparam', 'basic', 'headers', 'authorization',
+  'oauth_client_credentials', 'oauth_pkce'] as const satisfies readonly AuthType[]
+export const isOAuth = (type: string) => type === 'oauth_client_credentials' || type === 'oauth_pkce'
 
 export class ProviderAuthError extends Error {
   constructor() { super('Provider authentication is invalid or unavailable') }
@@ -34,6 +36,20 @@ export function validateCredentialHeader(raw: unknown): string {
     /^(?:sec-|proxy-|access-control-|x-forwarded-|x-arc-|x-mahshar-|x-vercel-|x-middleware-|x-envoy-|x-original-|x-rewrite-|if-|cf-)/.test(reservedName)) throw new ProviderAuthError()
   return name
 }
+export type OAuthConfiguration = { provider: string; client_id: string; client_secret?: string; account_mode: 'seller' | 'buyer';
+  resource_headers?: Record<string, string> }
+export function oauthConfiguration(credential?: string): OAuthConfiguration {
+  const config = credentialObject(credential)
+  keys(config, ['provider', 'client_id', 'client_secret', 'account_mode', 'headers'])
+  if (config.account_mode !== 'seller' && config.account_mode !== 'buyer') throw new ProviderAuthError()
+  const provider = credentialString(config.provider, 64)
+  if (!/^[a-z][a-z0-9_-]*$/.test(provider)) throw new ProviderAuthError()
+  return { provider, client_id: credentialString(config.client_id, 1024),
+    ...(config.client_secret !== undefined ? { client_secret: credentialString(config.client_secret, 4096) } : {}),
+    ...(config.headers !== undefined ? { resource_headers: staticAuthentication('headers', JSON.stringify({ headers: config.headers })).headers } : {}),
+    account_mode: config.account_mode }
+}
+
 /** New credential bundles live entirely inside the existing AES-GCM encrypted_key. */
 export function staticAuthentication(authType: AuthType, credential?: string, param?: string | null) {
   const headers: Record<string, string> = {}
@@ -99,6 +115,10 @@ export function staticAuthentication(authType: AuthType, credential?: string, pa
         Object.assign(headers, extra.headers); secrets.push(...extra.secrets)
       }
     }
+  } else if (isOAuth(authType)) {
+    const config = oauthConfiguration(credential)
+    if (authType === 'oauth_client_credentials' && (config.account_mode !== 'seller' || !config.client_secret)) throw new ProviderAuthError()
+    secrets.push(config.client_id, ...(config.client_secret ? [config.client_secret] : []), ...Object.values(config.resource_headers ?? {}))
   } else throw new ProviderAuthError()
   if (!['apikey', 'bearer', 'queryparam'].includes(authType) && Buffer.byteLength(JSON.stringify(headers)) > 16384) throw new ProviderAuthError()
   for (const value of Object.values(headers)) secrets.push(value)
@@ -117,4 +137,6 @@ export const AUTH_BUNDLE_EXAMPLES: Partial<Record<AuthType, string>> = {
   basic: '{"username":"token-id","password":"secret"}',
   headers: '{"headers":[{"name":"X-Client-ID","value":"id"},{"name":"X-Client-Secret","value":"secret"}]}',
   authorization: '{"scheme":"Token","token":"secret"}',
+  oauth_client_credentials: '{"provider":"approved-profile","client_id":"id","client_secret":"secret","account_mode":"seller"}',
+  oauth_pkce: '{"provider":"approved-profile","client_id":"id","client_secret":"secret","account_mode":"seller"}',
 }

@@ -2,7 +2,8 @@ import { MAX_LISTING_BODY_BYTES } from '@/lib/marketplace/listing-body'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { validateEndpointUrl } from '@/lib/url-validation'
-import { PROVIDER_AUTH_TYPES, validateProviderCredential } from '@/lib/marketplace/provider-auth-config'
+import { PROVIDER_AUTH_TYPES, validateProviderCredential, isOAuth, oauthConfiguration } from '@/lib/marketplace/provider-auth-config'
+import { approvedOAuthProfile } from '@/lib/marketplace/provider-oauth-profiles'
 import { encryptKey, decryptKey } from '@/lib/crypto'
 import { withWalletSession, requireListingOwner, requireOperationAuthorizationForPayload } from '@/lib/marketplace/server'
 import { assertWalletClaim, OPERATION_AUTH_HEADER } from '@/lib/marketplace/operation-authorization'
@@ -132,7 +133,12 @@ export const PATCH = withWalletSession(async (request: NextRequest, wallet: stri
     try {
       const credential = updated.encrypted_key ? decryptKey(String(updated.encrypted_key)) : undefined
       if (!validateProviderCredential(updated.auth_type, credential, updated.auth_param_name)) throw new Error()
-    } catch { return NextResponse.json({ error: 'Invalid provider authentication' }, { status: 400 }) }
+      if (isOAuth(updated.auth_type)) {
+        const config = oauthConfiguration(credential)
+        const profile = approvedOAuthProfile(config.provider, updated.endpoint_url, updated.auth_type === 'oauth_pkce' ? 'authorization_code' : 'client_credentials')
+        if (profile.client_auth !== 'none' && !config.client_secret) throw new Error()
+      }
+    } catch { return NextResponse.json({ error: isOAuth(updated.auth_type) ? 'Invalid or unapproved provider authentication' : 'Invalid provider authentication' }, { status: 400 }) }
   }
   if (sensitivePatchChanged(body, patch, listing) || request.headers.has(OPERATION_AUTH_HEADER)) {
     const operationWallet = await requireOperationAuthorizationForPayload(request, body)

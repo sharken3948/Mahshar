@@ -21,7 +21,10 @@ const models = [
   { type: 'authorization', variant: 'ApiKey', key: bundle({ scheme: 'ApiKey', token: 'browser-apikey-private' }) },
   { type: 'headers', variant: 'multiple', key: bundle({ headers: [{ name: 'X-Client-ID', value: 'browser-client-id' },
     { name: 'X-Client-Secret', value: 'browser-client-private' }], authorization: { scheme: 'Bearer', token: 'browser-multi-private' } }) },
-
+  ...['oauth_client_credentials', 'oauth_pkce'].map(type => ({ type, key: bundle({ provider: 'fixture',
+    client_id: 'browser-oauth-id', client_secret: 'browser-oauth-private', account_mode: 'seller' }) })),
+  { type: 'oauth_pkce', variant: 'buyer', key: bundle({ provider: 'fixture', client_id: 'browser-oauth-id',
+    client_secret: 'browser-oauth-private', account_mode: 'buyer' }) },
 ]
 const browser = await chromium.launch({ headless: true,
   ...(process.env.MAHSHAR_CHROMIUM_EXECUTABLE ? { executablePath: process.env.MAHSHAR_CHROMIUM_EXECUTABLE } : {}) })
@@ -43,6 +46,14 @@ try {
         responses.push(body)
         return route.fulfill({ response, body })
       }
+      if (url.origin === 'https://auth.provider.example' && url.pathname === '/authorize') {
+        assert.equal(url.searchParams.get('code_challenge_method'), 'S256')
+        assert.match(url.searchParams.get('code_challenge'), /^[A-Za-z0-9_-]{43}$/)
+        assert.equal(url.searchParams.get('client_secret'), null)
+        const callback = new URL(url.searchParams.get('redirect_uri'))
+        const target = base + callback.pathname + '?state=' + encodeURIComponent(url.searchParams.get('state'))
+        return route.fulfill({ contentType: 'text/html', body: `<h1>Mock provider consent</h1><a href="${target}&code=browser-code">Approve fixture</a><a href="${target}&error=access_denied">Deny fixture</a>` })
+      }
       throw new Error('External browser network forbidden: ' + url.origin)
     })
     const waitRequest = (path, method, click) => Promise.all([
@@ -57,17 +68,33 @@ try {
       await page.getByLabel(/^Authentication/).selectOption(model.type)
       if (model.key) await page.locator('input[type=password]').fill(model.key)
       if (model.param) await page.getByLabel(/^Credential parameter/).fill(model.param)
-      assert.equal(await page.locator('option[value^="oauth_"]').count(), 0)
-      const analyzed = await waitRequest('/api/ai/score', 'POST', () => page.getByRole('button', { name: 'Analyze', exact: true }).click())
-      assert.equal((await analyzed.json()).endpoint_verified, true)
-      const published = await waitRequest('/api/apis', 'POST', () => page.getByRole('button', { name: 'Publish API', exact: true }).click())
-      assert.equal(published.status(), 201, await published.text())
-      await page.waitForFunction(() => window.__navigation === '/dashboard/apis')
+      const oauth = model.type.startsWith('oauth_')
+      if (oauth) {
+        const saved = await waitRequest('/api/apis', 'POST', () => page.getByRole('button', { name: 'Save OAuth configuration' }).click())
+        assert.equal(saved.status(), 201, await saved.text())
+      } else {
+        const analyzed = await waitRequest('/api/ai/score', 'POST', () => page.getByRole('button', { name: 'Analyze', exact: true }).click())
+        assert.equal((await analyzed.json()).endpoint_verified, true)
+        const published = await waitRequest('/api/apis', 'POST', () => page.getByRole('button', { name: 'Publish API', exact: true }).click())
+        assert.equal(published.status(), 201, await published.text())
+        await page.waitForFunction(() => window.__navigation === '/dashboard/apis')
+      }
       let serverEvidence = await (await page.request.get(base + '/fixture/evidence')).json()
       const id = serverEvidence.listings[0].id
       await page.goto(base + '/?edit=' + id)
       await page.getByRole('button', { name: 'Save changes', exact: true }).waitFor()
       assert.equal(await page.locator('input[type=password]').count() ? await page.locator('input[type=password]').inputValue() : '', '')
+      if (oauth) {
+        const connected = await waitRequest('/api/provider-oauth/' + id, 'POST', () => page.getByRole('button', { name: 'Connect provider', exact: true }).click())
+        assert.equal(connected.status(), 200)
+        if (model.type === 'oauth_pkce') {
+          await page.getByRole('link', { name: 'Approve fixture' }).click()
+          await page.waitForURL(/provider_oauth=connected/)
+          await page.goto(base + '/?edit=' + id)
+        }
+        const verified = await waitRequest(`/api/apis/${id}/verify`, 'POST', () => page.getByRole('button', { name: 'Verify saved setup', exact: true }).click())
+        assert.equal((await verified.json()).verified, true)
+      }
       await page.getByLabel(/^API Name/).fill('Browser Provider edited')
       const saved = await waitRequest(`/api/apis/${id}`, 'PATCH', () => page.getByRole('button', { name: 'Save changes', exact: true }).click())
       assert.equal(saved.status(), 200, await saved.text())
@@ -77,11 +104,33 @@ try {
         const replaced = await waitRequest(`/api/apis/${id}`, 'PATCH', () => page.getByRole('button', { name: 'Save changes', exact: true }).click())
         assert.equal(replaced.status(), 200, await replaced.text())
         await page.getByRole('button', { name: 'Verify saved setup', exact: true }).waitFor()
+        // OAuth replacements require a new connection because the encrypted config hash changed.
+        if (oauth) {
+          await waitRequest('/api/provider-oauth/' + id, 'POST', () => page.getByRole('button', { name: 'Connect provider', exact: true }).click())
+          if (model.type === 'oauth_pkce') {
+            await page.getByRole('link', { name: 'Approve fixture' }).click()
+            await page.waitForURL(/provider_oauth=connected/)
+            await page.goto(base + '/?edit=' + id)
+          }
+        }
         const verified = await waitRequest(`/api/apis/${id}/verify`, 'POST', () => page.getByRole('button', { name: 'Verify saved setup', exact: true }).click())
         assert.equal((await verified.json()).verified, true)
       }
+      if (oauth) {
+        const status = await waitRequest('/api/provider-oauth/' + id, 'GET', () => page.getByRole('button', { name: 'Check connection', exact: true }).click())
+        assert.equal((await status.json()).status, 'active')
+        await page.getByLabel(/^API Name/).fill('Unsaved draft survives disconnect')
+        const disconnected = await waitRequest('/api/provider-oauth/' + id, 'DELETE', () => page.getByRole('button', { name: 'Disconnect provider', exact: true }).click())
+        assert.equal((await disconnected.json()).disconnected, true)
+        await page.getByText(/Disconnected locally/).waitFor()
+        assert.equal(await page.getByLabel(/^API Name/).inputValue(), 'Unsaved draft survives disconnect')
+        if (model.variant !== 'buyer') {
+          await page.getByRole('button', { name: 'Verify saved setup', exact: true }).waitFor()
+          assert.equal(await page.getByRole('button', { name: 'Activate listing', exact: true }).isDisabled(), true)
+        }
+      }
       for (const response of responses) {
-        for (const forbidden of ['encrypted_key', 'encrypted_tokens']) assert.ok(!response.includes(forbidden), forbidden)
+        for (const forbidden of ['encrypted_key', 'encrypted_tokens', 'browser-access-private-fixture', 'browser-refresh-private-fixture', 'browser-oauth-private', 'browser-oauth-replacement']) assert.ok(!response.includes(forbidden), forbidden)
       }
       assert.deepEqual(consoleErrors, [])
       serverEvidence = await (await page.request.get(base + '/fixture/evidence')).json()
@@ -143,6 +192,8 @@ try {
     const id = beforeCreate.listings[0].id
     await page.goto(base + '/?edit=' + id)
     await page.getByRole('button', { name: 'Save changes', exact: true }).waitFor()
+    // The final auth fixture is now PKCE; explicitly select the static bundle under test.
+    await page.getByLabel(/^Authentication/).selectOption('headers')
     const credential = bundle({ headers: [{ name: 'X-Private-Key', value: 'browser-retained-private' }] })
     await page.locator('input[type=password]').fill(credential)
     await page.getByLabel(/^Example Response/).fill('😀'.repeat(17000))
@@ -160,7 +211,8 @@ try {
     assert.equal(await page.getByLabel(/^Example Response/).inputValue(), '{}')
     const saved = page.waitForResponse(r => r.request().method() === 'PATCH')
     await page.getByRole('button', { name: 'Save changes', exact: true }).click()
-    assert.equal((await saved).status(), 200)
+    const savedResponse = await saved
+    assert.equal(savedResponse.status(), 200, await savedResponse.text())
     await page.waitForFunction(() => document.querySelector('input[type=password]').value === '')
     await page.screenshot({ path: `${evidenceDir}/browser-size-handling.png`, fullPage: true })
     results.push({ type: 'body-limit-ui', passed: true, scenarios: ['analysis preflight', 'Create preflight', 'Create server 413 keeps draft', 'Edit UTF-8 preflight before proof', 'Edit server 413 keeps draft', 'reduced input saves'] })
@@ -170,4 +222,4 @@ try {
   await writeFile(`${evidenceDir}/browser-results.json`, JSON.stringify({ browser: browser.version(), results }, null, 2))
   await browser.close()
 }
-console.log(`${models.length} Chromium auth flows and Create/Edit body-limit scenarios passed`)
+console.log(`${models.length} Chromium Seller auth flows and six accepted-limit scenarios passed`)

@@ -30,3 +30,7 @@ Module._load = function(id, parent, main) {
   }
   return load.call(this, id, parent, main)
 }
+// Node 24's dynamic-import CJS translator bypasses Module._load for an
+// uncached module's nested imports. Load the new OAuth boundary through the
+// same fixture hooks before the actual paid route imports it dynamically.
+load.call(Module, fileURLToPath(new URL('../../src/lib/marketplace/provider-oauth-preflight.ts', import.meta.url)))

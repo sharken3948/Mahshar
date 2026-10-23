@@ -8,8 +8,8 @@ test('OpenAPI and checked-in schema match the runtime listing contract', () => {
   const schema = readFileSync('supabase/schema.sql', 'utf8')
   assert.doesNotMatch(openapi, /enum: \[[^\]]*PATCH/)
   assert.match(openapi, /enum: \[GET, POST, PUT, DELETE\]/)
-  assert.match(openapi, /enum: \[public, apikey, bearer, queryparam, basic, headers, authorization\]/)
-  assert.match(schema, /auth_type in \('public', 'apikey', 'bearer', 'queryparam', 'basic', 'headers', 'authorization'\)/)
+  assert.match(openapi, /enum: \[public, apikey, bearer, queryparam, basic, headers, authorization, oauth_client_credentials, oauth_pkce\]/)
+  assert.match(schema, /auth_type in \('public', 'apikey', 'bearer', 'queryparam', 'basic', 'headers', 'authorization', 'oauth_client_credentials', 'oauth_pkce'\)/)
   assert.match(schema, /auth_param_name text/)
 })
 

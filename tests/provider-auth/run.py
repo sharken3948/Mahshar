@@ -12,7 +12,7 @@ cases = []
 def add(files, registers=()):
     for file in files.split():
         cases.append((file, registers))
-add('tests/provider-auth/authentication.test.ts tests/provider-auth/request-size.test.ts tests/provider-auth/p1-isolation.test.ts tests/provider-auth/listing-body.test.ts', ['tests/provider-auth/register.mjs'])
+add('tests/provider-auth/authentication.test.ts tests/provider-auth/oauth.test.ts tests/provider-auth/request-size.test.ts tests/provider-auth/p1-isolation.test.ts tests/provider-auth/listing-body.test.ts', ['tests/provider-auth/register.mjs'])
 add('tests/provider-auth/paid.test.ts', ['tests/provider-auth/paid-register.mjs'])
 add('src/lib/marketplace/upstream-auth.test.ts src/lib/marketplace/request-contract.test.ts src/lib/marketplace/buyer-proxy-request.test.ts src/lib/proxy-response.test.ts src/lib/proxy-policy.test.ts src/lib/request-body.test.ts src/lib/groq.test.ts src/lib/seo/listing.test.ts', ['tests/marketplace/register.mjs'])
 add('tests/marketplace/security.test.ts tests/marketplace/listing-creation-security.test.ts tests/marketplace/listing-security-match.test.ts tests/marketplace/listing-contract.test.ts tests/marketplace/session-auth.test.ts tests/marketplace/seller-onboarding.test.ts tests/marketplace/seller-analysis.test.ts', ['tests/marketplace/register.mjs'])

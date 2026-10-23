@@ -7,7 +7,8 @@ import { RequestParameterEditor } from '@/components/RequestParameterEditor'
 import { ProviderPriceBreakdown } from '@/components/ProviderPriceBreakdown'
 import type { DeclaredParameter } from '@/lib/marketplace/proxy-target'
 import { serializeListingBody, listingResponseError } from '@/lib/marketplace/listing-body'
-import { AUTH_BUNDLE_EXAMPLES } from '@/lib/marketplace/provider-auth-config'
+import { AUTH_BUNDLE_EXAMPLES, isOAuth } from '@/lib/marketplace/provider-auth-config'
+import { ProviderOAuthControls } from '@/components/ProviderOAuthControls'
 import type { ApiListing, AuthType } from '@/types'
 import styles from './onboarding-form.module.css'
 
@@ -277,13 +278,15 @@ export function EditListingForm({ listing, onClose, onListingChange }: {
     window.setTimeout(() => credentialRef.current?.focus(), 0)
   }
 
-  async function reloadListing() {
+  async function reloadListing(preserveDraft = false) {
     const response = await marketplaceFetch(`/api/apis/${encodeURIComponent(baseline.id)}`, { cache: 'no-store' })
     const payload = await response.json().catch(() => ({})) as { api?: ApiListing; error?: string }
     if (!response.ok || !payload.api) throw new Error(payload.error ?? 'The updated listing could not be reloaded.')
     setBaseline(payload.api)
-    setForm(stateFromListing(payload.api))
-    setCredentialReplacement('')
+    if (!preserveDraft) {
+      setForm(stateFromListing(payload.api))
+      setCredentialReplacement('')
+    }
     onListingChange(payload.api)
     return payload.api
   }
@@ -388,9 +391,11 @@ export function EditListingForm({ listing, onClose, onListingChange }: {
               if (authType === 'public') setCredentialReplacement('')
               update('auth_type', authType)
             }} className={inputClass()}>
-              <option value="public">Public</option><option value="apikey">API Key · x-api-key</option><option value="bearer">Bearer Token</option><option value="queryparam">Query Parameter</option><option value="basic">HTTP Basic</option><option value="headers">Custom credential headers</option><option value="authorization">Custom Authorization</option></select></Field>
+              <option value="public">Public</option><option value="apikey">API Key · x-api-key</option><option value="bearer">Bearer Token</option><option value="queryparam">Query Parameter</option><option value="basic">HTTP Basic</option><option value="headers">Custom credential headers</option><option value="authorization">Custom Authorization</option><option value="oauth_client_credentials">OAuth · Client Credentials</option><option value="oauth_pkce">OAuth · Authorization Code + PKCE</option></select></Field>
           </div>
           <Field label="Description" required><textarea required rows={2} maxLength={300} value={form.description} onChange={event => update('description', event.target.value)} className={inputClass()} /></Field>
+          {isOAuth(form.auth_type) && <ProviderOAuthControls apiId={baseline.id}
+            onConnectionChange={async () => { await reloadListing(true); setAnalysis(null) }} />}
           {AUTH_BUNDLE_EXAMPLES[form.auth_type] && <p>Enter the credential bundle as JSON in the encrypted credential field. Format: <code>{AUTH_BUNDLE_EXAMPLES[form.auth_type]}</code></p>}
           {form.auth_type !== 'public' && <div className={styles.credentialGrid}>
             {form.auth_type === 'queryparam' && <Field label="Credential parameter" error={fieldErrors.auth_param_name}>

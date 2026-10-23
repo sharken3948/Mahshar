@@ -9,7 +9,7 @@ node_dir = Path(os.environ.get('MAHSHAR_NODE_BIN', '/tmp/mahshar-provider-tools/
 env = dict(os.environ, PATH=str(node_dir) + ':' + os.environ['PATH'],
     NODE_ENV='production', NEXT_TELEMETRY_DISABLED='1', ENCRYPTION_KEY='ab' * 32,
     MARKETPLACE_ORIGIN='https://mahshar.xyz', NEXT_PUBLIC_SUPABASE_URL='https://disposable.invalid',
-    NEXT_PUBLIC_SUPABASE_ANON_KEY='fixture', SUPABASE_SERVICE_ROLE_KEY='fixture', GROQ_API_KEY='fixture',
+    NEXT_PUBLIC_SUPABASE_ANON_KEY='fixture', SUPABASE_SERVICE_ROLE_KEY='fixture', GROQ_API_KEY='fixture', PROVIDER_OAUTH_PROFILES='[]',
     ARC_MAINNET_RPC_URL='https://rpc.disposable.invalid',
     PLATFORM_WALLET_PRIVATE_KEY='0x' + 'ab' * 32,
     PLATFORM_WALLET_ADDRESS='0xe239cdc5fbe977a8a141B72194D3CF8c41bC5BC6')

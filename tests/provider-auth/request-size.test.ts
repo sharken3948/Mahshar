@@ -51,7 +51,7 @@ test('large legacy examples do not prevent compact metadata, availability or pri
 })
 
 test('supported static credential bundles plus a 32 KiB schema fit Seller Create', async () => {
-  for (const [auth_type, auth_key] of Object.entries(AUTH_BUNDLE_EXAMPLES)) {
+  for (const [auth_type, auth_key] of Object.entries(AUTH_BUNDLE_EXAMPLES).filter(([type]) => !type.startsWith('oauth_'))) {
     const body = JSON.stringify({ ...base, id: undefined, auth_type, auth_key,
       request_schema: { type: 'object', description: 'd'.repeat(31000) } })
     assert.ok(Buffer.byteLength(body) < 65536)

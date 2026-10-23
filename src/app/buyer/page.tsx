@@ -112,6 +112,7 @@ function ApiRow({ api, avgLatency, calling, paymentStep, onUse, purchased, onVie
             : 'Use API'}
         </button>
       )}
+        {api.auth_type === 'oauth_pkce' && <a href={`/provider-connections/${api.id}`} className={styles.apiAction}>Provider account</a>}
       </div>
     </article>
   )

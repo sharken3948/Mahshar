@@ -63,7 +63,7 @@ export const POST = withWalletSession(async (
       let upstreamSecrets: string[] = []
       const response = await safeOutboundFetch(target.toString(), async () => {
         const { requestUrl, headers: requestHeaders, secrets } = await providerAuthentication({
-          target, type: listing.auth_type, credential: authKey, param: listing.auth_param_name })
+          target, type: listing.auth_type, credential: authKey, param: listing.auth_param_name, listing, actorWallet: wallet })
         upstreamSecrets = secrets
         return { url: requestUrl, outboundInit: {
           method,

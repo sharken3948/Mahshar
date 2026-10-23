@@ -234,7 +234,7 @@ Return ONLY valid JSON with NO markdown:
     "description": <plain description under 300 characters or null>,
     "category": <allowed category or null>,
     "method": <GET, POST, PUT, DELETE, or null>,
-    "auth_type": <public, apikey, bearer, queryparam, basic, headers, authorization, or null>,
+    "auth_type": <public, apikey, bearer, queryparam, basic, headers, authorization, oauth_client_credentials, oauth_pkce, or null>,
     "auth_param_name": <credential query name or null>,
     "example_request": <valid JSON string or null>,
     "example_response": <valid JSON string or null>,

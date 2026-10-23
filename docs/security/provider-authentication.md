@@ -1,8 +1,8 @@
-# Provider authentication — P1 independent release
+# Provider authentication — deployed P1 and isolated P2 candidate
 
-P1 adds HTTP Basic, custom API-key headers, controlled Authorization schemes and multiple encrypted credentials to the existing public/API-key/Bearer/query modes. OAuth P2 is excluded from this candidate, including its routes, UI, types, provider configuration and database objects. The complete P2 implementation remains in the verified combined backup for a later release.
+P1 adds HTTP Basic, custom API-key headers, controlled Authorization schemes and multiple encrypted credentials to the existing public/API-key/Bearer/query modes. P1 is deployed at `361f92d9a8b3c1f87597fb66d9c62bd230d8097a`. This isolated candidate restores P2 OAuth on that exact baseline; it is not a Production release approval.
 
-The supported `auth_type` values are `public`, `apikey`, `bearer`, `queryparam`, `basic`, `headers` and `authorization`. Existing credential representations are unchanged. New bundles are JSON text supplied in `auth_key` and encrypted as a whole in the existing AES-GCM `encrypted_key` field. Owner reads expose only `credential_configured`; stored credentials are never returned to the editor, catalog or buyer. Leave the Edit credential blank to retain it, or replace the entire bundle.
+The deployed P1 `auth_type` values are `public`, `apikey`, `bearer`, `queryparam`, `basic`, `headers` and `authorization`. Existing credential representations are unchanged. New bundles are JSON text supplied in `auth_key` and encrypted as a whole in the existing AES-GCM `encrypted_key` field. Owner reads expose only `credential_configured`; stored credentials are never returned to the editor, catalog or buyer. Leave the Edit credential blank to retain it, or replace the entire bundle.
 
 Examples below are placeholders, not real provider credentials:
 
@@ -40,14 +40,18 @@ Create, Edit and analysis use the same 64 KiB UTF-8 serialized-body ceiling. The
 
 Compact edits to legacy listings containing large examples still work. Replacing an example or sending combined metadata above the ceiling returns 413. An older unbounded Edit client must respect the accepted limit.
 
-## Independent migration and rollout
+## P1 migration compatibility
 
-The sole P1 migration is `20261023091900_provider_authentication_p1.sql`, created with the installed CLI. It widens only `api_listings_auth_type_check` to the seven static modes. It creates no columns, tables, functions, triggers or OAuth objects, and changes no existing credentials, financial data or permissions. It was tested after all 53 canonical baseline migrations.
+The deployed P1 migration `20261023091900_provider_authentication_p1.sql` remains unchanged. All 54 migrations in the P1 baseline are preserved. The P1 credential representation, seven static types and accepted 64 KiB Create/Edit/analysis behavior above remain supported. Existing financial, settlement, Gateway, x402 and recovery implementations are retained.
 
-After separate Production approval, the required sequence is the P1-only migration followed by this P1 application artifact. The additive constraint accepts all existing modes during that interval. Do not apply the old combined migration as part of this release. No migration or deployment is performed by these instructions. Production lock duration and private schema drift were not measured locally.
+## P2 candidate
 
-An old application does not support new P1 auth types. An application rollback must first make those new-mode listings unavailable; retain the additive schema rather than dropping types while rows use them. No automatic down migration or listing mutation is supplied.
+The restored candidate adds `oauth_client_credentials` and `oauth_pkce`. OAuth client configuration remains an encrypted JSON bundle in `encrypted_key`. Access/refresh tokens and PKCE verifiers remain encrypted server-side in private tables. Sellers select an operator-approved profile, not arbitrary token endpoints or scopes. CC is seller-owned. PKCE can be seller-owned or buyer-delegated; buyer connections bind to the authenticated wallet and the settled payer. Public/owner listing responses expose configuration status, not stored credentials or tokens.
 
-The preserved combined P1/P2 backup is `backup/provider-auth-P1-P2-20261023T091105Z-ss05b9pn`; its worktree remains unchanged. Later P2 work must be rebased onto this P1 candidate and use a new forward migration after the P1 version to add its two types and private objects. Do not replay the old combined patch or back-date its migration into P1 history. This is future integration work, not a reason to ship dormant P2 in P1.
+Seller OAuth drafts must be saved before connecting. Connect requires the existing fresh wallet operation proof. PKCE uses state, S256, a five-minute expiry, HttpOnly browser binding, and wallet/session/configuration binding. Seller reconnect/configuration changes clear activation and verification. Disconnect clears local tokens and fences in-flight refresh/callback completion; remote revocation is best effort. Database leases serialize refresh and fail closed on uncertain rotation. There is no process-global token cache.
 
-See [the P1 readiness report](provider-authentication-audit.md) for the exact evidence and release decision.
+The only new version is `20261023162226_provider_oauth_p2.sql`, generated using the installed Supabase CLI. It widens the P1 auth CHECK to nine types, adds two private RLS-enabled tables, service-role-only functions and a configuration invalidation trigger. The old combined migration `20261022000100_provider_authentication.sql` is deliberately absent. Migration compatibility was tested after the complete P1 chain on disposable PostgreSQL 16 and 17; no Production migration was performed.
+
+A future approved rollout must verify source identity, private schema/migration history, trusted TLS and backup readiness before applying that forward migration and then the matching application. CHECK alteration takes a table lock; local tests do not measure Production lock duration or private drift. An application rollback must first make OAuth listings unavailable; retain the additive schema rather than dropping types/tables while in use. No down migration or Production execution is supplied by this task.
+
+See [P2 readiness evidence](provider-authentication-audit.md) and [provider accounts, app registration, credentials and approval requirements](provider-oauth-testing.md). The prior combined and P1 backups remain preserved. Real-provider verification is blocked until legitimate isolated applications and operator approval are supplied.

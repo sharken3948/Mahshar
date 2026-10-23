@@ -138,7 +138,7 @@ export async function proxyRequest(params: {
     upstreamResponse = await fetchUpstreamWithoutRedirects(targetUrl, async (validatedUrl: URL) => {
       const credential = listing.encrypted_key && listing.auth_type !== 'public' ? decryptKey(listing.encrypted_key) : undefined
       const { requestUrl, headers, secrets } = await providerAuthentication({ target: validatedUrl,
-        type: listing.auth_type, credential, param: listing.auth_param_name })
+        type: listing.auth_type, credential, param: listing.auth_param_name, listing, actorWallet: params.buyerWallet })
       upstreamSecrets = secrets
       return { url: requestUrl, outboundInit: {
         method: params.method,

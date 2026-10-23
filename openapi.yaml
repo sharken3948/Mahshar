@@ -251,7 +251,7 @@ components:
           type: object
           required: [type, injected_by, credential_location, seller_credentials_exposed]
           properties:
-            type: { enum: [public, apikey, bearer, queryparam, basic, headers, authorization] }
+            type: { enum: [public, apikey, bearer, queryparam, basic, headers, authorization, oauth_client_credentials, oauth_pkce] }
             injected_by: { enum: [none, mahshar] }
             credential_location:
               type: [string, 'null']

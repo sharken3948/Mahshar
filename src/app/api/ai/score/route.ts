@@ -16,7 +16,7 @@ import { enforceRateLimit } from '@/lib/rate-limit'
 import { readBoundedJson, RequestBodyError } from '@/lib/request-body'
 import { validateListingRequestContract } from '@/lib/marketplace/request-contract'
 import { providerAuthentication, reflectsProviderSecret } from '@/lib/marketplace/provider-auth'
-import { PROVIDER_AUTH_TYPES, validateProviderCredential, staticAuthentication } from '@/lib/marketplace/provider-auth-config'
+import { PROVIDER_AUTH_TYPES, validateProviderCredential, staticAuthentication, isOAuth } from '@/lib/marketplace/provider-auth-config'
 import type { DeclaredParameter } from '@/lib/marketplace/proxy-target'
 import { LISTING_VERIFICATION_TIMEOUT_MS } from '@/lib/marketplace/listing-verification-timeout'
 
@@ -246,6 +246,17 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
       { field: 'auth_key', message: 'Add the API key or token used by this endpoint.' },
     ])
   }
+  if (isOAuth(authType)) {
+    let matchesSavedConfiguration = false
+    try {
+      matchesSavedConfiguration = Boolean(persistedListing && endpointUrl === persistedListing.endpoint_url &&
+        authType === persistedListing.auth_type && persistedListing.encrypted_key && body.auth_key === decryptKey(persistedListing.encrypted_key))
+    } catch { /* Never test a configuration whose credentials cannot be read. */ }
+    if (!matchesSavedConfiguration) return earlyFailure('Save the OAuth configuration and connect the provider account before analysis.', [
+      { field: 'auth_key', message: 'Save this configuration first. OAuth analysis uses only the saved, connected account.' },
+    ])
+  }
+
   const expectedResult = normalizeExpectedStatusCodes(body.expected_status_codes)
   if (!expectedResult.ok) return NextResponse.json({ error: expectedResult.error }, { status: 400 })
   const requestContract = validateListingRequestContract({
@@ -299,8 +310,11 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     let upstreamSecrets: string[] = staticAuthentication(authType, body.auth_key, body.auth_param_name).secrets
     try {
       const response = await safeOutboundFetch(requestContract.example.canonical_target, async () => {
+        const oauthListing = isOAuth(authType) && persistedListing && endpointUrl === persistedListing.endpoint_url &&
+          authType === persistedListing.auth_type && body.auth_key === (persistedListing.encrypted_key ? decryptKey(persistedListing.encrypted_key) : undefined)
+          ? persistedListing : undefined
         const authenticated = await providerAuthentication({ target: new URL(requestContract.example.canonical_target),
-          type: authType, credential: body.auth_key, param: body.auth_param_name })
+          type: authType, credential: body.auth_key, param: body.auth_param_name, listing: oauthListing, actorWallet: authenticatedWallet })
         upstreamSecrets = [...upstreamSecrets, ...authenticated.secrets]
         return { url: authenticated.requestUrl, outboundInit: {
           method,

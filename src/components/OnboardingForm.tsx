@@ -6,7 +6,8 @@ import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
 import { RequestParameterEditor } from '@/components/RequestParameterEditor'
 import { ProviderPriceBreakdown } from '@/components/ProviderPriceBreakdown'
 import { serializeListingBody, listingResponseError } from '@/lib/marketplace/listing-body'
-import { AUTH_BUNDLE_EXAMPLES } from '@/lib/marketplace/provider-auth-config'
+import { AUTH_BUNDLE_EXAMPLES, isOAuth } from '@/lib/marketplace/provider-auth-config'
+import { ProviderOAuthControls } from '@/components/ProviderOAuthControls'
 import type { AuthType, PaymentModel } from '@/types'
 import type { DeclaredParameter } from '@/lib/marketplace/proxy-target'
 import styles from './onboarding-form.module.css'
@@ -170,6 +171,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
   function analysisPayload(extra: Record<string, unknown> = {}) {
     return {
       ...form,
+      ...(apiId && isOAuth(form.auth_type) ? { api_id: apiId, draft: true } : {}),
       auth_key: form.auth_key || undefined,
       auth_param_name: form.auth_param_name || undefined,
       path_parameters: form.dynamic_path_supported ? form.path_parameters : [],
@@ -382,7 +384,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
                   <option value="public">Public</option>
                   <option value="apikey">API Key · x-api-key</option>
                   <option value="bearer">Bearer Token</option>
-                  <option value="queryparam">Query Parameter</option><option value="basic">HTTP Basic</option><option value="headers">Custom credential headers</option><option value="authorization">Custom Authorization</option>
+                  <option value="queryparam">Query Parameter</option><option value="basic">HTTP Basic</option><option value="headers">Custom credential headers</option><option value="authorization">Custom Authorization</option><option value="oauth_client_credentials">OAuth · Client Credentials</option><option value="oauth_pkce">OAuth · Authorization Code + PKCE</option>
                 </select>
               </Field>
             </div>
@@ -462,12 +464,18 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
                 <p>{form.description || 'Your marketplace description will appear here.'}</p>
                 <b>{priceValid ? `${form.price_per_call} USDC` : 'Set a price'} <small>/ call</small></b>
               </div>
+              {apiId && isOAuth(form.auth_type) && <ProviderOAuthControls apiId={apiId} />}
               <div className={styles.publishFooter}>
                 <p className={publishReady ? styles.publishReady : ''} aria-live="polite">{publishGuidance}</p>
                 <div className={styles.publishActions}>
                   <button type="button" className={styles.previewButton} onClick={() => setShowPreview(true)}>Preview</button>
                   <button type="button" onClick={() => void analyzeEndpoint()} disabled={analyzing || publishing}
                     className={styles.analyzeButton}>{analyzing ? <><Spinner /> Checking</> : 'Analyze'}</button>
+                  {isOAuth(form.auth_type) && <button type="button" disabled={publishing || analyzing} onClick={() => {
+                    setPublishing(true)
+                    void saveDraft().then(() => setNotice('OAuth draft saved. Connect the provider below, then analyze.'))
+                      .catch(error => setError(error instanceof Error ? error.message : 'Save failed')).finally(() => setPublishing(false))
+                  }}>Save OAuth configuration</button>}
                   <button type="submit" className={styles.publishButton} disabled={!publishReady || publishing || analyzing}>
                     {publishing ? <><Spinner /> Publishing</> : 'Publish API'}
                   </button>

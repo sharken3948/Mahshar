@@ -4,7 +4,8 @@ import { withWalletSession, marketplaceErrors, requireWalletSession } from '@/li
 import { assertWalletClaim, normalizedWallet } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import { PROVIDER_AUTH_TYPES, validateProviderCredential } from '@/lib/marketplace/provider-auth-config';
+import { PROVIDER_AUTH_TYPES, validateProviderCredential, isOAuth, oauthConfiguration } from '@/lib/marketplace/provider-auth-config';
+import { approvedOAuthProfile } from '@/lib/marketplace/provider-oauth-profiles';
 import { encryptKey } from '@/lib/crypto';
 import { validateEndpointUrl } from '@/lib/url-validation';
 import { isValidWalletAddress } from '@/lib/wallet-validation';
@@ -178,6 +179,13 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     return NextResponse.json({ error: 'Invalid endpoint URL', reason: urlValidation.error }, { status: 400 });
   }
 
+  if (isOAuth(auth_type)) {
+    try {
+      const config = oauthConfiguration(auth_key as string)
+      const profile = approvedOAuthProfile(config.provider, endpoint_url, auth_type === 'oauth_pkce' ? 'authorization_code' : 'client_credentials')
+      if (profile.client_auth !== 'none' && !config.client_secret) throw new Error()
+    } catch { return NextResponse.json({ error: 'OAuth provider configuration is not approved' }, { status: 400 }) }
+  }
   const encrypted_key = auth_type !== 'public' && auth_key ? encryptKey(auth_key) : null;
   const supabase = createServiceClient();
 

@@ -10,14 +10,23 @@ const listingRoutes = require('../../src/app/api/apis/route.ts')
 const ownerRoutes = require('../../src/app/api/apis/[id]/route.ts')
 const verifyRoutes = require('../../src/app/api/apis/[id]/verify/route.ts')
 const scoreRoutes = require('../../src/app/api/ai/score/route.ts')
+const oauthRoutes = require('../../src/app/api/provider-oauth/[id]/route.ts')
+const callbackRoutes = require('../../src/app/api/provider-oauth/[id]/callback/route.ts')
 
 globalThis.fetch = async () => { throw new Error('Unmocked network forbidden in browser fixture') }
+const profile = { id: 'fixture', token_endpoint: 'https://auth.provider.example/token',
+  authorization_endpoint: 'https://auth.provider.example/authorize', revocation_endpoint: 'https://auth.provider.example/revoke',
+  resource_origins: ['https://provider.example'], scopes: ['data.read'],
+  grants: ['client_credentials', 'authorization_code'], client_auth: 'client_secret_basic' }
 const requests = []
 let session
 function resetFixture() {
   fixture.reset(); resetBoundary(); requests.length = 0
   session = fixture.sessionHeaders()
-  boundary.respond = () => Response.json({ result: 'safe-browser-result' })
+  process.env.PROVIDER_OAUTH_PROFILES = JSON.stringify([profile])
+  boundary.respond = call => call.url.includes('/token')
+    ? Response.json({ token_type: 'Bearer', access_token: 'browser-access-private-fixture', refresh_token: 'browser-refresh-private-fixture', expires_in: 3600 })
+    : call.url.includes('/revoke') ? new Response(null, { status: 200 }) : Response.json({ result: 'safe-browser-result' })
 }
 resetFixture()
 const server = http.createServer(async (req, res) => {
@@ -29,7 +38,8 @@ const server = http.createServer(async (req, res) => {
       res.setHeader('Content-Type', 'application/json')
       res.end(JSON.stringify({ requests, listings: fixture.state.tables.api_listings.map(row => ({
         id: row.id, auth_type: row.auth_type, is_active: row.is_active, verified_at: row.verified_at,
-      })), settled: fixture.state.settled, outbound: boundary.requests.map(call => ({ url: call.url, method: call.init.method })) })); return
+      })), outbound: boundary.requests.map(call => ({ url: call.url, method: call.init.method })),
+      tokenCalls: boundary.tokenCalls, settled: fixture.state.settled })); return
     }
     if (path === '/browser.js') { res.setHeader('Content-Type', 'text/javascript'); res.end(fs.readFileSync(process.env.MAHSHAR_BROWSER_BUNDLE)); return }
     if (path === '/browser.css') { res.setHeader('Content-Type', 'text/css'); res.end(fs.readFileSync(process.env.MAHSHAR_BROWSER_BUNDLE.replace(/\.js$/, '.css'))); return }
@@ -46,10 +56,11 @@ const server = http.createServer(async (req, res) => {
       await fixture.operationHeaders(req.url, req.method, body ? JSON.parse(body) : {}))
     const request = new NextRequest(fixture.origin + req.url, { method: req.method, headers,
       ...(['GET', 'HEAD'].includes(req.method) ? {} : { body }) })
-    const match = path.match(/^\/api\/apis\/([^/]+)(?:\/(verify))?$/)
+    const match = path.match(/^\/api\/(?:apis|provider-oauth)\/([^/]+)(?:\/(verify|callback))?$/)
     const context = { params: Promise.resolve({ id: match?.[1] }) }
     const routes = path === '/api/apis' ? listingRoutes : path === '/api/ai/score' ? scoreRoutes
-      : match?.[2] === 'verify' ? verifyRoutes : ownerRoutes
+      : match?.[2] === 'verify' ? verifyRoutes : match?.[2] === 'callback' ? callbackRoutes
+        : path.startsWith('/api/provider-oauth/') ? oauthRoutes : ownerRoutes
     const result = await routes[req.method](request, context)
     const responseBody = await result.text()
     requests.push({ path, method: req.method, status: result.status, bytes: Buffer.byteLength(body),

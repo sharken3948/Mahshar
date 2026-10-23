@@ -5,17 +5,17 @@ import { createRequire } from 'node:module'
 import { writeFileSync, openSync, closeSync } from 'node:fs'
 const require = createRequire(import.meta.url)
 const { chromium } = require(process.env.MAHSHAR_PLAYWRIGHT_MODULE ?? 'playwright-core')
-const base = 'http://127.0.0.1:3069'
+const base = 'http://127.0.0.1:3059'
 const env = { ...process.env, NODE_ENV: 'production', NEXT_TELEMETRY_DISABLED: '1',
   ENCRYPTION_KEY: 'ab'.repeat(32), MARKETPLACE_ORIGIN: base,
   NEXT_PUBLIC_SUPABASE_URL: 'https://disposable.invalid', NEXT_PUBLIC_SUPABASE_ANON_KEY: 'fixture',
-  SUPABASE_SERVICE_ROLE_KEY: 'fixture', GROQ_API_KEY: 'fixture',
+  SUPABASE_SERVICE_ROLE_KEY: 'fixture', PROVIDER_OAUTH_PROFILES: '[]', GROQ_API_KEY: 'fixture',
   ARC_MAINNET_RPC_URL: 'https://rpc.disposable.invalid', PLATFORM_WALLET_PRIVATE_KEY: '0x' + 'ab'.repeat(32) }
 // Production marketplaceOrigin deliberately disallows HTTP; no authenticated action is attempted here.
 env.MARKETPLACE_ORIGIN = 'https://mahshar.xyz'
 for (const name of Object.keys(env)) if (name.startsWith('VERCEL') || ['DATABASE_URL','DIRECT_URL','SUPABASE_DB_URL'].includes(name)) delete env[name]
 const log = openSync('validation/evidence/runtime-server.log', 'w')
-const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', '3069'], { env, stdio: ['ignore', log, log] })
+const server = spawn(process.execPath, ['node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', '3059'], { env, stdio: ['ignore', log, log] })
 let browser
 try {
   const deadline = Date.now() + 60000
@@ -39,21 +39,16 @@ try {
   await page.goto(base + '/seller')
   await page.getByRole('heading', { name: 'Connect Your Wallet' }).waitFor()
   const statuses = {}
-  for (const [path, method] of [['/api/apis','POST']]) {
+  for (const [path, method] of [['/api/apis','POST'],['/api/provider-oauth/synthetic','GET']]) {
     const result = await context.request.fetch(base + path, { method, headers: { origin: env.MARKETPLACE_ORIGIN } })
     statuses[method + ' ' + path] = result.status()
     assert.equal(result.status(), 401)
-  }
-  for (const path of ['/api/provider-oauth/synthetic', '/api/provider-oauth/synthetic/callback', '/provider-connections/synthetic']) {
-    const response = await context.request.get(base + path)
-    assert.equal(response.status(), 404)
-    statuses['GET ' + path] = response.status()
   }
   assert.deepEqual(errors, [])
   await page.screenshot({ path: 'validation/evidence/runtime-seller.png', fullPage: true })
   writeFileSync('validation/evidence/runtime-smoke.json', JSON.stringify({ node: process.version, seller: 'rendered',
     unauthenticated_guards: statuses, pageErrors: errors, blockedExternalOrigins: [...new Set(blocked)] }, null, 2))
-  console.log('PASS Node 24 production Next runtime, Seller rendering, and unauthenticated listing guard, and absent P2 routes')
+  console.log('PASS Node 24 production Next runtime, Seller rendering, and unauthenticated listing/OAuth guards')
 } finally {
   await browser?.close()
   server.kill('SIGTERM')

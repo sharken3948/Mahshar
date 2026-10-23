@@ -121,7 +121,8 @@ export async function readAgentDiscovery(request: NextRequest) {
             : { type: r.auth_type, injected_by: 'mahshar', credential_location: r.auth_type === 'queryparam'
               ? 'reserved upstream query parameter' : r.auth_type === 'headers' ? 'controlled upstream credential headers'
                 : r.auth_type === 'basic' ? 'header Authorization: Basic' : r.auth_type === 'authorization'
-                  ? 'header Authorization: approved scheme' : 'controlled upstream credential headers', seller_credentials_exposed: false }
+                  ? 'header Authorization: approved scheme' : ['oauth_client_credentials', 'oauth_pkce'].includes(r.auth_type)
+                    ? 'header Authorization: Bearer' : 'controlled upstream credential headers', seller_credentials_exposed: false }
       return [{
         id: r.id,
         name: r.name,

@@ -39,6 +39,14 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
 
   if (!credentialProxyAllowed(listing)) return NextResponse.json({ error: 'Endpoint requires verification' }, { status: 409 })
 
+  let providerBuyerWallet: string | null = null
+  if (listing.auth_type === 'oauth_pkce' || listing.auth_type === 'oauth_client_credentials') {
+    const { providerOAuthPreflight } = await import('@/lib/marketplace/provider-oauth-preflight')
+    const connectionRequired = await providerOAuthPreflight(request, listing)
+    if (!connectionRequired.ok) return connectionRequired.response
+    providerBuyerWallet = connectionRequired.buyerWallet
+  }
+
   const resolvedMethod = resolveListingProxyMethod(method, listing.method)
   if ('error' in resolvedMethod) {
     return NextResponse.json({ error: resolvedMethod.error }, { status: 405 })
@@ -105,6 +113,12 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
   }
   if (!paymentResult.payer || !paymentResult.attemptId || !paymentResult.callId) {
     return NextResponse.json({ error: 'Payment settled but payer address is missing' }, { status: 402 })
+  }
+  if (providerBuyerWallet && paymentResult.payer.toLowerCase() !== providerBuyerWallet) {
+    return NextResponse.json({ error: 'provider_account_wallet_mismatch', payment: 'ACCOUNTING_COMPLETE',
+      attemptId: paymentResult.attemptId,
+      warning: 'Use the payment payer wallet session and retry with the same proof. Do not make another payment.' },
+    { status: 403, headers: { 'Cache-Control': 'no-store', 'PAYMENT-RESPONSE': paymentResponseHeader(paymentResult) } })
   }
 
   const purchaseAccessToken = issuePurchaseAccess({ purchaseId: paymentResult.callId, apiId, buyerWallet: paymentResult.payer })
