@@ -118,7 +118,10 @@ export async function readAgentDiscovery(request: NextRequest) {
           ? { type: r.auth_type, injected_by: 'mahshar', credential_location: 'header x-api-key', seller_credentials_exposed: false }
           : r.auth_type === 'bearer'
             ? { type: r.auth_type, injected_by: 'mahshar', credential_location: 'header Authorization: Bearer', seller_credentials_exposed: false }
-            : { type: r.auth_type, injected_by: 'mahshar', credential_location: 'reserved upstream query parameter', seller_credentials_exposed: false }
+            : { type: r.auth_type, injected_by: 'mahshar', credential_location: r.auth_type === 'queryparam'
+              ? 'reserved upstream query parameter' : r.auth_type === 'headers' ? 'controlled upstream credential headers'
+                : r.auth_type === 'basic' ? 'header Authorization: Basic' : r.auth_type === 'authorization'
+                  ? 'header Authorization: approved scheme' : 'controlled upstream credential headers', seller_credentials_exposed: false }
       return [{
         id: r.id,
         name: r.name,

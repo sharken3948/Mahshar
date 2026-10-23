@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { formatUnits } from 'viem'
 import { BackButton } from '@/components/BackButton'
+import { PROVIDER_AUTH_TYPES } from '@/lib/marketplace/provider-auth-config'
 import type { ApiListing, AuthType } from '@/types'
 import { NavBar } from '@/components/NavBar'
 import { buildViewCodeSnippet, renderHighlightedSnippet } from '@/lib/snippets'
@@ -641,7 +642,7 @@ export default function BuyerPage() {
         <div className={styles.filterGroup}><h3>Price range · USDC</h3><div className={styles.rangeFields}><input type="number" min="0" step="0.0001" value={priceMin} onChange={event => setPriceMin(event.target.value)} placeholder="Min" className={styles.rangeInput} /><input type="number" min="0" step="0.0001" value={priceMax} onChange={event => setPriceMax(event.target.value)} placeholder="Max" className={styles.rangeInput} /></div></div>
         <div className={styles.filterGroup}><h3>Average latency</h3><select value={latencyFilter} onChange={event => setLatencyFilter(event.target.value)} className={styles.filterSelect}><option value="all">Any latency</option><option value="under-100">Under 100ms</option><option value="100-500">100–500ms</option><option value="over-500">Over 500ms</option></select></div>
         <div className={styles.filterGroup}><h3>AI score</h3><select value={scoreFilter} onChange={event => setScoreFilter(event.target.value)} className={styles.filterSelect}><option value="all">Any score</option><option value="8-plus">8 and above</option><option value="5-to-7">5 to 7</option><option value="under-5">Under 5</option></select></div>
-        <div className={styles.filterGroup}><h3>Auth type</h3><div className={styles.filterOptions}>{(['public', 'apikey', 'bearer', 'queryparam'] as AuthType[]).filter(type => allApis.some(api => api.auth_type === type)).map(type => <label key={type} className={styles.checkboxOption}><input type="checkbox" checked={authFilters.has(type)} onChange={() => toggleAuthFilter(type)} />{type === 'public' ? 'Public' : type}</label>)}</div></div>
+        <div className={styles.filterGroup}><h3>Auth type</h3><div className={styles.filterOptions}>{PROVIDER_AUTH_TYPES.filter(type => allApis.some(api => api.auth_type === type)).map(type => <label key={type} className={styles.checkboxOption}><input type="checkbox" checked={authFilters.has(type)} onChange={() => toggleAuthFilter(type)} />{type === 'public' ? 'Public' : type}</label>)}</div></div>
       </div></aside></div>
 
         {/* Declared request inputs modal */}

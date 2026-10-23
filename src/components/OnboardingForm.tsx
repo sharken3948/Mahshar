@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
 import { RequestParameterEditor } from '@/components/RequestParameterEditor'
 import { ProviderPriceBreakdown } from '@/components/ProviderPriceBreakdown'
+import { serializeListingBody, listingResponseError } from '@/lib/marketplace/listing-body'
+import { AUTH_BUNDLE_EXAMPLES } from '@/lib/marketplace/provider-auth-config'
 import type { AuthType, PaymentModel } from '@/types'
 import type { DeclaredParameter } from '@/lib/marketplace/proxy-target'
 import styles from './onboarding-form.module.css'
@@ -189,11 +191,11 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
       const response = await marketplaceFetch('/api/ai/score', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(analysisPayload()),
+        body: serializeListingBody(analysisPayload()),
       })
       const result = await response.json().catch(() => null) as (Partial<AnalysisResult> & { error?: string }) | null
       if (!result || typeof result.endpoint_verified !== 'boolean') {
-        setError(result?.error ?? 'Endpoint analysis is temporarily unavailable. Try again.')
+        setError(listingResponseError(response.status, result?.error) ?? 'Endpoint analysis is temporarily unavailable. Try again.')
         return
       }
       const completed = result as AnalysisResult & { error?: string }
@@ -278,10 +280,10 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
     }
     if (!apiId) {
       const response = await marketplaceFetch('/api/apis', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: serializeListingBody(payload),
       })
       const result = await response.json().catch(() => ({})) as { id?: string; error?: string; field?: string }
-      if (!response.ok || !result.id) throw new Error(result.error ?? 'The listing could not be created.')
+      if (!response.ok || !result.id) throw new Error(listingResponseError(response.status, result.error) ?? 'The listing could not be created.')
       setApiId(result.id)
       persistedSensitive.current = sensitiveSnapshot(form)
       return result.id
@@ -293,10 +295,10 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
     const patch: Record<string, unknown> = { ...payload }
     if (previous?.auth_key === form.auth_key) delete patch.auth_key
     const response = await (sensitiveChanged ? sensitiveRequest : marketplaceFetch)(`/api/apis/${apiId}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: serializeListingBody(patch),
     })
     const result = await response.json().catch(() => ({})) as { error?: string }
-    if (!response.ok) throw new Error(result.error ?? 'The listing could not be updated.')
+    if (!response.ok) throw new Error(listingResponseError(response.status, result.error) ?? 'The listing could not be updated.')
     persistedSensitive.current = next
     return apiId
   }
@@ -315,7 +317,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
       const reviewResponse = await marketplaceFetch('/api/ai/score', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(analysisPayload({ api_id: id })),
+        body: serializeListingBody(analysisPayload({ api_id: id })),
       })
       const review = await reviewResponse.json().catch(() => null) as (AnalysisResult & { error?: string }) | null
       if (!reviewResponse.ok || !review?.endpoint_verified) {
@@ -323,16 +325,16 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
           setAnalysis(review)
           setFieldErrors(Object.fromEntries((review.field_errors ?? []).map(item => [item.field, item.message])))
         }
-        throw new Error(review?.blocking_issue ?? review?.error ?? 'The stored endpoint could not be verified.')
+        throw new Error(listingResponseError(reviewResponse.status, review?.blocking_issue ?? review?.error) ?? 'The stored endpoint could not be verified.')
       }
       setAnalysis(review)
       const activateResponse = await marketplaceFetch(`/api/apis/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seller_wallet: form.seller_wallet, price_per_call: price, is_active: true }),
+        body: serializeListingBody({ seller_wallet: form.seller_wallet, price_per_call: price, is_active: true }),
       })
       const activation = await activateResponse.json().catch(() => ({})) as { error?: string }
-      if (!activateResponse.ok) throw new Error(activation.error ?? 'The listing could not be published.')
+      if (!activateResponse.ok) throw new Error(listingResponseError(activateResponse.status, activation.error) ?? 'The listing could not be published.')
       router.push('/dashboard/apis')
     } catch (publishError) {
       setError(publishError instanceof Error ? publishError.message : 'The listing could not be published.')
@@ -380,7 +382,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
                   <option value="public">Public</option>
                   <option value="apikey">API Key · x-api-key</option>
                   <option value="bearer">Bearer Token</option>
-                  <option value="queryparam">Query Parameter</option>
+                  <option value="queryparam">Query Parameter</option><option value="basic">HTTP Basic</option><option value="headers">Custom credential headers</option><option value="authorization">Custom Authorization</option>
                 </select>
               </Field>
             </div>
@@ -390,6 +392,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
                 placeholder="A concise explanation of what this API does and when to use it."
                 className={inputClass(fieldErrors.description)} />
             </Field>
+          {AUTH_BUNDLE_EXAMPLES[form.auth_type] && <p>Enter the credential bundle as JSON in the encrypted credential field. Format: <code>{AUTH_BUNDLE_EXAMPLES[form.auth_type]}</code></p>}
             {form.auth_type !== 'public' && <div className={styles.credentialGrid}>
               {form.auth_type === 'queryparam' && <Field label="Credential parameter" error={fieldErrors.auth_param_name}>
                 <input value={form.auth_param_name} onChange={event => update('auth_param_name', event.target.value)}
@@ -444,6 +447,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
           </Card>
 
           <Card title="Pricing & Publish" eyebrow="Set your price and go live">
+              <p className={styles.credentialHint}>Listing requests are limited to 64 KiB, including credentials, examples and metadata.</p>
             <div className={styles.publishRow}>
               <Field label="Listed Base Price per Call" required error={fieldErrors.price_per_call} className={styles.priceField}>
                 <div className={styles.priceInputWrap}>
@@ -634,5 +638,5 @@ function formatSuggestedParameter(parameter: DeclaredParameter) {
 }
 
 function authLabel(auth: AuthType) {
-  return auth === 'public' ? 'Public' : auth === 'apikey' ? 'API Key' : auth === 'bearer' ? 'Bearer Token' : 'Query Parameter'
+  return auth === 'public' ? 'Public' : auth === 'apikey' ? 'API Key' : auth === 'bearer' ? 'Bearer Token' : auth === 'queryparam' ? 'Query Parameter' : auth.replaceAll('_', ' ')
 }

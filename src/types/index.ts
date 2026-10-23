@@ -1,5 +1,5 @@
 export type PaymentModel = 'pay-per-call';
-export type AuthType = 'public' | 'apikey' | 'bearer' | 'queryparam';
+export type AuthType = 'public' | 'apikey' | 'bearer' | 'queryparam' | 'basic' | 'headers' | 'authorization';
 
 export interface ApiListing {
   id: string;

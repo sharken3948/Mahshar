@@ -1,3 +1,5 @@
+import type { AuthType } from '@/types'
+import { PROVIDER_AUTH_TYPES } from '@/lib/marketplace/provider-auth-config'
 import { publicListing } from '@/lib/marketplace/public-listing'
 import { validateListingRequestContract } from '@/lib/marketplace/request-contract'
 
@@ -16,7 +18,7 @@ export type PublicSeoListing = {
   category: string
   pricePerCall: number
   paymentModel: 'pay-per-call'
-  authType: 'public' | 'apikey' | 'bearer' | 'queryparam'
+  authType: AuthType
   method: 'GET' | 'POST' | 'PUT' | 'DELETE'
   score: number | null
   verified: boolean
@@ -88,7 +90,7 @@ export function toPublicSeoListing(row: Record<string, unknown>): PublicSeoListi
     !isBoundedString(safe.category, SEO_CATEGORY_MAX_LENGTH, true) ||
     typeof safe.price_per_call !== 'number' || !Number.isFinite(safe.price_per_call) || safe.price_per_call <= 0 ||
     safe.payment_model !== 'pay-per-call' ||
-    !['public', 'apikey', 'bearer', 'queryparam'].includes(String(authType))
+    !(PROVIDER_AUTH_TYPES as readonly string[]).includes(String(authType))
   ) return null
 
   return {

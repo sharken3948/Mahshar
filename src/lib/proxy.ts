@@ -4,9 +4,10 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { decryptKey } from '@/lib/crypto'
 import type { ApiListing, PaymentModel } from '@/types'
 import { buildUpstreamFailureDiagnostic, fetchUpstreamWithoutRedirects, readResponseBytes, ResponseTooLargeError,
-  serializedJsonByteLength, MAX_SAFE_SERIALIZED_RESPONSE_BYTES, containsReflectedUpstreamCredential } from '@/lib/proxy-response'
-import { buildUpstreamAuthentication } from '@/lib/marketplace/upstream-auth'
+  serializedJsonByteLength, MAX_SAFE_SERIALIZED_RESPONSE_BYTES } from '@/lib/proxy-response'
+import { providerAuthentication, reflectsProviderSecret } from '@/lib/marketplace/provider-auth'
 import { OutboundPolicyError } from '@/lib/outbound-fetch'
+import { ProviderAuthError } from '@/lib/marketplace/provider-auth-config'
 
 export type DeliveryOutcome = 'succeeded' | 'failed_final' | 'failed_retryable' | 'unknown'
 
@@ -132,15 +133,13 @@ export async function proxyRequest(params: {
 
   const start = Date.now()
   let upstreamResponse: Response
-  let upstreamCredential: { authType: 'apikey' | 'bearer' | 'queryparam'; value: string } | undefined
+  let upstreamSecrets: string[] = []
   try {
-    upstreamResponse = await fetchUpstreamWithoutRedirects(targetUrl, (validatedUrl: URL) => {
-      const credential = listing.encrypted_key && ['apikey', 'bearer', 'queryparam'].includes(listing.auth_type)
-        ? decryptKey(listing.encrypted_key) : undefined
-      if (credential && (listing.auth_type === 'apikey' || listing.auth_type === 'bearer' || listing.auth_type === 'queryparam')) {
-        upstreamCredential = { authType: listing.auth_type, value: credential }
-      }
-      const { requestUrl, headers } = buildUpstreamAuthentication(validatedUrl, listing.auth_type, credential, listing.auth_param_name)
+    upstreamResponse = await fetchUpstreamWithoutRedirects(targetUrl, async (validatedUrl: URL) => {
+      const credential = listing.encrypted_key && listing.auth_type !== 'public' ? decryptKey(listing.encrypted_key) : undefined
+      const { requestUrl, headers, secrets } = await providerAuthentication({ target: validatedUrl,
+        type: listing.auth_type, credential, param: listing.auth_param_name })
+      upstreamSecrets = secrets
       return { url: requestUrl, outboundInit: {
         method: params.method,
         headers,
@@ -150,8 +149,8 @@ export async function proxyRequest(params: {
     })
   } catch (err) {
     const latencyMs = Date.now() - start
-    const safelyRetryable = err instanceof OutboundPolicyError &&
-      ['invalid_url', 'blocked_destination', 'dns_failure', 'blocked_port'].includes(err.classification)
+    const safelyRetryable = err instanceof ProviderAuthError || (err instanceof OutboundPolicyError &&
+      ['invalid_url', 'blocked_destination', 'dns_failure', 'blocked_port'].includes(err.classification))
     return logFailure({
       status: 502, body: { error: 'Upstream unreachable' }, latencyMs,
       deliveryOutcome: safelyRetryable ? 'failed_retryable' : 'unknown',
@@ -180,7 +179,7 @@ export async function proxyRequest(params: {
   }
 
   const rawText = new TextDecoder().decode(bytes)
-  const contentType = upstreamResponse.headers.get('content-type') ?? ''
+  let contentType = upstreamResponse.headers.get('content-type') ?? ''
   let responseBody: unknown
   if (contentType.includes('application/json')) {
     try { responseBody = JSON.parse(rawText) } catch { responseBody = rawText }
@@ -191,15 +190,12 @@ export async function proxyRequest(params: {
     try { inspectionBody = JSON.parse(rawText) } catch { /* Inspect malformed JSON as raw text. */ }
   }
 
-  if (upstreamCredential && containsReflectedUpstreamCredential({
-    authType: upstreamCredential.authType,
-    credential: upstreamCredential.value,
-    rawBody: rawText,
-    parsedBody: inspectionBody,
-  })) {
+  if (reflectsProviderSecret(rawText, inspectionBody, upstreamSecrets)) {
     return logFailure({ status: 502, body: { error: 'Upstream response blocked' }, latencyMs,
       deliveryOutcome: 'failed_final', errorCode: 'upstream_credential_reflection' }, { isClientError: false })
   }
+
+  if (reflectsProviderSecret(contentType, contentType, upstreamSecrets)) contentType = ''
 
   const success = upstreamResponse.status >= 200 && upstreamResponse.status < 300
   const declaredCodes = listing.expected_status_codes ?? []

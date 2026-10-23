@@ -1,3 +1,4 @@
+import { MAX_LISTING_BODY_BYTES } from '@/lib/marketplace/listing-body'
 import { resourceAdmission } from '@/lib/resource-admission'
 import { withWalletSession, requireListingOwner } from '@/lib/marketplace/server'
 import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
@@ -14,7 +15,8 @@ import type { AuthType } from '@/types'
 import { enforceRateLimit } from '@/lib/rate-limit'
 import { readBoundedJson, RequestBodyError } from '@/lib/request-body'
 import { validateListingRequestContract } from '@/lib/marketplace/request-contract'
-import { buildUpstreamAuthentication } from '@/lib/marketplace/upstream-auth'
+import { providerAuthentication, reflectsProviderSecret } from '@/lib/marketplace/provider-auth'
+import { PROVIDER_AUTH_TYPES, validateProviderCredential, staticAuthentication } from '@/lib/marketplace/provider-auth-config'
 import type { DeclaredParameter } from '@/lib/marketplace/proxy-target'
 import { LISTING_VERIFICATION_TIMEOUT_MS } from '@/lib/marketplace/listing-verification-timeout'
 
@@ -58,7 +60,7 @@ type AnalysisBody = {
 
 const TRANSIENT_STATUSES = new Set([408, 429, 502, 503, 504])
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE'])
-const ALLOWED_AUTH = new Set<AuthType>(['public', 'apikey', 'bearer', 'queryparam'])
+const ALLOWED_AUTH = new Set<AuthType>(PROVIDER_AUTH_TYPES)
 const CREDENTIAL_QUERY_NAMES = /^(?:api[_-]?key|apikey|key|token|access[_-]?token|auth[_-]?token|appid)$/i
 
 const STATUS_LABELS: Record<number, string> = {
@@ -183,7 +185,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
   if (limited) return limited
 
   let body: AnalysisBody
-  try { body = await readBoundedJson<AnalysisBody>(request, 64 * 1024) }
+  try { body = await readBoundedJson<AnalysisBody>(request, MAX_LISTING_BODY_BYTES) }
   catch (error) {
     const tooLarge = error instanceof RequestBodyError && error.code === 'body_too_large'
     return NextResponse.json({ error: tooLarge ? 'request_too_large' : 'invalid_request' },
@@ -191,6 +193,9 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
   }
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
+  }
+  if (body.auth_key !== undefined && typeof body.auth_key !== 'string') {
+    return NextResponse.json({ error: 'Invalid authentication credential' }, { status: 400 })
   }
   if (body.draft !== undefined && typeof body.draft !== 'boolean') {
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
@@ -236,12 +241,11 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
   ], 400)
   const authType = body.auth_type ?? 'public'
   if (!ALLOWED_AUTH.has(authType)) return NextResponse.json({ error: 'Invalid authentication type' }, { status: 400 })
-  if (authType !== 'public' && !body.auth_key?.trim()) {
+  if (!validateProviderCredential(authType, body.auth_key, body.auth_param_name)) {
     return earlyFailure('Authentication credentials are required before this endpoint can be tested.', [
       { field: 'auth_key', message: 'Add the API key or token used by this endpoint.' },
     ])
   }
-
   const expectedResult = normalizeExpectedStatusCodes(body.expected_status_codes)
   if (!expectedResult.ok) return NextResponse.json({ error: expectedResult.error }, { status: 400 })
   const requestContract = validateListingRequestContract({
@@ -292,11 +296,12 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     let responseSizeBytes: number | null = null
     let responseSizeWarning: string | null = null
 
+    let upstreamSecrets: string[] = staticAuthentication(authType, body.auth_key, body.auth_param_name).secrets
     try {
-      const response = await safeOutboundFetch(requestContract.example.canonical_target, () => {
-        const authenticated = buildUpstreamAuthentication(
-          new URL(requestContract.example.canonical_target), authType, body.auth_key, body.auth_param_name,
-        )
+      const response = await safeOutboundFetch(requestContract.example.canonical_target, async () => {
+        const authenticated = await providerAuthentication({ target: new URL(requestContract.example.canonical_target),
+          type: authType, credential: body.auth_key, param: body.auth_param_name })
+        upstreamSecrets = [...upstreamSecrets, ...authenticated.secrets]
         return { url: authenticated.requestUrl, outboundInit: {
           method,
           headers: authenticated.headers,
@@ -310,6 +315,10 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
       contentType = response.headers.get('content-type')
       allowHeader = response.headers.get('allow')
       authenticateHeader = response.headers.get('www-authenticate')
+      // These upstream-controlled headers can also echo secrets.
+      if ([contentType, allowHeader, authenticateHeader].some(value => value && reflectsProviderSecret(value, value, upstreamSecrets))) {
+        contentType = null; allowHeader = null; authenticateHeader = null
+      }
       let rawBody = ''
       try { rawBody = new TextDecoder().decode(await readResponseBytes(response.body, MAX_SAFE_SERIALIZED_RESPONSE_BYTES)) }
       catch (error) {
@@ -321,9 +330,13 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
         }
         throw error
       }
-      if (body.auth_key) rawBody = rawBody.split(body.auth_key).join('[redacted]')
       try { responseBody = rawBody ? JSON.parse(rawBody) : null }
       catch { responseBody = rawBody }
+      if (reflectsProviderSecret(rawBody, responseBody, upstreamSecrets)) {
+        rawBody = '[Provider credential reflection blocked]'
+        responseBody = rawBody
+        throw new Error('Provider credential reflection blocked')
+      }
       const snippet = rawBody ? `${rawBody.slice(0, 240)}${rawBody.length > 240 ? '…' : ''}` : null
       const size = assessRepresentativeResponseSize(responseBody)
       responseSizeBytes = size.serializedBytes
@@ -351,10 +364,12 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
       }
     }
 
+    const safeDiagnosticBody = bodySent && reflectsProviderSecret(bodySent, bodySent, upstreamSecrets) ? '[redacted]' : bodySent
     const diagnostic: EndpointTestDiagnostic = {
       method,
-      url: diagnosticUrl(requestContract.example.canonical_target),
-      body_sent: bodySent,
+      url: reflectsProviderSecret(requestContract.example.canonical_target, requestContract.example.canonical_target, upstreamSecrets)
+        ? '[redacted]' : diagnosticUrl(requestContract.example.canonical_target),
+      body_sent: safeDiagnosticBody,
       status: realTestResult.status ?? null,
       response_snippet: realTestResult.success ? null : (realTestResult.response_snippet ?? null),
     }
@@ -413,22 +428,24 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
       if (!data?.length) return NextResponse.json({ error: 'Listing changed during analysis; retry' }, { status: 409 })
     }
 
-    const deterministic = deterministicSuggestions({ endpointUrl, responseBody, allowHeader, authenticateHeader })
+    const deterministicEndpoint = reflectsProviderSecret(endpointUrl, endpointUrl, upstreamSecrets) ? new URL(endpointUrl).origin : endpointUrl
+    const deterministic = deterministicSuggestions({ endpointUrl: deterministicEndpoint, responseBody, allowHeader, authenticateHeader })
     let aiResult: Awaited<ReturnType<typeof scoreApi>> | null = null
     let aiAvailable = true
     let inconclusive = false
     try {
+      const safeAIField = (value: string | undefined) => value && reflectsProviderSecret(value, value, upstreamSecrets) ? '[redacted]' : value
       aiResult = await scoreApi({
-        name: body.name ?? '',
-        category: body.category ?? '',
-        description: body.description ?? '',
-        endpoint_url: endpointUrl,
+        name: safeAIField(body.name) ?? '',
+        category: safeAIField(body.category) ?? '',
+        description: safeAIField(body.description) ?? '',
+        endpoint_url: safeAIField(endpointUrl) ?? '',
         method,
         auth_type: authType,
-        auth_param_name: body.auth_param_name,
-        endpoint_query_parameter_names: endpointQueryNames(endpointUrl),
-        example_request: body.example_request,
-        example_response: body.example_response,
+        auth_param_name: safeAIField(body.auth_param_name),
+        endpoint_query_parameter_names: endpointQueryNames(endpointUrl).filter(name => !reflectsProviderSecret(name, name, upstreamSecrets)),
+        example_request: safeAIField(body.example_request),
+        example_response: safeAIField(body.example_response),
       }, realTestResult)
     } catch {
       aiAvailable = false

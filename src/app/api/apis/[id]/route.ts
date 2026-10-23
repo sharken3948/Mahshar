@@ -1,12 +1,15 @@
+import { MAX_LISTING_BODY_BYTES } from '@/lib/marketplace/listing-body'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
 import { validateEndpointUrl } from '@/lib/url-validation'
-import { encryptKey } from '@/lib/crypto'
+import { PROVIDER_AUTH_TYPES, validateProviderCredential } from '@/lib/marketplace/provider-auth-config'
+import { encryptKey, decryptKey } from '@/lib/crypto'
 import { withWalletSession, requireListingOwner, requireOperationAuthorizationForPayload } from '@/lib/marketplace/server'
 import { assertWalletClaim, OPERATION_AUTH_HEADER } from '@/lib/marketplace/operation-authorization'
 import { credentialProxyAllowed, SENSITIVE_CONFIGURATION, matchListingConfiguration, normalizeExpectedStatusCodes, expectedCodesEqual } from '@/lib/marketplace/listing-security'
 import { listingContractMetadata } from '@/lib/marketplace/listing-contract-metadata'
 import { validateListingRequestContract } from '@/lib/marketplace/request-contract'
+import { readBoundedJson, RequestBodyError } from '@/lib/request-body'
 
 export const runtime = 'nodejs'
 type Context = { params: Promise<{ id: string }> }
@@ -62,7 +65,16 @@ export const PATCH = withWalletSession(async (request: NextRequest, wallet: stri
   const { id } = await params
   const db = createServiceClient()
   const listing = await requireListingOwner(db, id, wallet)
-  const body = await request.json() as Record<string, unknown>
+  let body: Record<string, unknown>
+  try {
+    const value = await readBoundedJson<unknown>(request, MAX_LISTING_BODY_BYTES)
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    body = value as Record<string, unknown>
+  } catch (error) {
+    if (error instanceof RequestBodyError) return NextResponse.json({ error: 'Invalid or oversized request body' },
+      { status: error.code === 'body_too_large' ? 413 : 400 })
+    throw error
+  }
   assertWalletClaim(body.seller_wallet, wallet)
   const patch: Record<string, unknown> = {}
   for (const key of ['name', 'category', 'description', 'endpoint_url', 'auth_type', 'auth_param_name', 'method', 'example_request', 'example_response']) {
@@ -75,7 +87,7 @@ export const PATCH = withWalletSession(async (request: NextRequest, wallet: stri
     const validation = await validateEndpointUrl(patch.endpoint_url as string)
     if (!validation.valid) return NextResponse.json({ error: 'Invalid endpoint URL' }, { status: 400 })
   }
-  if (patch.auth_type !== undefined && !['public', 'apikey', 'bearer', 'queryparam'].includes(patch.auth_type as string)) {
+  if (patch.auth_type !== undefined && !(PROVIDER_AUTH_TYPES as readonly string[]).includes(patch.auth_type as string)) {
     return NextResponse.json({ error: 'Invalid auth_type' }, { status: 400 })
   }
   if (patch.method !== undefined && !['GET', 'POST', 'PUT', 'DELETE'].includes(patch.method as string)) {
@@ -113,9 +125,14 @@ export const PATCH = withWalletSession(async (request: NextRequest, wallet: stri
       return NextResponse.json({ error: requestContract.error, field: requestContract.field }, { status: 400 })
     }
   }
-  if ((updated.auth_type === 'apikey' || updated.auth_type === 'bearer' || updated.auth_type === 'queryparam')
-    && !updated.encrypted_key) {
+  if (updated.auth_type !== 'public' && !updated.encrypted_key) {
     return NextResponse.json({ error: 'A credential is required for the selected authentication type' }, { status: 400 })
+  }
+  if (sensitivePatchChanged(body, patch, listing) || patch.is_active === true) {
+    try {
+      const credential = updated.encrypted_key ? decryptKey(String(updated.encrypted_key)) : undefined
+      if (!validateProviderCredential(updated.auth_type, credential, updated.auth_param_name)) throw new Error()
+    } catch { return NextResponse.json({ error: 'Invalid provider authentication' }, { status: 400 }) }
   }
   if (sensitivePatchChanged(body, patch, listing) || request.headers.has(OPERATION_AUTH_HEADER)) {
     const operationWallet = await requireOperationAuthorizationForPayload(request, body)

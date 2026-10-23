@@ -236,7 +236,7 @@ test('route ordering and scope remain bounded, fail-closed, and creation-specifi
   const source = readFileSync('src/app/api/apis/route.ts', 'utf8')
   const postStart = source.indexOf('export const POST')
   assert.doesNotMatch(source, /request\.json\s*\(/)
-  assert.match(source, /MAX_LISTING_CREATE_BODY_BYTES = 64 \* 1024/)
+  assert.match(source, /MAX_LISTING_CREATE_BODY_BYTES = MAX_LISTING_BODY_BYTES/)
   assert.match(source, /scope: 'listing-create'/)
   assert.match(source, /LISTING_CREATE_RATE_LIMIT = 10/)
   assert.match(source, /LISTING_CREATE_RATE_WINDOW_SECONDS = 60/)

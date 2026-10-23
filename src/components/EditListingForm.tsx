@@ -6,6 +6,8 @@ import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
 import { RequestParameterEditor } from '@/components/RequestParameterEditor'
 import { ProviderPriceBreakdown } from '@/components/ProviderPriceBreakdown'
 import type { DeclaredParameter } from '@/lib/marketplace/proxy-target'
+import { serializeListingBody, listingResponseError } from '@/lib/marketplace/listing-body'
+import { AUTH_BUNDLE_EXAMPLES } from '@/lib/marketplace/provider-auth-config'
 import type { ApiListing, AuthType } from '@/types'
 import styles from './onboarding-form.module.css'
 
@@ -196,11 +198,11 @@ export function EditListingForm({ listing, onClose, onListingChange }: {
     setFieldErrors({})
     try {
       const response = await marketplaceFetch('/api/ai/score', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(analysisPayload()),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: serializeListingBody(analysisPayload()),
       })
       const result = await response.json().catch(() => null) as (Partial<AnalysisResult> & { error?: string }) | null
       if (!result || typeof result.endpoint_verified !== 'boolean') {
-        setError(result?.error ?? 'Endpoint analysis is temporarily unavailable. Your stored listing was not changed.')
+        setError(listingResponseError(response.status, result?.error) ?? 'Endpoint analysis is temporarily unavailable. Your stored listing was not changed.')
         return
       }
       const completed = result as AnalysisResult & { error?: string }
@@ -297,10 +299,10 @@ export function EditListingForm({ listing, onClose, onListingChange }: {
     setNotice(null)
     try {
       const response = await (requiresFreshAuthorization ? sensitiveRequest : marketplaceFetch)(`/api/apis/${baseline.id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: serializeListingBody(patch),
       })
       const result = await response.json().catch(() => ({})) as { error?: string }
-      if (!response.ok) throw new Error(result.error ?? 'The listing could not be updated.')
+      if (!response.ok) throw new Error(listingResponseError(response.status, result.error) ?? 'The listing could not be updated.')
       const refreshed = await reloadListing()
       setAnalysis(null)
       setFieldErrors({})
@@ -322,7 +324,7 @@ export function EditListingForm({ listing, onClose, onListingChange }: {
     try {
       const response = await marketplaceFetch(`/api/apis/${baseline.id}/verify`, { method: 'POST' })
       const result = await response.json().catch(() => ({})) as { error?: string; already_verified?: boolean }
-      if (!response.ok) throw new Error(result.error ?? 'The endpoint could not be verified.')
+      if (!response.ok) throw new Error(listingResponseError(response.status, result.error) ?? 'The endpoint could not be verified.')
       await reloadListing()
       setNotice(result.already_verified ? 'This stored configuration is already verified.' : 'This exact stored configuration is verified.')
     } catch (verifyError) {
@@ -341,10 +343,10 @@ export function EditListingForm({ listing, onClose, onListingChange }: {
     try {
       const response = await marketplaceFetch(`/api/apis/${baseline.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seller_wallet: address, is_active: nextActive }),
+        body: serializeListingBody({ seller_wallet: address, is_active: nextActive }),
       })
       const result = await response.json().catch(() => ({})) as { error?: string }
-      if (!response.ok) throw new Error(result.error ?? `The listing could not be ${nextActive ? 'activated' : 'deactivated'}.`)
+      if (!response.ok) throw new Error(listingResponseError(response.status, result.error) ?? `The listing could not be ${nextActive ? 'activated' : 'deactivated'}.`)
       await reloadListing()
       setNotice(nextActive ? 'Listing activated and available through Mahshar.' : 'Listing deactivated. Its stored configuration was preserved.')
     } catch (activationError) {
@@ -386,9 +388,10 @@ export function EditListingForm({ listing, onClose, onListingChange }: {
               if (authType === 'public') setCredentialReplacement('')
               update('auth_type', authType)
             }} className={inputClass()}>
-              <option value="public">Public</option><option value="apikey">API Key · x-api-key</option><option value="bearer">Bearer Token</option><option value="queryparam">Query Parameter</option></select></Field>
+              <option value="public">Public</option><option value="apikey">API Key · x-api-key</option><option value="bearer">Bearer Token</option><option value="queryparam">Query Parameter</option><option value="basic">HTTP Basic</option><option value="headers">Custom credential headers</option><option value="authorization">Custom Authorization</option></select></Field>
           </div>
           <Field label="Description" required><textarea required rows={2} maxLength={300} value={form.description} onChange={event => update('description', event.target.value)} className={inputClass()} /></Field>
+          {AUTH_BUNDLE_EXAMPLES[form.auth_type] && <p>Enter the credential bundle as JSON in the encrypted credential field. Format: <code>{AUTH_BUNDLE_EXAMPLES[form.auth_type]}</code></p>}
           {form.auth_type !== 'public' && <div className={styles.credentialGrid}>
             {form.auth_type === 'queryparam' && <Field label="Credential parameter" error={fieldErrors.auth_param_name}>
               <input value={form.auth_param_name ?? ''} onChange={event => update('auth_param_name', event.target.value)} placeholder="api_key" className={inputClass(fieldErrors.auth_param_name)} /></Field>}
@@ -427,6 +430,7 @@ export function EditListingForm({ listing, onClose, onListingChange }: {
 
         <Card title="Pricing & Publish" eyebrow="Manage this existing listing">
           {executableChanged && <div className={styles.lifecycleNotice}><strong>Verification will be cleared</strong><span>Saving endpoint, authentication, or request-contract changes safely deactivates this listing. Verify the saved configuration before activating it again.</span></div>}
+              <p className={styles.credentialHint}>Listing requests are limited to 64 KiB, including credentials, examples and metadata.</p>
           <div className={styles.publishRow}>
             <Field label="Listed Base Price per Call" required className={styles.priceField}><div className={styles.priceInputWrap}>
               <input required type="number" min="0.000001" step="0.000001" value={form.price_per_call} onChange={event => update('price_per_call', event.target.value)} className={inputClass()} /><span>USDC</span></div></Field>
@@ -549,7 +553,7 @@ function countSuggestions(analysis: AnalysisResult) {
     suggestion.auth_param_name, suggestion.example_request, suggestion.example_response,
     ...suggestion.path_parameters, ...suggestion.query_parameters].filter(Boolean).length
 }
-function authLabel(auth: AuthType) { return auth === 'public' ? 'Public' : auth === 'apikey' ? 'API Key' : auth === 'bearer' ? 'Bearer Token' : 'Query Parameter' }
+function authLabel(auth: AuthType) { return auth === 'public' ? 'Public' : auth === 'apikey' ? 'API Key' : auth === 'bearer' ? 'Bearer Token' : auth === 'queryparam' ? 'Query Parameter' : auth.replaceAll('_', ' ') }
 function inferredExample(value: string, type?: DeclaredParameter['type']) {
   if (type === 'integer' && /^-?\d+$/.test(value)) return Number(value)
   if (type === 'number' && value.trim() && Number.isFinite(Number(value))) return Number(value)

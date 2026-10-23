@@ -10,7 +10,7 @@ import { enforceRateLimit } from '@/lib/rate-limit'
 import { assessRepresentativeResponseSize, MAX_SAFE_SERIALIZED_RESPONSE_BYTES, readResponseBytes,
   ResponseTooLargeError } from '@/lib/proxy-response'
 import { validateListingRequestContract } from '@/lib/marketplace/request-contract'
-import { buildUpstreamAuthentication } from '@/lib/marketplace/upstream-auth'
+import { providerAuthentication, reflectsProviderSecret } from '@/lib/marketplace/provider-auth'
 import { LISTING_VERIFICATION_TIMEOUT_MS } from '@/lib/marketplace/listing-verification-timeout'
 
 export const runtime = 'nodejs'
@@ -60,10 +60,11 @@ export const POST = withWalletSession(async (
     try {
       const target = new URL(requestContract.example.canonical_target)
       const method = requestContract.method
-      const response = await safeOutboundFetch(target.toString(), () => {
-        const { requestUrl, headers: requestHeaders } = buildUpstreamAuthentication(
-          target, listing.auth_type, authKey, listing.auth_param_name,
-        )
+      let upstreamSecrets: string[] = []
+      const response = await safeOutboundFetch(target.toString(), async () => {
+        const { requestUrl, headers: requestHeaders, secrets } = await providerAuthentication({
+          target, type: listing.auth_type, credential: authKey, param: listing.auth_param_name })
+        upstreamSecrets = secrets
         return { url: requestUrl, outboundInit: {
           method,
           body: method !== 'GET' && requestContract.example.body !== null
@@ -92,6 +93,9 @@ export const POST = withWalletSession(async (
         if ((response.headers.get('content-type') ?? '').includes('application/json')) {
           try { representativeBody = JSON.parse(rawBody) } catch { representativeBody = rawBody }
         }
+        if (reflectsProviderSecret(rawBody, representativeBody, upstreamSecrets)) return NextResponse.json({
+          error: 'Upstream response blocked', success: false, verified: false,
+        }, { status: 502 })
         const size = assessRepresentativeResponseSize(representativeBody)
         if (size.exceedsLimit) return NextResponse.json({
           error: 'Verification response exceeds Mahshar\'s delivery size limit', success: false, verified: false,

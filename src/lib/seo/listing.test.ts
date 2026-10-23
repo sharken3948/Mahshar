@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { PROVIDER_AUTH_TYPES } from '@/lib/marketplace/provider-auth-config'
 import {
   apiListingCanonicalUrl,
   apiListingPath,
@@ -110,4 +111,12 @@ test('public SEO DTO is flat and omits credentials, examples, schemas, and param
     'authType', 'category', 'description', 'id', 'method', 'name', 'paymentModel',
     'pricePerCall', 'score', 'verified',
   ].sort())
+})
+
+test('every supported provider authentication method remains visible in public SEO without credential fields', () => {
+  for (const auth_type of PROVIDER_AUTH_TYPES) {
+    const listing = toPublicSeoListing({ ...activeListing, auth_type, auth_param_name: auth_type === 'queryparam' ? 'api_key' : null })
+    assert.equal(listing?.authType, auth_type)
+    assert.equal(JSON.stringify(listing).includes('encrypted_key'), false)
+  }
 })

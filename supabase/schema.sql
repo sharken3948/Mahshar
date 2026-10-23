@@ -7,7 +7,7 @@ create table if not exists api_listings (
   price_per_call numeric(10, 6) not null,
   payment_model text not null check (payment_model in ('pay-per-call', 'credits', 'both')),
   seller_wallet text not null,
-  auth_type text not null check (auth_type in ('public', 'apikey', 'bearer', 'queryparam')),
+  auth_type text not null check (auth_type in ('public', 'apikey', 'bearer', 'queryparam', 'basic', 'headers', 'authorization')),
   encrypted_key text,
   auth_param_name text,
   endpoint_url text not null,

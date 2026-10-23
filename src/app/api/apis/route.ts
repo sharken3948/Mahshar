@@ -1,8 +1,10 @@
+import { MAX_LISTING_BODY_BYTES } from '@/lib/marketplace/listing-body'
 import { resourceAdmission } from '@/lib/resource-admission'
 import { withWalletSession, marketplaceErrors, requireWalletSession } from '@/lib/marketplace/server'
 import { assertWalletClaim, normalizedWallet } from '@/lib/marketplace/operation-authorization'
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
+import { PROVIDER_AUTH_TYPES, validateProviderCredential } from '@/lib/marketplace/provider-auth-config';
 import { encryptKey } from '@/lib/crypto';
 import { validateEndpointUrl } from '@/lib/url-validation';
 import { isValidWalletAddress } from '@/lib/wallet-validation';
@@ -13,7 +15,7 @@ import { SUPPORTED_LISTING_METHODS, validateListingRequestContract } from '@/lib
 import { enforceRateLimit } from '@/lib/rate-limit';
 import { readBoundedJson, RequestBodyError } from '@/lib/request-body';
 
-const MAX_LISTING_CREATE_BODY_BYTES = 64 * 1024;
+const MAX_LISTING_CREATE_BODY_BYTES = MAX_LISTING_BODY_BYTES;
 const LISTING_CREATE_RATE_LIMIT = 10;
 const LISTING_CREATE_RATE_WINDOW_SECONDS = 60;
 
@@ -143,10 +145,10 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
   if (!SUPPORTED_LISTING_METHODS.includes(normalizedMethod as typeof SUPPORTED_LISTING_METHODS[number])) {
     return NextResponse.json({ error: 'Method must be GET, POST, PUT, or DELETE' }, { status: 400 });
   }
-  if (!['public', 'apikey', 'bearer', 'queryparam'].includes(auth_type)) {
+  if (!(PROVIDER_AUTH_TYPES as readonly string[]).includes(auth_type)) {
     return NextResponse.json({ error: 'Invalid auth_type' }, { status: 400 });
   }
-  if (auth_type !== 'public' && !auth_key?.trim()) {
+  if (!validateProviderCredential(auth_type, auth_key, auth_param_name as string | null)) {
     return NextResponse.json({ error: 'A credential is required for the selected authentication type' }, { status: 400 });
   }
   if (typeof price_per_call !== 'number' || !isFinite(price_per_call) || price_per_call <= 0) {
@@ -176,7 +178,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     return NextResponse.json({ error: 'Invalid endpoint URL', reason: urlValidation.error }, { status: 400 });
   }
 
-  const encrypted_key = auth_key ? encryptKey(auth_key) : null;
+  const encrypted_key = auth_type !== 'public' && auth_key ? encryptKey(auth_key) : null;
   const supabase = createServiceClient();
 
   const { data, error } = await supabase

@@ -1,3 +1,5 @@
+import type { AuthType } from '@/types'
+import { PROVIDER_AUTH_TYPES } from '@/lib/marketplace/provider-auth-config'
 import { ResourceBudgetError } from '@/lib/resource-budget'
 import { budgetedCompletion } from '@/lib/groq-completion'
 import { validateDeclaredParameterMetadata, type DeclaredParameter } from '@/lib/marketplace/proxy-target';
@@ -50,7 +52,7 @@ export interface SetupSuggestions {
   description: string | null;
   category: string | null;
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' | null;
-  auth_type: 'public' | 'apikey' | 'bearer' | 'queryparam' | null;
+  auth_type: AuthType | null;
   auth_param_name: string | null;
   example_request: string | null;
   example_response: string | null;
@@ -80,7 +82,7 @@ function boundedStrings(value: unknown, maxItems = 50): string[] | null {
 
 const CATEGORIES = new Set(['AI', 'Data', 'Finance', 'Weather', 'Geo', 'Social', 'Media', 'Utility', 'Other']);
 const METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE']);
-const AUTH_TYPES = new Set(['public', 'apikey', 'bearer', 'queryparam']);
+const AUTH_TYPES = new Set<string>(PROVIDER_AUTH_TYPES);
 
 function nullableString(value: unknown, maxLength: number): string | null {
   return typeof value === 'string' && value.trim() && value.length <= maxLength ? value.trim() : null;
@@ -232,7 +234,7 @@ Return ONLY valid JSON with NO markdown:
     "description": <plain description under 300 characters or null>,
     "category": <allowed category or null>,
     "method": <GET, POST, PUT, DELETE, or null>,
-    "auth_type": <public, apikey, bearer, queryparam, or null>,
+    "auth_type": <public, apikey, bearer, queryparam, basic, headers, authorization, or null>,
     "auth_param_name": <credential query name or null>,
     "example_request": <valid JSON string or null>,
     "example_response": <valid JSON string or null>,
