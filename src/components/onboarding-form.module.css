@@ -183,6 +183,28 @@ textarea.input { resize: vertical; }
 .publishFooter > p { max-width: 620px; margin: 0; color: #7d6640; font-size: 13px; line-height: 1.5; }
 .publishFooter > p.publishReady { color: #247d57; }
 .publishActions { display: grid; flex: 0 0 auto; grid-template-columns: repeat(3, auto); gap: 10px; }
+.oauthControls { display: grid; grid-column: 1 / -1; min-width: 0; gap: 12px; padding: 15px; border: 1px solid #dce6f2; border-radius: 12px; background: #f8fbff; }
+.oauthStatus { display: inline-flex; width: fit-content; max-width: 100%; align-items: center; gap: 8px; margin: 0; padding: 6px 10px; border: 1px solid #dce6f2; border-radius: 10px; background: #fff; color: #52677f; font-size: 13px; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.oauthStatus[data-tone='active'] { border-color: #b9e3cb; background: #eefaf3; color: #247b54; }
+.oauthStatus[data-tone='warning'] { border-color: #ead8b5; background: #fff9ed; color: #8a662d; }
+.oauthStatusDot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: currentColor; }
+.oauthControls[aria-busy='true'] .oauthStatus { color: #2775ca; }
+.oauthActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.oauthButton,
+.oauthSaveButton { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 8px; padding: 9px 14px; border: 1px solid #bfd2e8; border-radius: 11px; background: #fff; color: #405b79; font: inherit; font-size: 14px; font-weight: 750; line-height: 1.4; cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s; }
+.oauthConnect,
+.oauthSaveButton { background: #f1f7fd; color: #2775ca; }
+.oauthButton:hover:not(:disabled),
+.oauthSaveButton:hover:not(:disabled) { border-color: #8fb4da; background: #eaf3fd; }
+.oauthDisconnect { margin-left: auto; border-color: transparent; background: transparent; color: #a34940; }
+.oauthDisconnect:hover:not(:disabled) { border-color: #e8c8c2; background: #fff6f5; }
+.oauthButton:focus-visible,
+.oauthSaveButton:focus-visible { outline: 2px solid #2775ca; outline-offset: 3px; }
+.oauthButton:disabled,
+.oauthSaveButton:disabled { cursor: not-allowed; opacity: .5; }
+.oauthSaveRow { display: flex; grid-column: 1 / -1; min-width: 0; }
+.oauthPublishFooter { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.oauthPublishFooter .publishActions { justify-self: end; }
 .finalActionGuidance { display: grid; gap: 3px; }
 .finalActionGuidance strong { color: #312819; font-size: 13px; }
 .finalActionGuidance span { color: #7d6640; }
@@ -295,6 +317,10 @@ textarea.input { resize: vertical; }
 }
 
 @media (max-width: 620px) {
+  .oauthControls { padding: 12px; }
+  .oauthActions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .oauthDisconnect { margin-left: 0; }
+  .oauthSaveButton { width: 100%; }
   .setupGrid,
   .publishRow { grid-template-columns: minmax(0, 1fr); }
   .card > header { min-height: 66px; padding-inline: 19px; }

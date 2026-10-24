@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
+import styles from './onboarding-form.module.css'
 
 /** Only consent URLs and connection status cross the browser boundary. */
 export function ProviderOAuthControls({ apiId, onConnectionChange }: {
@@ -24,10 +25,17 @@ export function ProviderOAuthControls({ apiId, onConnectionChange }: {
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Provider connection unavailable') }
     finally { setBusy(false) }
   }
-  return <div>
-    <p role="status">{message}</p>
-    <button type="button" disabled={busy} onClick={() => void action('POST')}>Connect provider</button>{' '}
-    <button type="button" disabled={busy} onClick={() => void action('GET')}>Check connection</button>{' '}
-    <button type="button" disabled={busy} onClick={() => void action('DELETE')}>Disconnect provider</button>
+  const tone = message.startsWith('Provider account: active (') ? 'active'
+    : /reauthorization_required|configuration_unavailable|unavailable|failed|invalid/i.test(message) ? 'warning' : 'neutral'
+  return <div className={styles.oauthControls} aria-busy={busy}>
+    <p role="status" className={styles.oauthStatus} data-tone={tone}>
+      <span aria-hidden="true" className={busy ? styles.spinner : styles.oauthStatusDot} />
+      <span>{busy ? 'Updating provider connection…' : message}</span>
+    </p>
+    <div className={styles.oauthActions} role="group" aria-label="Provider connection">
+      <button type="button" className={`${styles.oauthButton} ${styles.oauthConnect}`} disabled={busy} onClick={() => void action('POST')}>Connect provider</button>
+      <button type="button" className={styles.oauthButton} disabled={busy} onClick={() => void action('GET')}>Check connection</button>
+      <button type="button" className={`${styles.oauthButton} ${styles.oauthDisconnect}`} disabled={busy} onClick={() => void action('DELETE')}>Disconnect provider</button>
+    </div>
   </div>
 }

@@ -465,17 +465,19 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
                 <b>{priceValid ? `${form.price_per_call} USDC` : 'Set a price'} <small>/ call</small></b>
               </div>
               {apiId && isOAuth(form.auth_type) && <ProviderOAuthControls apiId={apiId} />}
-              <div className={styles.publishFooter}>
+              {isOAuth(form.auth_type) && <div className={styles.oauthSaveRow}>
+                <button type="button" className={styles.oauthSaveButton} aria-busy={publishing} disabled={publishing || analyzing} onClick={() => {
+                  setPublishing(true)
+                  void saveDraft().then(() => setNotice('OAuth draft saved. Connect the provider below, then analyze.'))
+                    .catch(error => setError(error instanceof Error ? error.message : 'Save failed')).finally(() => setPublishing(false))
+                }}>{publishing && <Spinner />}Save OAuth configuration</button>
+              </div>}
+              <div className={`${styles.publishFooter} ${isOAuth(form.auth_type) ? styles.oauthPublishFooter : ''}`}>
                 <p className={publishReady ? styles.publishReady : ''} aria-live="polite">{publishGuidance}</p>
                 <div className={styles.publishActions}>
                   <button type="button" className={styles.previewButton} onClick={() => setShowPreview(true)}>Preview</button>
                   <button type="button" onClick={() => void analyzeEndpoint()} disabled={analyzing || publishing}
                     className={styles.analyzeButton}>{analyzing ? <><Spinner /> Checking</> : 'Analyze'}</button>
-                  {isOAuth(form.auth_type) && <button type="button" disabled={publishing || analyzing} onClick={() => {
-                    setPublishing(true)
-                    void saveDraft().then(() => setNotice('OAuth draft saved. Connect the provider below, then analyze.'))
-                      .catch(error => setError(error instanceof Error ? error.message : 'Save failed')).finally(() => setPublishing(false))
-                  }}>Save OAuth configuration</button>}
                   <button type="submit" className={styles.publishButton} disabled={!publishReady || publishing || analyzing}>
                     {publishing ? <><Spinner /> Publishing</> : 'Publish API'}
                   </button>
