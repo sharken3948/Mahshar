@@ -395,6 +395,7 @@ export function OnboardingForm({ sellerWallet }: { sellerWallet?: string }) {
                 className={inputClass(fieldErrors.description)} />
             </Field>
           {AUTH_BUNDLE_EXAMPLES[form.auth_type] && <p>Enter the credential bundle as JSON in the encrypted credential field. Format: <code>{AUTH_BUNDLE_EXAMPLES[form.auth_type]}</code></p>}
+          {isOAuth(form.auth_type) && <p>OAuth requires an approved provider profile. Client Credentials is available for approved profiles; Authorization Code + PKCE is disabled in Production. Save the configuration before connecting; an active provider connection does not make the listing public.</p>}
             {form.auth_type !== 'public' && <div className={styles.credentialGrid}>
               {form.auth_type === 'queryparam' && <Field label="Credential parameter" error={fieldErrors.auth_param_name}>
                 <input value={form.auth_param_name} onChange={event => update('auth_param_name', event.target.value)}

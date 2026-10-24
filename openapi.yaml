@@ -251,7 +251,9 @@ components:
           type: object
           required: [type, injected_by, credential_location, seller_credentials_exposed]
           properties:
-            type: { enum: [public, apikey, bearer, queryparam, basic, headers, authorization, oauth_client_credentials, oauth_pkce] }
+            type:
+              enum: [public, apikey, bearer, queryparam, basic, headers, authorization, oauth_client_credentials, oauth_pkce]
+              description: Active listings may use the static methods or OAuth Client Credentials with an approved seller profile. Authorization Code + PKCE is implemented but disabled in Production and is not offered as an active listing.
             injected_by: { enum: [none, mahshar] }
             credential_location:
               type: [string, 'null']

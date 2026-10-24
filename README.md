@@ -48,8 +48,12 @@ The public discovery layer is isolated from wallet authentication, payment execu
 | API Key | A stored API key is injected as an authorized header only after target validation. |
 | Bearer Token | A stored bearer credential is injected into the `Authorization` header only after target validation. |
 | Query Credential | A stored credential is added as the configured query parameter only after canonical target authorization. |
+| HTTP Basic | An encrypted username/password bundle is applied server-side after target validation. |
+| Custom Credential Headers | One or more encrypted header values use configured, validated header names. |
+| Custom Authorization | A validated `Token` or `ApiKey` Authorization scheme is applied server-side. |
+| OAuth 2.0 Client Credentials | An approved provider profile uses a seller-owned connection; configuration and access tokens remain encrypted server-side. |
 
-Stored credentials are server-side data and are not included in buyer responses or public discovery metadata.
+The Client Credentials profile must be enabled by the operator. Authorization Code + PKCE is present in the implementation but disabled in Production. An active provider connection does not activate a listing; publication still requires verification. Stored credentials and tokens are server-side data and are not included in buyer responses or public discovery metadata. [Provider authentication details](docs/security/provider-authentication.md).
 
 ## How a Paid API Call Works
 
@@ -121,7 +125,7 @@ Fresh operation-specific signatures remain required for:
 - Seller withdrawals.
 - `endpoint_url` changes.
 - `auth_type` changes.
-- Stored API key, bearer token, or query credential changes.
+- Stored credential, OAuth configuration, or provider connection changes.
 - Authentication parameter-name changes.
 - HTTP method changes.
 - Dynamic-path, path-parameter, or query-parameter security-contract changes.
@@ -167,7 +171,7 @@ If submission or mint execution becomes ambiguous, the reservation remains locke
 
 Autonomous clients should start with the public discovery endpoint and its current machine contract:
 
-- MCP V1 endpoint: `https://mahshar.xyz/api/mcp` (stateless discovery through `search_apis` and `get_api`, real x402 challenge preparation and externally signed replay through `execute_api_call`, and purchase-capability recovery through `get_purchase_response`). Mahshar never accepts buyer private keys, signs automatically, or takes custody. Production verification with an external client has covered discovery, external signing, real Arc Mainnet settlement, paid API delivery, recovery across separate client invocations, same-authorization replay without duplicate payment, and buyer, seller, and platform accounting.
+- MCP V1 endpoint: `https://mahshar.xyz/api/mcp` (stateless discovery through `search_apis` and `get_api`, real x402 challenge preparation and externally signed replay through `execute_api_call`, and purchase-capability recovery through `get_purchase_response`). Mahshar never accepts buyer private keys, signs automatically, or takes custody. A scripted external MCP Canary verified four paid Production executions covering HTTP Basic, custom API-key header, custom Authorization token, and multiple credential headers. All four responses and purchase-scoped recoveries succeeded, with matching application accounting and no observed duplicate payment or credential exposure. Gateway nanopayment balances updated; final onchain batch settlement was not independently verified. This was a scripted harness, not a fully autonomous AI agent. Earlier external-client verification also covered same-authorization replay without duplicate payment.
 - [OpenAPI document](openapi.yaml)
 - [Agent integration guide](docs/agent-integration.md)
 
@@ -183,7 +187,7 @@ The Admin Worker dashboard separates distinct discovered/qualified providers, va
 
 See [Admin Acquisition controls and activation boundaries](docs/admin-acquisition.md).
 
-Admin Worker discovery rotates across APIs.guru, Public API Lists, GitHub Public APIs, publicapis.dev's MIT repository, the read-only Apify Store catalog, x402 List, PayAPI Market and bolthub, with durable source cursors, cached catalogs and bounded recovery of unfinished observations. All eight sources share existing provider history, qualification, verified-contact and Pending Emails checks, including normalized-email uniqueness and shared-address conflict protection. Twelve other sources remain disabled. The three additional catalogs require the separate additive source-allowlist migration before application deployment. Discovery requires an authorized Worker Start and never executes paid catalog tools or sends email automatically. See [Admin Worker discovery](docs/admin-worker-discovery.md).
+Admin Worker discovery has eight deployed, read-only catalog adapters: APIs.guru, Public API Lists, GitHub Public APIs, publicapis.dev's MIT repository, the Apify Store catalog, x402 List, PayAPI Market and bolthub. The additive source-allowlist migration is installed. Durable cursors, cached catalogs and bounded recovery share provider history, qualification, verified-contact and Pending Emails checks. Twelve other sources remain disabled. Discovery requires an authorized Worker Start; it neither executes paid catalog tools nor sends email automatically. Groq-backed qualification is separate from the deterministic acquisition canary and continuous Worker. See [Admin Worker discovery](docs/admin-worker-discovery.md).
 
 Pending Emails is a separate Admin-only Automation page at `/admin/operations/pending-emails` for tracking emails sent externally. It uses verified, qualified Worker contacts independently of invitation drafts and preserves permanent manual-sending history without sending email or fabricating delivery receipts. The registry migration is installed in Production. Historical reconciliation/import and Worker processing require separate operator authorization; this deployment does not start the Worker or enable email delivery. See [Admin Pending Emails](docs/admin-pending-emails.md).
 

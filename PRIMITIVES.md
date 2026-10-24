@@ -66,8 +66,10 @@ Next.js route handlers, and PostgreSQL/Supabase functions.
 
 **Production verification.** Arc Mainnet requirements, live unsigned 402
 challenge generation, and a real externally signed MCP x402 purchase have been
-verified. Production evidence confirmed settlement, accounting, paid API
-delivery, and same-authorization replay without duplicate payment. The state
+verified. Production evidence confirmed Gateway payment acceptance, application
+accounting, paid API delivery, and same-authorization replay without duplicate
+payment. Final onchain nanopayment batch settlement was not independently
+verified. The state
 machine also has focused local and synthetic integration coverage. The public
 Memo transaction is not presented as proof of the x402 purchase.
 
@@ -85,7 +87,8 @@ and ship a minimal migration and route example.
 **What it does.** Buyer-supplied path and query values are checked against the
 seller-declared contract. The target builder rejects traversal, encoded
 traversal, undeclared or duplicate parameters, and collisions with a query
-credential. API-key, bearer, or query credentials are injected only after the
+credential. API-key, bearer, query, Basic, custom header, controlled Authorization,
+or approved OAuth Client Credentials authentication is applied only after the
 credential-free target is authorized.
 
 **Why reuse it.** A paid API proxy can otherwise turn stored seller credentials
@@ -188,9 +191,11 @@ public discovery format, and the existing proxy and recovery endpoints.
 
 **Production verification.** Public MCP discovery and end-to-end paid execution
 have been verified in Production with an external client, including external
-wallet signing, Arc Mainnet settlement, paid API delivery, persistent recovery,
+wallet signing, Gateway payment acceptance, paid API delivery, persistent recovery,
 same-authorization replay without duplicate payment, and buyer, seller, and
-platform accounting. Local tests cover the adapter, bounded inputs/responses,
+platform accounting. A newer scripted Canary covered four credential modes and
+four response recoveries; final onchain batch settlement remains unverified.
+Local tests cover the adapter, bounded inputs/responses,
 challenge parsing, request integrity, and synthetic proxy boundaries.
 
 **Known limitations.** The adapter assumes Mahshar's discovery and response
@@ -319,8 +324,9 @@ add `Payment-Signature` unless deliberately performing a real payment. See
 | Public discovery | Live at `/api/agent/discover`; advertises `eip155:5042`. |
 | Browser/HTTP paid flow | The underlying Arc Mainnet x402 settlement and delivery path has been Production-verified end to end through MCP. The browser UI itself was not independently exercised by that verification. The public Memo transaction remains separate evidence. |
 | MCP discovery | Live through `search_apis` and `get_api` at `/api/mcp`. |
-| MCP paid execution | Production-verified end to end with external signing, real Arc Mainnet settlement, paid API delivery, same-authorization replay without duplicate payment, and verified buyer/seller/platform accounting. |
-| Purchase response recovery | Production-verified through MCP during the paid flow and across a separate client invocation, with matching response identity. |
+| MCP paid execution | A scripted external MCP Canary verified four paid Production calls covering Basic, custom API-key header, custom Authorization and multiple credential headers, with four valid responses and matching application accounting. Gateway nanopayment offchain balances updated; final onchain batch settlement was not independently verified. This was not a fully autonomous AI-agent test. Earlier external-client verification covered same-authorization replay without duplicate payment. |
+| Purchase response recovery | All four recent paid calls were recovered through `get_purchase_response`; earlier Production testing also recovered across a separate client invocation with matching response identity. |
+| OAuth Client Credentials | Enabled for approved Production profiles. A real Bitbucket token exchange and read-only API request succeeded for an inactive private listing; paid OAuth execution was not tested. PKCE remains disabled. |
 | Seller credential isolation | Implemented in the production proxy path; credentials remain server-side and are injected after target authorization. |
 | Bridge | Mainnet Bridge Kit routes and UI are implemented. No independent end-to-end production bridge transaction is claimed by this document. |
 | Onramp | Circle Onramp integration is implemented but configuration- and provider-onboarding-dependent; availability is not claimed for every deployment or user. |
@@ -376,10 +382,11 @@ purchase-scoped capability. It composes existing x402, MCP, Gateway, USDC, Arc
 wallet, CCTP, and bridge infrastructure rather than claiming to have invented
 those technologies.
 
-Public MCP discovery, externally signed paid execution, Arc Mainnet settlement,
+Public MCP discovery, externally signed paid execution, Gateway payment acceptance,
 paid API delivery, persistent response recovery, same-authorization replay
 without duplicate payment, and buyer/seller/platform accounting have been
-verified in Production with an external client.
+verified in Production with a scripted external client. Final onchain batch
+settlement was not independently verified.
 
 ## Traction evidence boundary
 

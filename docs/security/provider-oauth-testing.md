@@ -1,21 +1,23 @@
 # P2 isolated provider test preparation — 2026-10-23
 
-Status: implementation restored and mock-tested; real-provider tests are BLOCKED. No real OAuth application credentials, test-origin approval or consent approval were supplied. The profiles in `provider-oauth-test-profiles.json` are review templates, not installed configuration or proof of provider verification. Never paste actual credentials into this document, Git, logs or public listing examples.
+> Historical pre-release test plan. Production now has an approved Client Credentials profile, and the private Bitbucket read-only OAuth test succeeded. The test listing remains inactive; no paid OAuth purchase is claimed. PKCE remains disabled. See [current provider authentication status](provider-authentication.md).
+
+At the time of this plan, the implementation was restored and mock-tested, while real-provider tests were blocked because application credentials and test approval had not yet been supplied. The profiles in `provider-oauth-test-profiles.json` are review templates, not the installed Production configuration or proof of provider verification. Never paste actual credentials into this document, Git, logs or public listing examples.
 
 ## Client Credentials: Bitbucket Cloud
 
-Use a legitimate operator-controlled Atlassian account, a dedicated test workspace and an otherwise empty private repository named `p2-auth-probe`. The Free plan supports up to five workspace users; avoid Pipelines, paid add-ons and upgrades. [Plan requirements](https://support.atlassian.com/bitbucket-cloud/docs/manage-your-plan-and-billing/).
+Use a legitimate operator-controlled Atlassian account, a dedicated test workspace and an otherwise empty private test repository. The Free plan supports up to five workspace users; avoid Pipelines, paid add-ons and upgrades. [Plan requirements](https://support.atlassian.com/bitbucket-cloud/docs/manage-your-plan-and-billing/).
 
 As a workspace administrator, open Settings → Workspace settings → Apps and Features → OAuth consumers → Add consumer. Name it `Mahshar P2 isolated CC test`, set a legitimate approved HTTPS callback (registration requires one, this grant does not navigate there), and enable only Repositories: Read. Save its Key and Secret privately as `client_id` and `client_secret`. Do not enable account, email, write or admin permissions. [Consumer setup](https://support.atlassian.com/bitbucket-cloud/docs/integrate-another-application-through-oauth/).
 
 The template uses `client_secret_basic`, `client_credentials`, scope `repository`, and token endpoint `https://bitbucket.org/site/oauth2/access_token`. The token represents the consumer owner. Resource requests use Bearer authentication at `api.bitbucket.org`, as required since May 4, 2026. Consumer permissions must be minimal; request scope is not a substitute for that restriction. Access tokens are documented as lasting one hour; this implementation reacquires a CC token rather than relying on refresh tokens. [Grant and API contract](https://developer.atlassian.com/cloud/bitbucket/rest/intro/).
 
-Proposed isolated Seller configuration: `oauth_client_credentials`, GET `https://api.bitbucket.org/2.0/repositories/<test-workspace>/p2-auth-probe`, no body, Utility category, inactive. Read only the dummy repository. Do not create a paid public listing during this task. [Repository API](https://developer.atlassian.com/cloud/bitbucket/rest/api-group-repositories/).
+Proposed isolated Seller configuration: `oauth_client_credentials`, GET `https://api.bitbucket.org/2.0/repositories/<test-workspace>/<private-test-repository>`, no body, Utility category, inactive. Read only the dummy repository. Do not create a paid public listing during this task. [Repository API](https://developer.atlassian.com/cloud/bitbucket/rest/api-group-repositories/).
 
 Private API Credential format (replace placeholders locally):
 
 ```json
-{"provider":"bitbucket-test-cc","client_id":"<consumer-key>","client_secret":"<consumer-secret>","account_mode":"seller"}
+{"provider":"<approved-profile>","client_id":"<consumer-key>","client_secret":"<consumer-secret>","account_mode":"seller"}
 ```
 
 ## Authorization Code + PKCE: GitLab.com
@@ -45,7 +47,7 @@ For a second isolated buyer-delegated listing use the same shape with `"account_
 5. Store credentials with owner-only permissions in an operator-chosen persistent private directory outside the repository. Supply them only to the isolated Seller form/server secrets. No real secrets have been generated or stored by this restoration.
 6. Obtain explicit operator approval before clicking Connect provider, navigating to an actual authorization URL, granting consent, or acquiring real provider tokens. The mock browser consent links do not authorize real accounts.
 
-## Approval-gated acceptance still required
+## Original approval-gated acceptance plan
 
 - Bitbucket: real CC acquisition, dummy repository read, expiry/reacquisition, invalid-secret rejection, disconnect and reconnect. Confirm actual token fields/scopes and rate limits without recording tokens.
 - GitLab: real consent allow/deny, exact callback registration, actual resource identity, expiry/rotating refresh, disconnect/revocation and reconnect. Verify provider behavior for public-client revocation; local disconnect remains effective even if remote revocation fails.

@@ -82,7 +82,7 @@ export default async function ApiDetailPage({ params }: ApiPageProps) {
             <aside className={detailStyles.purchaseCard} aria-label="API price and usage">
               <p>LISTED PRICE</p>
               <strong>{formatUsdc(listing.pricePerCall)} <span>USDC</span></strong>
-              <small>per API call</small>
+              <small>base price per API call; buyer total includes a fee</small>
               <ul>
                 <li>x402 payment model</li>
                 <li>Arc Mainnet</li>
@@ -106,7 +106,12 @@ function authenticationLabel(value: PublicSeoListing['authType']) {
   if (value === 'public') return 'Public upstream access'
   if (value === 'apikey') return 'API key managed by Mahshar'
   if (value === 'bearer') return 'Bearer credential managed by Mahshar'
-  return 'Query credential managed by Mahshar'
+  if (value === 'queryparam') return 'Query credential managed by Mahshar'
+  if (value === 'basic') return 'HTTP Basic credential managed by Mahshar'
+  if (value === 'headers') return 'Custom credential headers managed by Mahshar'
+  if (value === 'authorization') return 'Custom Authorization managed by Mahshar'
+  if (value === 'oauth_client_credentials') return 'OAuth Client Credentials provider connection'
+  return 'OAuth provider connection'
 }
 
 function formatUsdc(value: number) {

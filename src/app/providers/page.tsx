@@ -22,7 +22,7 @@ const providerControls = [
   ['Listed base price', 'You set the listed base price per call; current buyer and seller amounts are shown before publication.'],
   ['Presentation', 'You manage the name, description, and category.'],
   ['Request contract', 'You configure the supported method and declared buyer inputs.'],
-  ['Authentication', 'You choose the supported public, API-key, bearer, or query-credential mode.'],
+  ['Authentication', 'Choose public access, API key, bearer, query credential, HTTP Basic, custom credential headers, custom Authorization, or OAuth Client Credentials with an approved provider profile.'],
 ] as const
 
 const onboarding = [
@@ -37,7 +37,7 @@ const onboarding = [
 const faqs = [
   ['Do I need to rebuild my API?', 'Mahshar is designed to list an existing HTTPS API endpoint. You configure how Mahshar may call it; your direct integration and infrastructure remain separate.'],
   ['Do I need to understand x402 first?', 'No prior x402 expertise is required to begin the provider flow. The Seller interface collects the endpoint, request contract, authentication mode, public metadata, and listed base price Mahshar needs.'],
-  ['Can my API use API-key or bearer authentication?', 'Yes. The current listing flow supports public access, an API key in the x-api-key header, bearer authentication, and a configured query credential.'],
+  ['Which upstream authentication methods are supported?', 'Public access, API key, bearer, query credential, HTTP Basic, custom credential headers, and controlled custom Authorization are supported. OAuth Client Credentials requires an approved provider profile and a seller connection. Authorization Code + PKCE is not enabled in Production. A connected provider account does not publish the listing.'],
   ['What fee does Mahshar take, and is my listed price what the buyer pays?', 'You set the listed base price. Buyers currently pay that price plus 10%, while Mahshar records 90% of the listed base price as your seller share. The difference is the platform accounting share.'],
   ['Does listing cost anything?', 'The current listing path has no listing, publication, or subscription fee. Paid-call and withdrawal economics still apply.'],
   ['When can I withdraw earnings?', 'A seller share becomes available after its paid call is durably accounted. The minimum withdrawal is 1 USDC, and estimated Arc gas is deducted from the requested withdrawal amount.'],

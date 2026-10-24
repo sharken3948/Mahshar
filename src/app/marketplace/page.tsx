@@ -61,7 +61,7 @@ export default async function MarketplacePage() {
                     <h2><Link href={apiListingPath(listing)}>{listing.name}</Link></h2>
                     <p className={styles.description}>{listing.description}</p>
                     <div className={styles.cardFooter}>
-                      <div><strong>{formatUsdc(listing.pricePerCall)} USDC</strong><span>per call · x402 on Arc</span></div>
+                      <div><strong>{formatUsdc(listing.pricePerCall)} USDC</strong><span>listed base price · buyer total includes a fee</span></div>
                       <Link href={apiListingPath(listing)} className={styles.detailsLink}>View API <span aria-hidden="true">→</span></Link>
                     </div>
                   </article>

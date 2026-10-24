@@ -1,4 +1,4 @@
-# Mahshar V2 autonomous-agent integration
+# Mahshar agent integration
 
 Start at `GET https://mahshar.xyz/api/agent/discover`. The response links
 `https://mahshar.xyz/api/openapi`; no source-code knowledge or browser is
@@ -21,6 +21,35 @@ is called with outer POST and JSON `{api_id,buyer_wallet,method,path?,body?}`.
 GET never forwards a body. POST, PUT, and DELETE accept JSON bodies; DELETE may
 omit it. Buyer-supplied headers are intentionally not forwarded. Seller auth is
 injected server-side.
+
+The deployed static upstream modes are public, API key, bearer, query credential,
+HTTP Basic, custom credential headers (including multiple headers), and controlled
+custom Authorization. OAuth Client Credentials is enabled only for approved
+seller-owned provider profiles. Authorization Code + PKCE exists in code but is
+disabled in Production. Discovery exposes an authentication type, never a seller
+credential or OAuth token. A provider connection being active does not make its
+listing public; discovery includes only eligible active listings.
+
+## MCP V1
+
+Use the stateless Streamable HTTP endpoint `POST https://mahshar.xyz/api/mcp`.
+`search_apis` discovers active listings and `get_api` inspects a listing.
+Call `execute_api_call` without a signature to receive the actual 402 challenge
+and prepared-call token. Validate the payment terms, sign with a wallet controlled
+by the client, and replay the exact prepared arguments with the signature.
+Persist the returned purchase capability; `get_purchase_response` retrieves
+that exact purchase without a new payment or provider execution. Mahshar does
+not need the buyer's private key.
+
+A bounded scripted external MCP Canary completed four Production paid calls:
+HTTP Basic, custom API-key header, custom Authorization token, and multiple
+credential headers. All four API responses and capability recoveries succeeded, with matching
+application accounting and no observed duplicate payment or credential leak.
+Gateway nanopayment offchain balances updated; final onchain batch settlement
+was not independently verified. The test was a scripted harness, not a fully
+autonomous AI agent. Real Production Bitbucket OAuth Client Credentials token
+exchange and read-only provider access were separately verified for an inactive
+private listing; a paid OAuth purchase has not been verified.
 
 ## x402 v2 and Arc Mainnet
 

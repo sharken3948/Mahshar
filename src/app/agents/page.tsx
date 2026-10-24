@@ -32,7 +32,7 @@ const features = [
 
 const resources = [
   { icon: 'api' as const, title: 'Public API marketplace', copy: 'Browse crawlable pages for active APIs before using the machine contract to execute a call.', href: '/marketplace', label: 'Browse APIs' },
-  { icon: 'agent' as const, title: 'MCP endpoint', copy: 'The external MCP path is Production-verified for discovery, external signing, Arc Mainnet settlement, paid execution, persistent recovery, same-authorization replay without duplicate settlement or provider execution, and buyer, seller, and platform accounting. Browser and UI flows were not part of that verification.', path: 'https://mahshar.xyz/api/mcp' },
+  { icon: 'agent' as const, title: 'MCP endpoint', copy: 'A scripted external MCP Canary verified four paid Production calls across Basic, custom API-key header, custom Authorization, and multiple credential headers, with matching accounting and purchase-scoped recovery. Gateway balances updated; final onchain batch settlement was not independently verified. This was not a fully autonomous AI-agent run.', path: 'https://mahshar.xyz/api/mcp' },
   { icon: 'discover' as const, title: 'Raw machine discovery', copy: 'View the public JSON catalog consumed by agents. This is machine data, not a product page.', href: '/api/agent/discover', label: 'View raw discovery JSON' },
   { icon: 'docs' as const, title: 'OpenAPI 3.1 specification', copy: 'Inspect the public discovery, execution, access, and recovery contract.', href: '/api/openapi', label: 'Open OpenAPI specification' },
   { icon: 'book' as const, title: 'Integration guide', copy: 'Follow the documented discovery, payment, delivery-state, and recovery sequence.', href: '/docs#agent-integration', label: 'Read guide' },

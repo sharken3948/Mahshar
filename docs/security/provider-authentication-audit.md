@@ -1,6 +1,8 @@
 # P2 OAuth on deployed P1 — readiness review, 2026-10-23
 
-**Implementation: ready for isolated provider review. P2 Production verdict: NO-GO pending approved real-provider validation and operational prerequisites.** P1 remains deployed and compatible in the tested scope. This task makes no Production change and grants no release approval.
+> Historical pre-release assessment. Since this review, P2 Client Credentials was deployed and a real Production Bitbucket token exchange plus read-only API request succeeded for an inactive private test listing. PKCE remains disabled in Production. See [current provider authentication status](provider-authentication.md). The NO-GO verdict below applies only to the original review date.
+
+**Original 2026-10-23 verdict: NO-GO for P2 Production pending real-provider validation and operational prerequisites.** P1 was deployed and compatible in the tested scope. This historical review made no Production change or release approval.
 
 ## Source and restoration
 
@@ -65,4 +67,4 @@ See `provider-oauth-testing.md` and `provider-oauth-test-profiles.json` for exac
 - **Operational prerequisite:** decide and document expired-state retention/pruning and former-provider revocation handling before rollout. Expired state is unusable but no scheduled cleanup is installed. Remote revocation is best effort; local disconnect remains effective.
 - Supported provider contract: Bearer only, numeric lifetime 61 seconds–31 days, bounded 32 KiB response; fixed HTTPS endpoints/resource origins/scopes. No audience/resource extension, client assertion, mTLS, DPoP or non-query callback. Templates are documented candidates, not live provider certification. No new configuration is installed in Production.
 
-**P2: NO-GO for Production; ready for review and separately approved isolated real-provider testing.** P1 compatibility passes. Stop for review; no Production action follows this report.
+**Historical P2 verdict: NO-GO on 2026-10-23, before the subsequent Client Credentials release and real-provider verification.** P1 compatibility passed this review's checks. No Production action followed from this report itself.
