@@ -44,11 +44,12 @@ function NavIcon({ name }: { name: IconName }) {
 
 export function OperationsShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const freeApiPage = pathname.startsWith('/admin/free-api-worker')
   const workerPage = pathname.startsWith('/admin/worker')
   const outreachPage = pathname.startsWith('/admin/outreach')
   const pendingEmailsPage = pathname.startsWith('/admin/operations/pending-emails')
   const maintenancePage = pathname.startsWith('/admin/maintenance')
-  const automationPage = workerPage || outreachPage || pendingEmailsPage
+  const automationPage = freeApiPage || workerPage || outreachPage || pendingEmailsPage
   const adminOnlyPage = automationPage || maintenancePage
   const request = useAdminRequest()
   const [collapsed, setCollapsed] = useState(false)
@@ -95,7 +96,7 @@ export function OperationsShell({ children }: { children: React.ReactNode }) {
       <aside className={`${styles.sidebar} ${drawerOpen ? styles.sidebarOpen : ''}`} aria-label="Admin navigation">
         <div className={styles.identity}>
           <div className={styles.mark} aria-hidden="true">M</div>
-          <div className={styles.identityText}><strong>Mahshar</strong><span>{pendingEmailsPage ? 'Admin / Pending Emails' : workerPage ? 'Admin / Worker' : outreachPage ? 'Admin / Outreach' : maintenancePage ? 'Admin / Maintenance' : 'Admin / Operations'}</span></div>
+          <div className={styles.identityText}><strong>Mahshar</strong><span>{freeApiPage ? 'Admin / Free API Worker' : pendingEmailsPage ? 'Admin / Pending Emails' : workerPage ? 'Admin / Worker' : outreachPage ? 'Admin / Outreach' : maintenancePage ? 'Admin / Maintenance' : 'Admin / Operations'}</span></div>
           <button type="button" className={styles.collapseButton} onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg>
           </button>
@@ -119,6 +120,9 @@ export function OperationsShell({ children }: { children: React.ReactNode }) {
           <Link href="/admin/worker" className={`${styles.navItem} ${workerPage ? styles.navActive : ''}`} aria-current={workerPage ? 'page' : undefined} title={collapsed ? 'Worker Agent' : undefined}>
             <NavIcon name="worker"/><span>Worker Agent</span>
           </Link>
+          <Link href="/admin/free-api-worker" className={`${styles.navItem} ${freeApiPage ? styles.navActive : ''}`} aria-current={freeApiPage ? 'page' : undefined} title={collapsed ? 'Free API Worker' : undefined}>
+            <NavIcon name="worker"/><span>Free API Worker</span>
+          </Link>
           <Link href="/admin/outreach" className={`${styles.navItem} ${outreachPage ? styles.navActive : ''}`} aria-current={outreachPage ? 'page' : undefined} title={collapsed ? 'Outreach' : undefined}>
             <NavIcon name="outreach"/><span>Outreach</span>
           </Link>
@@ -132,7 +136,7 @@ export function OperationsShell({ children }: { children: React.ReactNode }) {
       </aside>
       <div className={styles.workspace}>
         <header className={styles.topbar}>
-          <div><span className={styles.environmentDot}/><strong>Arc Mainnet</strong><span className={styles.topbarDivider}/><span>{pendingEmailsPage ? 'Pending Emails' : workerPage ? 'Worker foundation' : outreachPage ? 'Outreach workspace' : maintenancePage ? 'Maintenance watch' : 'Operations visibility'}</span></div>
+          <div><span className={styles.environmentDot}/><strong>Arc Mainnet</strong><span className={styles.topbarDivider}/><span>{freeApiPage ? 'Free API Worker' : pendingEmailsPage ? 'Pending Emails' : workerPage ? 'Worker foundation' : outreachPage ? 'Outreach workspace' : maintenancePage ? 'Maintenance watch' : 'Operations visibility'}</span></div>
           <div className={styles.topbarReadOnly}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>{adminOnlyPage ? 'Admin only' : 'Read-only'}</div>
         </header>
         <main className={styles.main}>{children}</main>

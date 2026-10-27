@@ -1,0 +1,27 @@
+.main { padding: 24px; max-width: 1600px; margin: auto; color: #e9edf4; }
+.header { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.header h1 { font-size: 24px; margin: 0; }
+.header p, .note { color: #9daec4; font-size: 13px; }
+.controls, .filters { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.controls button, .filters input, .filters select { background: #172132; border: 1px solid #40516a; border-radius: 6px; padding: 8px 12px; color: inherit; }
+.controls button { cursor: pointer; text-transform: capitalize; }
+.controls button:disabled { opacity: .4; cursor: default; }
+.filters label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.scroll { overflow: auto; border: 1px solid #2c3b50; border-radius: 8px; }
+.scroll table { border-collapse: collapse; width: 100%; font-size: 13px; text-align: left; }
+.scroll th, .scroll td { padding: 12px; border-bottom: 1px solid #2c3b50; vertical-align: top; max-width: 290px; overflow-wrap: anywhere; }
+.scroll th { background: #172132; white-space: nowrap; }
+.scroll small { display: block; margin-top: 5px; color: #9daec4; }
+.scroll a { color: #94c7ff; }
+.scroll details { margin-top: 6px; font-size: 12px; }
+.scroll summary { cursor: pointer; }
+@media (max-width: 700px) { .main { padding: 14px; } .header { align-items: flex-start; flex-direction: column; gap: 0; } }
+
+.confirm { border: 1px solid #94c7ff; background: #172132; padding: 16px; border-radius: 8px; margin-bottom: 16px; }
+.confirm h2 { font-size: 16px; }
+.scroll input[type="checkbox"] { width: 16px; height: 16px; }
+
+.confirm ul { max-height: 180px; overflow: auto; overflow-wrap: anywhere; padding-left: 20px; }
+.confirm input, .confirm select { background: #172132; border: 1px solid #40516a; color: inherit; padding: 8px; border-radius: 6px; }
+.confirm p { overflow-wrap: anywhere; }
+.confirm a { color: #94c7ff; }
