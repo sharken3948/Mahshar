@@ -1,3 +1,4 @@
+import { deliverFreeListing } from '@/lib/free-api-worker/free-delivery'
 import { credentialProxyAllowed } from '@/lib/marketplace/listing-security'
 import { NextRequest, NextResponse } from 'next/server'
 import { proxyRequest, proxyResponseEnvelope } from '@/lib/proxy'
@@ -26,7 +27,7 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
   const supabase = createServiceClient()
   const { data: listing, error } = await supabase
     .from('api_listings')
-    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method, endpoint_url, auth_type, auth_param_name, body_required, request_schema, dynamic_path_supported, path_parameters, query_parameters')
+    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, free_worker_candidate_id, method, endpoint_url, auth_type, auth_param_name, body_required, request_schema, dynamic_path_supported, path_parameters, query_parameters')
     .eq('id', apiId)
     .single()
 
@@ -86,6 +87,8 @@ async function handle(request: NextRequest, apiId: string, method: 'GET' | 'POST
       return NextResponse.json({ error: 'request_contract_invalid', message: bodyValidation.error }, { status: 400 })
     }
   }
+
+  if (listing.free_worker_candidate_id && priceUsd === 0) return deliverFreeListing(apiId, canonicalTarget)
 
   const resourceUrl = new URL(`/api/proxy/${encodeURIComponent(apiId)}${requestSuffix}`, marketplaceOrigin()).toString()
 

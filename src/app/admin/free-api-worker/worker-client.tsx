@@ -1,0 +1,129 @@
+'use client'
+
+import { useCallback, useEffect, useState } from 'react'
+import { useAccount } from 'wagmi'
+import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
+import type { Candidate } from '@/lib/free-api-worker/model'
+import type { State } from '@/lib/free-api-worker/store'
+import { BulkList } from './bulk-list'
+import styles from './worker.module.css'
+
+type Snapshot = {
+  progress: { total: number; completed: number; unfinished: number; active: number; batchSize: number }
+  state: State; summary: { admitted: number; functional: number; usable: number; successPercent: number }
+  total: number; pageSize: number; candidates: Candidate[]; nextRetry: string | null
+}
+export function FreeApiWorkerClient() {
+  const { request, wallet } = useMarketplaceSession(), { address } = useAccount()
+  const owner = wallet === '0x540a0027509b1c9aa0a2c5c65491cc97083e16de' && address?.toLowerCase() === wallet
+  const [data, setData] = useState<Snapshot | null>(null), [error, setError] = useState('')
+  const [busy, setBusy] = useState(false), [view, setView] = useState('usable')
+  const [selected, setSelected] = useState<Set<string>>(new Set()), [confirming, setConfirming] = useState(false)
+  const [publishing, setPublishing] = useState<Candidate[] | null>(null)
+  const [query, setQuery] = useState(''), [page, setPage] = useState(1)
+  const load = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const params = new URLSearchParams({ view, q: query, page: String(page) })
+      const response = await request(`/api/admin/free-api-worker/status?${params}`, { cache: 'no-store', signal })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.error ?? 'Worker unavailable')
+      if (!signal?.aborted) { setData(body); setError(''); setSelected(current => new Set([...current].filter(id => body.candidates.some((row: Candidate) => row.lead.id === id)))) }
+    } catch (cause) { if (!signal?.aborted) setError(cause instanceof Error ? cause.message : 'Worker unavailable') }
+  }, [request, view, query, page])
+  useEffect(() => {
+    const controller = new AbortController()
+    void load(controller.signal)
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void load(controller.signal) }, 5000)
+    return () => { controller.abort(); window.clearInterval(timer) }
+  }, [load])
+  useEffect(() => { setSelected(new Set()); setConfirming(false) }, [query, view, page])
+  async function removeSelected() {
+    setBusy(true); setError('')
+    try {
+      const response = await request('/api/admin/free-api-worker/remove', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ids: [...selected], confirmed: true }) })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.error ?? 'Removal unavailable')
+      setSelected(new Set()); setConfirming(false); await load()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Removal unavailable') }
+    finally { setBusy(false) }
+  }
+  async function control(action: 'start' | 'stop' | 'resume') {
+    setBusy(true); setError('')
+    try {
+      const response = await request('/api/admin/free-api-worker/control', { method: 'POST',
+        headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }) })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.error ?? 'Control unavailable')
+      await load()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Control unavailable') }
+    finally { setBusy(false) }
+  }
+  return <main className={styles.main}>
+    <div className={styles.header}><div><h1>Free API Worker</h1><p>Discover · Validate · Ready to List</p></div>
+      <div className={styles.controls}>{(['start', 'stop', 'resume'] as const).map(action => <button key={action}
+        disabled={busy || !!publishing || !owner || (action === 'stop' ? data?.state.status !== 'running' : data?.state.status === 'running' || !!data?.progress.active)}
+        onClick={() => void control(action)}>{action[0].toUpperCase() + action.slice(1)}</button>)}</div></div>
+    <p className={styles.note}>Ready to List contains free, working APIs prepared for the owner's decision. It does not establish paid resale rights or publish anything to the Marketplace.</p>
+    {error && <p role="alert">{error}</p>}
+    {data && <p aria-live="polite">{data.state.status} · {data.state.inventory?.sourceCount ?? data.summary.admitted} existing inventory · {data.summary.functional} functional · {data.summary.usable} Ready to List</p>}
+    {data && <p aria-live="polite">{data.progress.completed} / {data.progress.total} records completed · {data.progress.unfinished} unfinished · {data.progress.active} in flight · Batches of 50</p>}
+    {data?.state.discovery && <p className={styles.note}>Discovery: {Object.values(data.state.discovery.stats).reduce((total, source) => total + source.admitted, 0)} new candidates this pass{data.state.discovery.refreshAt ? ` · Next source refresh: ${new Date(data.state.discovery.refreshAt).toLocaleString()}` : ' · Processing configured sources'}</p>}
+    {data?.state.error && <p role="status">{data.state.error}</p>}
+    {data?.state.status === 'stopped' && <p className={styles.note}>Resume continues unfinished work after active requests finish. Saved completed evaluations are retained. Provider pauses are respected.</p>}
+    {data?.state.status === 'stopped' && data.nextRetry && <p className={styles.note}>Next saved retry: {new Date(data.nextRetry).toLocaleString()}</p>}
+    <div className={styles.filters}><label>View <select value={view} onChange={event => { setView(event.target.value); setPage(1) }}>
+      <option value="usable">Ready to List</option><option value="all">All candidates and evidence</option></select></label>
+      <label>Search <input value={query} onChange={event => { setQuery(event.target.value); setPage(1) }} placeholder="API or provider" /></label></div>
+    <div className={styles.controls}>
+      <span>{selected.size} selected on this page</span>
+      <button disabled={!owner || busy || !!publishing || !selected.size || view !== 'usable'} onClick={() => setConfirming(true)}>Remove selected</button>
+      <button disabled={!owner || busy || !!publishing || confirming || !selected.size || view !== 'usable'} onClick={() => setPublishing((data?.candidates ?? []).filter(row => selected.has(row.lead.id)))}>Bulk List</button>
+    </div>
+    {publishing && <BulkList candidates={publishing} onClose={() => setPublishing(null)} onComplete={load} />}
+    {confirming && <div role="alertdialog" aria-modal="false" aria-labelledby="remove-title" className={styles.confirm}>
+      <h2 id="remove-title">Remove {selected.size} selected candidates?</h2>
+      <p>They will stay out of Ready to List on future runs. Saved evidence and Marketplace products are preserved.</p>
+      <div className={styles.controls}><button autoFocus disabled={busy} onClick={() => setConfirming(false)}>Cancel</button>
+        <button disabled={busy} onClick={() => void removeSelected()}>Confirm removal</button></div>
+    </div>}
+    <CandidateTable candidates={data?.candidates ?? []} showEvidence={view === 'all'} selected={selected}
+      selectable={owner && view === 'usable' && !busy && !confirming && !publishing}
+      onSelection={setSelected} />
+    {data?.total === 0 && <p>No candidates in this view.</p>}
+    <div className={styles.controls}><button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</button>
+      <span>Page {page} · {data?.total ?? 0} results</span><button disabled={!data || page * data.pageSize >= data.total} onClick={() => setPage(p => p + 1)}>Next</button></div>
+  </main>
+}
+
+export function CandidateTable({ candidates, showEvidence = false, selected = new Set<string>(), selectable = false, onSelection }: {
+  candidates: Candidate[]; showEvidence?: boolean; selected?: Set<string>; selectable?: boolean; onSelection?: (ids: Set<string>) => void
+}) {
+  const allSelected = candidates.length > 0 && candidates.every(row => selected.has(row.lead.id))
+  return <div className={styles.scroll}><table><thead><tr>
+    <th><input type="checkbox" aria-label="Select all visible filtered candidates" disabled={!selectable || !candidates.length}
+      checked={allSelected} onChange={event => onSelection?.(new Set(event.target.checked ? candidates.map(row => row.lead.id) : []))} /></th>
+    <th>API</th><th>Working endpoint</th><th>Source / docs</th><th>Last successful validation</th><th>Details</th>
+  </tr></thead><tbody>{candidates.map(({ lead, result, attempts, listingId, publishedAt }) => <tr key={lead.id}>
+    <td><input type="checkbox" aria-label={`Select ${lead.name}`} disabled={!selectable} checked={selected.has(lead.id)}
+      onChange={event => { const next = new Set(selected); if (event.target.checked) next.add(lead.id); else next.delete(lead.id); onSelection?.(next) }} /></td>
+    <td><strong>{lead.name}</strong><small>{lead.providerId}</small></td>
+    <td>{result?.endpoint ? <a href={result.endpoint} target="_blank" rel="noreferrer">{result.endpoint}</a> : '—'}</td>
+    <td><a href={lead.docs} target="_blank" rel="noreferrer">Documentation</a>{lead.sources.map(source => <small key={source}>
+      <a href={source} target="_blank" rel="noreferrer">Source</a></small>)}</td>
+    <td>{result?.lastSuccess ? new Date(result.lastSuccess).toLocaleString() : '—'}</td>
+    <td><details><summary>Saved evidence</summary>
+      <p>Technical: {result?.technical ?? 'Pending'} · Free access: {result?.freeAccess ?? 'UNVERIFIED'} · Attempts: {attempts}</p>
+      <p>{result?.reason}</p>
+      {listingId && <p>Marketplace listing: {listingId} · {publishedAt ? `Published ${new Date(publishedAt).toLocaleString()}` : 'Prepared draft'}</p>}
+      {showEvidence && <p>Commercial permission: {result?.permission ?? 'UNKNOWN'}</p>}
+      {result && <>
+        <p>Terms review: {result.termsChecked ? 'Completed; see saved findings below' : 'Incomplete'}. Internal preparation does not establish paid resale rights.</p>
+        <a href={result.docs} target="_blank" rel="noreferrer">Validation source</a>
+        {result.evidence.map((evidence, index) => <p key={index}><a href={evidence.url} target="_blank" rel="noreferrer">Evidence page</a>
+          <small>{evidence.note}</small><small>{evidence.checkedAt} · SHA256: {evidence.sha256}</small></p>)}
+        {result.tests.map((test, index) => <p key={index}><small>{test.url} · {test.status ?? 'No response'} · {test.reason} · SHA256: {test.sha256 ?? '—'}</small></p>)}
+      </>}
+    </details></td>
+  </tr>)}</tbody></table></div>
+}

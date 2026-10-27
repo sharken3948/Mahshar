@@ -1,3 +1,4 @@
+import { listingPrice, workerListingInput, matchesWorkerListing } from '@/lib/free-api-worker/listing'
 import { MAX_LISTING_BODY_BYTES } from '@/lib/marketplace/listing-body'
 import { resourceAdmission } from '@/lib/resource-admission'
 import { withWalletSession, marketplaceErrors, requireWalletSession } from '@/lib/marketplace/server'
@@ -112,6 +113,14 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     throw error;
   }
 
+  const workerId = body.free_worker_candidate_id
+  const workerInput = workerId !== undefined
+    ? await workerListingInput(workerId, authenticatedWallet, listingPrice(body.price_per_call === 0 ? 'FREE' : 'PAID', body.price_per_call), body.owner_rights_confirmed) : null
+  if (workerInput) {
+    assertWalletClaim(body.seller_wallet, authenticatedWallet)
+    body = workerInput
+  }
+
   const { name, description, category, price_per_call, payment_model, seller_wallet, auth_type, auth_key, auth_param_name, endpoint_url, method, example_request, example_response } = body;
 
   assertWalletClaim(seller_wallet, authenticatedWallet);
@@ -152,7 +161,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
   if (!validateProviderCredential(auth_type, auth_key, auth_param_name as string | null)) {
     return NextResponse.json({ error: 'A credential is required for the selected authentication type' }, { status: 400 });
   }
-  if (typeof price_per_call !== 'number' || !isFinite(price_per_call) || price_per_call <= 0) {
+  if (typeof price_per_call !== 'number' || !isFinite(price_per_call) || (price_per_call < 0 || price_per_call === 0 && !workerInput)) {
     return NextResponse.json({ error: 'price_per_call must be a positive number' }, { status: 400 });
   }
 
@@ -189,9 +198,25 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
   const encrypted_key = auth_type !== 'public' && auth_key ? encryptKey(auth_key) : null;
   const supabase = createServiceClient();
 
+  if (workerInput) {
+    const { data: existing, error } = await createServiceClient().from('api_listings').select('*').eq('free_worker_candidate_id', workerId).maybeSingle()
+    if (error) return NextResponse.json({ error: 'Listing lookup failed' }, { status: 503 })
+    if (existing) return matchesWorkerListing(existing, workerInput)
+      ? NextResponse.json({ id: existing.id }, { status: 200 })
+      : NextResponse.json({ error: 'Existing listing differs from selection; review it in Seller.' }, { status: 409 })
+  }
+
+  if (workerInput) {
+    const { data: conflicts, error } = await supabase.from('api_listings').select('id').eq('endpoint_url', endpoint_url).ilike('seller_wallet', authenticatedWallet)
+    if (error) return NextResponse.json({ error: 'Duplicate check unavailable' }, { status: 503 })
+    if (conflicts?.length) return NextResponse.json({ error: 'This endpoint already has a Seller listing. Review the existing product.' }, { status: 409 })
+  }
+
   const { data, error } = await supabase
     .from('api_listings')
     .insert({
+      ...(workerInput ? { free_worker_candidate_id: workerInput.free_worker_candidate_id,
+        owner_rights_confirmation: workerInput.owner_rights_confirmation } : {}),
       name,
       description,
       category,
@@ -212,6 +237,10 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     .select('id')
     .single();
 
+  if (error && workerInput) {
+    const { data: existing } = await supabase.from('api_listings').select('*').eq('free_worker_candidate_id', workerId).maybeSingle()
+    if (existing && matchesWorkerListing(existing, workerInput)) return NextResponse.json({ id: existing.id })
+  }
   if (error) return NextResponse.json({ error: 'Listing creation failed' }, { status: 500 });
   return NextResponse.json({ id: data.id }, { status: 201 });
 })

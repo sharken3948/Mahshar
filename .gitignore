@@ -47,3 +47,6 @@ next-env.d.ts
 scripts/*-report.json
 .mahshar-agent-capabilities.json
 /.swc
+
+# Offline Worker evidence stays local, outside release bundles.
+/isolated-validation/

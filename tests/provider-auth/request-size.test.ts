@@ -37,7 +37,7 @@ test('Edit bounds UTF-8 bytes and streamed bodies without trusting Content-Lengt
     controller.enqueue(payload.slice(0, 32768)); controller.enqueue(payload.slice(32768)); controller.close()
   } })
   const streamed = new NextRequest(origin + '/api/apis/' + id, { method: 'PATCH', headers: sessionHeaders(),
-    body: stream, duplex: 'half' } as RequestInit)
+    body: stream, duplex: 'half' } as ConstructorParameters<typeof NextRequest>[1])
   assert.equal((await PATCH(streamed, context)).status, 413)
   assert.equal(state.tables.api_listings[0].example_response, undefined)
 })

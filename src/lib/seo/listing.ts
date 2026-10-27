@@ -47,9 +47,9 @@ export function apiListingCanonicalUrl(listing: Pick<PublicSeoListing, 'id' | 'n
   return `${SITE_ORIGIN}${apiListingPath(listing)}`
 }
 
-export function listingMetadataTitle(listing: Pick<PublicSeoListing, 'name'>): string {
+export function listingMetadataTitle(listing: Pick<PublicSeoListing, 'name'> & Partial<Pick<PublicSeoListing, 'pricePerCall'>>): string {
   const suffix = /\bapi$/i.test(listing.name) ? '' : ' API'
-  return `${listing.name}${suffix} — Pay per Call with USDC | Mahshar`
+  return `${listing.name}${suffix} — ${listing.pricePerCall === 0 ? 'Free API Access' : 'Pay per Call with USDC'} | Mahshar`
 }
 
 export function listingRouteDecision(
@@ -88,7 +88,7 @@ export function toPublicSeoListing(row: Record<string, unknown>): PublicSeoListi
     !isBoundedString(safe.name, SEO_NAME_MAX_LENGTH, true) ||
     !isBoundedString(safe.description, SEO_DESCRIPTION_MAX_LENGTH) ||
     !isBoundedString(safe.category, SEO_CATEGORY_MAX_LENGTH, true) ||
-    typeof safe.price_per_call !== 'number' || !Number.isFinite(safe.price_per_call) || safe.price_per_call <= 0 ||
+    typeof safe.price_per_call !== 'number' || !Number.isFinite(safe.price_per_call) || (safe.price_per_call < 0 || safe.price_per_call === 0 && !row.free_worker_candidate_id) ||
     safe.payment_model !== 'pay-per-call' ||
     !(PROVIDER_AUTH_TYPES as readonly string[]).includes(String(authType))
   ) return null
@@ -107,10 +107,10 @@ export function toPublicSeoListing(row: Record<string, unknown>): PublicSeoListi
   }
 }
 
-export function listingMetadataDescription(listing: Pick<PublicSeoListing, 'name' | 'description'>): string {
+export function listingMetadataDescription(listing: Pick<PublicSeoListing, 'name' | 'description'> & Partial<Pick<PublicSeoListing, 'pricePerCall'>>): string {
   const normalized = listing.description.replace(/\s+/g, ' ').trim()
   const base = normalized || `${listing.name} is available through the Mahshar AI API marketplace.`
-  const suffix = ' Pay per call with USDC via x402 on Arc Mainnet.'
+  const suffix = listing.pricePerCall === 0 ? ' Free API access through Mahshar.' : ' Pay per call with USDC via x402 on Arc Mainnet.'
   const maximumBaseLength = 160 - suffix.length
   const shortened = base.length > maximumBaseLength
     ? `${base.slice(0, Math.max(0, maximumBaseLength - 1)).trimEnd()}…`

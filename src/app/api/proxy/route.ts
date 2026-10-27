@@ -1,3 +1,4 @@
+import { deliverFreeListing } from '@/lib/free-api-worker/free-delivery'
 import { credentialProxyAllowed } from '@/lib/marketplace/listing-security'
 import { NextRequest, NextResponse } from 'next/server'
 import { proxyRequest, proxyResponseEnvelope } from '@/lib/proxy'
@@ -40,7 +41,7 @@ export async function POST(request: NextRequest) {
   const { api_id, buyer_wallet, method, path, incomingHeaders, body: reqBody } = body
   const requestBodyPresent = Object.prototype.hasOwnProperty.call(body, 'body')
 
-  if (!api_id || !buyer_wallet) {
+  if (!api_id) {
     return NextResponse.json({ error: 'api_id and buyer_wallet are required' }, { status: 400 })
   }
 
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
   const supabase = createServiceClient()
   const { data: listing, error } = await supabase
     .from('api_listings')
-    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, method, endpoint_url, auth_type, auth_param_name, body_required, request_schema, dynamic_path_supported, path_parameters, query_parameters')
+    .select('id, name, price_per_call, seller_wallet, encrypted_key, verified_at, is_active, free_worker_candidate_id, method, endpoint_url, auth_type, auth_param_name, body_required, request_schema, dynamic_path_supported, path_parameters, query_parameters')
     .eq('id', api_id)
     .single()
 
@@ -95,6 +96,9 @@ export async function POST(request: NextRequest) {
     const code = targetError instanceof ProxyTargetError ? targetError.code : 'invalid_dynamic_path'
     return NextResponse.json({ error: code }, { status: 400 })
   }
+
+  if (listing.free_worker_candidate_id && priceUsd === 0) return deliverFreeListing(api_id, canonicalTarget)
+  if (!buyer_wallet) return NextResponse.json({ error: 'api_id and buyer_wallet are required' }, { status: 400 })
 
   // Check for payment
   const paymentSignature = request.headers.get('payment-signature')

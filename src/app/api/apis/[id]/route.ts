@@ -1,3 +1,4 @@
+import { workerListingInput } from '@/lib/free-api-worker/listing'
 import { MAX_LISTING_BODY_BYTES } from '@/lib/marketplace/listing-body'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -99,10 +100,21 @@ export const PATCH = withWalletSession(async (request: NextRequest, wallet: stri
     patch.encrypted_key = body.auth_key ? encryptKey(body.auth_key) : null
   }
   if (body.price_per_call !== undefined) {
-    if (typeof body.price_per_call !== 'number' || !Number.isFinite(body.price_per_call) || body.price_per_call <= 0) {
+    if (typeof body.price_per_call !== 'number' || !Number.isFinite(body.price_per_call) || (body.price_per_call < 0 || body.price_per_call === 0 && !listing.free_worker_candidate_id)) {
       return NextResponse.json({ error: 'price_per_call must be a positive number' }, { status: 400 })
     }
     patch.price_per_call = body.price_per_call
+  }
+  if (listing.free_worker_candidate_id && Number(patch.price_per_call ?? listing.price_per_call) > 0
+    && body.owner_rights_confirmed !== undefined) {
+    const input = await workerListingInput(listing.free_worker_candidate_id, wallet,
+      Number(patch.price_per_call ?? listing.price_per_call), body.owner_rights_confirmed)
+    patch.owner_rights_confirmation = listing.owner_rights_confirmation ?? input.owner_rights_confirmation
+  }
+  if (listing.free_worker_candidate_id && Number(patch.price_per_call ?? listing.price_per_call) > 0
+    && (body.is_active === true || body.price_per_call !== undefined)
+    && !(patch.owner_rights_confirmation ?? listing.owner_rights_confirmation)) {
+    return NextResponse.json({ error: 'Explicit owner confirmation of established paid proxy/resale rights is required.' }, { status: 409 })
   }
   if (body.is_active !== undefined) {
     if (typeof body.is_active !== 'boolean') return NextResponse.json({ error: 'Invalid is_active' }, { status: 400 })

@@ -6,7 +6,7 @@ import { isValidListingId, toPublicSeoListing, type PublicSeoListing } from './l
 // the existing executable request contract. None can enter PublicSeoListing.
 export const SEO_CATALOG_COLUMNS = [
   'id', 'name', 'description', 'category', 'price_per_call', 'payment_model',
-  'score', 'is_active', 'auth_type', 'method', 'verified_at',
+  'free_worker_candidate_id', 'score', 'is_active', 'auth_type', 'method', 'verified_at',
   'endpoint_url', 'auth_param_name', 'example_request', 'body_required',
   'dynamic_path_supported', 'path_parameters', 'query_parameters',
 ].join(', ')
