@@ -14,7 +14,8 @@ export const POST = withAdmin(async (request, principal) => {
   }
   try {
     const store = await databaseStore()
-    const ready = new Set(usableCandidates(await store.candidates()).map(row => row.lead.id))
+    const candidates = await store.candidates()
+    const ready = new Set([...usableCandidates(candidates), ...candidates.filter(row => row.manualFailedAt && !row.removedAt && !row.publishedAt)].map(row => row.lead.id))
     const ids = [...new Set(body.ids as string[])].filter(id => ready.has(id))
     const removed = ids.length ? await store.remove(ids, principal.wallet) : 0
     return NextResponse.json({ removed })

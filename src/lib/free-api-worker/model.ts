@@ -17,7 +17,7 @@ export type Result = {
   lastSuccess: string | null; reason: string; retryAt: string | null; evidence: Evidence[]
   tests: { url: string; status: number | null; reason: string; sha256?: string }[]
 }
-export type Candidate = { listingId?: string | null; publishedAt?: string | null; historical?: boolean; removedAt?: string | null; completedAt?: string | null; leaseUntil?: string | null; lead: Lead; result: Result | null; attempts: number; retryAt: string | null }
+export type Candidate = { manualFailedAt?: string | null; failureReason?: string | null; recheckUntil?: string | null; recheckResult?: { validation?: Result; reason?: string; recovered?: boolean } | null; listingId?: string | null; publishedAt?: string | null; historical?: boolean; removedAt?: string | null; completedAt?: string | null; leaseUntil?: string | null; lead: Lead; result: Result | null; attempts: number; retryAt: string | null }
 export const OWNER = '0x540a0027509b1c9aa0a2c5c65491cc97083e16de'
 export const digest = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex')
 export function domain(url: string) {
@@ -59,10 +59,10 @@ export function apiKey(row: Candidate): string {
   return row.result?.endpoint ? canonical(row.result.endpoint) ?? row.lead.id : row.lead.id
 }
 export function usableCandidates(rows: Candidate[]): Candidate[] {
-  const excluded = new Set(rows.filter(row => row.result?.permission === 'PROHIBITED' || !!row.removedAt || !!row.publishedAt).map(apiKey))
+  const excluded = new Set(rows.filter(row => row.result?.permission === 'PROHIBITED' || !!row.removedAt || !!row.publishedAt || !!row.manualFailedAt).map(apiKey))
   const unique = new Map<string, Candidate>()
   for (const row of [...rows].sort((a,b)=>Number(!!b.historical) - Number(!!a.historical) || a.lead.id.localeCompare(b.lead.id))) {
-    if (!row.lead.duplicateOf && !row.removedAt && !row.publishedAt && usable(row.result) && !excluded.has(apiKey(row)) && !unique.has(apiKey(row))) unique.set(apiKey(row), row)
+    if (!row.lead.duplicateOf && !row.removedAt && !row.publishedAt && !row.manualFailedAt && usable(row.result) && !excluded.has(apiKey(row)) && !unique.has(apiKey(row))) unique.set(apiKey(row), row)
   }
   return [...unique.values()]
 }

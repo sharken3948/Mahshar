@@ -18,8 +18,8 @@ export async function workerListingInput(id: unknown, wallet: string, price: num
   if (typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id)) throw new MarketplaceError('Invalid candidate', 400)
   const { data, error } = await createServiceClient().from('free_worker_apis').select('*').eq('id', id).single()
   if (error || !data) throw new MarketplaceError('Candidate unavailable', 404)
-  const row = data as { lead: Candidate['lead']; result: Candidate['result']; removed_at?: string; published_at?: string }
-  if (row.removed_at || row.lead.duplicateOf || !usable(row.result)) throw new MarketplaceError('Candidate is not Ready to List', 409)
+  const row = data as { lead: Candidate['lead']; result: Candidate['result']; removed_at?: string; published_at?: string; manual_failed_at?: string }
+  if (row.removed_at || row.manual_failed_at || row.lead.duplicateOf || !usable(row.result)) throw new MarketplaceError('Candidate is not Ready to List', 409)
   if (price > 0 && ownerRightsConfirmed !== true) {
     throw new MarketplaceError('Explicit owner confirmation of established paid proxy/resale rights is required.', 409)
   }

@@ -12,12 +12,12 @@ export const GET = withAdmin(async request => {
   try {
     const store = await databaseStore()
     const [state, all] = await Promise.all([store.state(), store.candidates()])
-    const rows = (view === 'usable' ? usableCandidates(all) : all.filter(row => !row.removedAt)).filter(row => (row.lead.name + ' ' + row.lead.providerId).toLowerCase().includes(search))
+    const rows = (view === 'usable' ? usableCandidates(all) : all.filter(row => !row.removedAt && (view !== 'failed' || row.manualFailedAt))).filter(row => (row.lead.name + ' ' + row.lead.providerId).toLowerCase().includes(search))
     return NextResponse.json({ state, summary: summary(all), total: rows.length, page,
       progress: { total: all.length, completed: all.filter(row => row.completedAt).length,
-        unfinished: all.filter(row => !row.completedAt && !row.removedAt).length,
+        unfinished: all.filter(row => !row.completedAt && !row.removedAt && !row.manualFailedAt).length,
         active: all.filter(row => row.leaseUntil && Date.parse(row.leaseUntil) > Date.now()).length, batchSize: 50 },
-      nextRetry: all.flatMap(row => !row.completedAt && !row.removedAt && row.retryAt ? [row.retryAt] : []).sort()[0] ?? null,
+      nextRetry: all.flatMap(row => !row.completedAt && !row.removedAt && !row.manualFailedAt && row.retryAt ? [row.retryAt] : []).sort()[0] ?? null,
       candidates: rows.slice((page - 1) * 25, page * 25), pageSize: 25 })
   } catch { return NextResponse.json({ error: 'worker_unavailable' }, { status: 503 }) }
 })
