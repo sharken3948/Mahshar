@@ -4,13 +4,13 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { MarketplaceError } from '@/lib/marketplace/operation-authorization'
 import { OWNER } from './model'
 import { workerListingInput } from './listing'
-import { PublicationFailure, publishWorkerListing, type PublicationInput } from './publication'
+import { GroqRateLimitPause, PublicationFailure, publishWorkerListing, type PublicationInput } from './publication'
 import { runBulkAttempt, BULK_TIMEOUT_ERROR } from './bulk-attempt'
 
 export async function bulkRpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
   const { data, error } = await createServiceClient().rpc(`free_worker_bulk_${name}`, args)
   if (error) {
-    const known = ['unfinished_batch', 'authorization_changed', 'work_in_flight', 'batch_not_found'].find(code => error.message?.includes(code))
+    const known = ['unfinished_batch', 'authorization_changed', 'work_in_flight', 'batch_not_found', 'groq_pause_not_elapsed', 'groq_pause_changed'].find(code => error.message?.includes(code))
     throw new MarketplaceError(known ?? 'Bulk progress storage unavailable. Saved progress is retained.', known ? 409 : 503)
   }
   return data as T
@@ -20,7 +20,7 @@ export type BulkItem = {
   stage: string; listing_id: string | null; attempts: number; last_error: string | null;
   lease_until: string | null; lease_token?: string; updated_at: string; events: unknown[]
 }
-export type BulkBatch = { id: string; mode: 'FREE' | 'PAID'; price: number | string; rights_confirmed: boolean; authorized_at: string; retry_at: string | null; items: BulkItem[] }
+export type BulkBatch = { id: string; mode: 'FREE' | 'PAID'; price: number | string; rights_confirmed: boolean; authorized_at: string; retry_at: string | null; pause_reason?: 'groq_rate_limit' | null; items: BulkItem[] }
 export async function readBatch(id?: string) { return bulkRpc<BulkBatch | null>('read', { p_owner: OWNER, p_id: id ?? null }) }
 export function publicBatch(batch: BulkBatch | null) {
   if (!batch) return null
@@ -52,7 +52,10 @@ export async function processNext(request: NextRequest, id: string) {
     const reason = Date.now() >= Date.parse(item.lease_until!) || error instanceof Error && error.message === BULK_TIMEOUT_ERROR ? BULK_TIMEOUT_ERROR
       : error instanceof PublicationFailure || error instanceof MarketplaceError ? error.message
       : 'Publication interrupted. Saved listing and analysis will be reconciled on Resume.'
-    if (!await bulkRpc<boolean>('finish', { ...identity, p_status: retry && reason !== BULK_TIMEOUT_ERROR ? 'pending' : 'failed', p_error: reason, p_retry: reason === BULK_TIMEOUT_ERROR ? null : retry ?? null })) {
+    const saved = error instanceof GroqRateLimitPause && reason !== BULK_TIMEOUT_ERROR
+      ? await bulkRpc<boolean>('pause', { ...identity, p_retry: error.seconds })
+      : await bulkRpc<boolean>('finish', { ...identity, p_status: retry && reason !== BULK_TIMEOUT_ERROR ? 'pending' : 'failed', p_error: reason, p_retry: reason === BULK_TIMEOUT_ERROR ? null : retry ?? null })
+    if (!saved) {
       throw new MarketplaceError('Progress could not be confirmed. Resume reconciles the saved listing after its lease expires.', 503)
     }
   }

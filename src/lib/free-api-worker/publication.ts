@@ -16,6 +16,9 @@ export type PublicationStage = 'prepare' | 'analysis' | 'activation'
 export class PublicationFailure extends Error {
   constructor(message: string, readonly retryAfter?: number) { super(redactSecrets(message).slice(0, 1200)) }
 }
+export class GroqRateLimitPause extends PublicationFailure {
+  constructor(readonly seconds: number) { super('Groq HTTP 429: rate limit reached. Resume after the saved retry time.') }
+}
 export async function publishWorkerListing(request: NextRequest, input: PublicationInput,
   checkpoint: (stage: PublicationStage, listingId?: string) => Promise<void> = async () => {}) {
   const db = createServiceClient()
@@ -59,6 +62,9 @@ export async function publishWorkerListing(request: NextRequest, input: Publicat
     const result = await checkResponse(await analyzeListing(sellerRequest('/api/ai/score', 'POST', {
       api_id: id, seller_wallet: OWNER, require_category: true,
     })))
+    if (Number.isSafeInteger(result.bulk_groq_retry_after_seconds) && result.bulk_groq_retry_after_seconds > 0) {
+      throw new GroqRateLimitPause(result.bulk_groq_retry_after_seconds)
+    }
     if (!result.endpoint_verified || !result.ai_available || result.inconclusive || !result.suggestions?.category
       || !Number.isInteger(result.score) || !result.approved || result.critical_issues?.length) {
       throw new PublicationFailure(result.error ?? result.blocking_issue ?? result.analysis_failure_reason

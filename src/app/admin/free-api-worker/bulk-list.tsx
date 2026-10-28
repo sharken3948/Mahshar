@@ -59,6 +59,8 @@ export function BulkProgressPanel({ batch, busy, notice, onResume, onRetry }: {
   batch: BulkProgress; busy: boolean; notice: string; onResume: () => void; onRetry: () => void
 }) {
   const counts = bulkCounts(batch)
+  const groqPaused = batch.pause_reason === 'groq_rate_limit'
+  const waitingForGroq = groqPaused && (!batch.retry_at || Date.parse(batch.retry_at) > Date.now())
   const current = batch.items.find(item => item.status === 'processing' && Date.parse(item.lease_until ?? '') > Date.now())
   const lastActivity = batch.items.map(item => item.updated_at ?? batch.authorized_at).sort().at(-1)
   return <section className={styles.confirm} aria-label="Saved Bulk List progress">
@@ -68,11 +70,12 @@ export function BulkProgressPanel({ batch, busy, notice, onResume, onRetry }: {
     <p>Current API: {current ? `${current.name} · ${current.stage}` : 'None'} · Last activity: {lastActivity ? new Date(lastActivity).toLocaleString() : '—'}</p>
     <p>Each API has 60 seconds. Timed-out attempts retain their draft and completed analysis for manual Retry.</p>
     <p>Selection and progress are saved. If this page closes, reopen it and choose Resume. Completed listings and saved reviews are retained.</p>
-    {batch.retry_at && Date.parse(batch.retry_at) > Date.now() && <p>Seller request limit: next attempt after {new Date(batch.retry_at).toLocaleString()}.</p>}
+    {groqPaused ? <p role="status">Groq rate limit reached. Resume available after {batch.retry_at ? new Date(batch.retry_at).toLocaleString() : 'the saved retry time'}.</p>
+      : batch.retry_at && Date.parse(batch.retry_at) > Date.now() && <p>Seller request limit: next attempt after {new Date(batch.retry_at).toLocaleString()}.</p>}
     {notice && <p role="status">{notice}</p>}
     <div className={styles.controls}>
-      <button disabled={busy || !counts.remaining && !counts.processing} onClick={onResume}>{busy ? 'Processing…' : 'Resume remaining'}</button>
-      <button disabled={busy || !!counts.processing || !counts.failed} onClick={onRetry}>Retry failed APIs</button>
+      <button disabled={busy || waitingForGroq || !counts.remaining && !counts.processing} onClick={onResume}>{busy ? 'Processing…' : 'Resume remaining'}</button>
+      <button disabled={busy || groqPaused || !!counts.processing || !counts.failed} onClick={onRetry}>Retry failed APIs</button>
     </div>
     <ul>{batch.items.map(item => <li key={item.candidate_id}>
       {item.name}: {item.status === 'processing' && Date.parse(item.lease_until ?? '') <= Date.now() ? 'TIMEOUT · awaiting saved-state reconciliation' : item.status} · {item.stage}

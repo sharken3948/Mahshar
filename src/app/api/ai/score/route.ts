@@ -467,6 +467,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     let inconclusive = false
     let aiFailureReason: string | null = null
     let aiRetryAfter: number | undefined
+    let bulkGroqRetryAfter: number | undefined
     try {
       const safeAIField = (value: string | undefined) => value && reflectsProviderSecret(value, value, upstreamSecrets) ? '[redacted]' : value
       aiResult = await scoreApi({
@@ -491,6 +492,10 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
         : error instanceof Error && /timeout|timed out/i.test(error.message) ? 'Groq request timed out.'
         : 'Groq request failed; no valid review was saved.'
       if (error instanceof ResourceBudgetError && !error.unavailable) aiRetryAfter = error.retryAfter
+      // Only durable Bulk attempts consume this pause hint; ordinary Seller behavior stays unchanged.
+      if (currentBulkAttempt() && error instanceof GroqAnalysisError && error.details.status === 429) {
+        bulkGroqRetryAfter = Math.max(1, error.details.retry_after_seconds ?? 60)
+      }
     }
 
     if (body.require_category && !aiResult?.suggestions.category) {
@@ -547,6 +552,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
       approved: verified && (aiResult?.approved ?? true),
       ai_available: aiAvailable,
       ...(body.require_category ? { analysis_failure_reason: aiFailureReason, retry_after_seconds: aiRetryAfter } : {}),
+      ...(bulkGroqRetryAfter === undefined ? {} : { bulk_groq_retry_after_seconds: bulkGroqRetryAfter }),
       inconclusive,
       critical_issues: blockingIssue ? [blockingIssue, ...(aiResult?.critical_issues ?? [])] : (aiResult?.critical_issues ?? []),
       warnings: responseSizeWarning
