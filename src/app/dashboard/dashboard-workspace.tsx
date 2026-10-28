@@ -126,7 +126,6 @@ function useDashboardWorkspaceState() {
   const preferencesRef = useRef(preferences)
   preferencesRef.current = preferences
 
-  const privateSnapshotLoadedRef = useRef(false)
   const [myApis, setMyApis] = useState<ApiListing[]>([])
   const [calls, setCalls] = useState<ApiCall[]>([])
   const [sellerEarnings, setSellerEarnings] = useState<SellerEarnings | null>(null)
@@ -296,10 +295,8 @@ function useDashboardWorkspaceState() {
       }))
       setSellerEarnings(statistics)
       readOnlyApisRef.current = safeListings
-      if (!privateSnapshotLoadedRef.current) {
-        myApisRef.current = safeListings
-        setMyApis(safeListings)
-      }
+      myApisRef.current = safeListings
+      setMyApis(safeListings)
       if (sellerSalesCount.current !== null && statistics.total_calls > sellerSalesCount.current && preferencesRef.current.notifications.sellerSale) {
         const increase = statistics.total_calls - sellerSalesCount.current
         sendLocalNotification('New Mahshar sale', `${increase} new paid API call${increase === 1 ? '' : 's'} recorded.`)
@@ -320,7 +317,6 @@ function useDashboardWorkspaceState() {
 
   const clearPrivateData = useCallback((wallet?: string) => {
     if (wallet && !isCurrentWallet(wallet)) return
-    privateSnapshotLoadedRef.current = false
     myApisRef.current = readOnlyApisRef.current
     setMyApis(readOnlyApisRef.current)
     setSellCallGroups([])
@@ -364,7 +360,6 @@ function useDashboardWorkspaceState() {
       setGatewayStats(history)
     }
     if (!isCurrentWallet(wallet)) return false
-    privateSnapshotLoadedRef.current = true
     return callsResponse.ok && buyerCallsLoaded && historyResponse.ok
   }, [address, clearPrivateData, fetchBuyerCalls, isCurrentWallet, privateFetch])
 
@@ -375,13 +370,13 @@ function useDashboardWorkspaceState() {
     if (existing) return existing
     const request = Promise.all([
       fetchReadOnlySellerStatistics(),
-      privateSnapshotLoadedRef.current ? loadPrivateSnapshot() : fetchBuyerCalls(),
+      loadPrivateSnapshot(),
     ]).then(() => { if (isCurrentWallet(wallet)) marketplaceIsStale.current = false }).finally(() => {
       if (marketplaceRefreshInFlight.current.get(wallet) === request) marketplaceRefreshInFlight.current.delete(wallet)
     })
     marketplaceRefreshInFlight.current.set(wallet, request)
     return request
-  }, [address, fetchBuyerCalls, fetchReadOnlySellerStatistics, isCurrentWallet, loadPrivateSnapshot])
+  }, [address, fetchReadOnlySellerStatistics, isCurrentWallet, loadPrivateSnapshot])
 
   const refreshBalanceData = useCallback(() => {
     if (!address) return Promise.resolve(true)
@@ -470,7 +465,6 @@ function useDashboardWorkspaceState() {
     setGatewayUnavailable(false)
     setBalanceUpdatedAt(null)
     sellerSalesCount.current = null
-    privateSnapshotLoadedRef.current = false
     setViewApiResponse(null)
     setViewApiModal(null)
     setViewApiLoading(false)

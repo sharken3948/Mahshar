@@ -35,3 +35,36 @@ test('determined zero seller earnings render as 0.0000 instead of an em dash', (
     world.sellerEarnings = original
   }
 })
+
+test('Seller API rows and Recent Sells use call results, including zero success and no calls', () => {
+  const original = { myApis: world.myApis, sellerEarnings: world.sellerEarnings, sellCallGroups: world.sellCallGroups }
+  const names = ['Star Trek API', 'Strictly Better API', 'No calls API', 'Failed request API']
+  world.myApis = names.map((name, index) => ({ ...original.myApis[0], id: String(index), name }))
+  world.sellerEarnings = {
+    ...original.sellerEarnings,
+    earnings_by_api: [0, 1, 3].map(index => ({ api_id: String(index), api_name: names[index], calls: index === 1 ? 2 : 1, total: index === 1 ? 0.0022 : 0.0011 })),
+  }
+  world.sellCallGroups = [0, 1, 3].map(index => ({
+    api_id: String(index), api_name: names[index], count: index === 1 ? 2 : 1,
+    successRate: index === 3 ? 0 : 100, avgLatency: 100, lastCalled: '2026-10-28', calls: [],
+  }))
+  try {
+    const html = renderToStaticMarkup(createElement(ApisPage))
+    const table = html.split('My Listed APIs')[1].split('</table>')[0]
+    const rows = [...table.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/g)].map(match => match[1])
+    const successCell = (name: string) => {
+      const row = rows.find(value => value.includes(name))!
+      return [...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/g)][4][1].replace(/<[^>]*>/g, '')
+    }
+    assert.equal(successCell('Star Trek API'), '100%')
+    assert.equal(successCell('Strictly Better API'), '100%')
+    assert.equal(successCell('No calls API'), '—')
+    assert.equal(successCell('Failed request API'), '0%', 'payment alone must not imply success')
+    const recentSells = html.split('Recent Sells')[1]
+    assert.match(recentSells, /Star Trek API/)
+    assert.match(recentSells, /Strictly Better API/)
+    assert.doesNotMatch(recentSells, /No one has called your APIs yet/)
+  } finally {
+    Object.assign(world, original)
+  }
+})
