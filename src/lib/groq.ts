@@ -2,6 +2,8 @@ import type { AuthType } from '@/types'
 import { PROVIDER_AUTH_TYPES } from '@/lib/marketplace/provider-auth-config'
 import { ResourceBudgetError } from '@/lib/resource-budget'
 import { budgetedCompletion } from '@/lib/groq-completion'
+import { GroqAnalysisError } from '@/lib/groq-analysis-error'
+import { assertBulkAttempt } from '@/lib/free-api-worker/bulk-attempt'
 import { validateDeclaredParameterMetadata, type DeclaredParameter } from '@/lib/marketplace/proxy-target';
 import {
   GROQ_MODEL, UNTRUSTED_CLOSE, UNTRUSTED_OPEN, ensureGroqAvailable, fenceUntrusted,
@@ -263,9 +265,12 @@ export async function scoreApi(listing: ScoreListing, realTestResult?: RealTestR
     } catch (err: unknown) {
       // Transient / network error — surface it so the seller can retry a
       // fresh request. Do not consume the "one retry" budget for these.
-      const message = err instanceof Error ? err.message : String(err);
       if (err instanceof ResourceBudgetError) throw err
-      throw new Error(`Groq API error (scoreApi): ${message}`);
+      // A Bulk deadline is an application timeout, not a provider failure.
+      assertBulkAttempt()
+      const failure = new GroqAnalysisError(err)
+      console.warn('groq_analysis_failed', failure.details)
+      throw failure;
     }
     const content = completion.choices[0]?.message?.content ?? '{}';
     try {
