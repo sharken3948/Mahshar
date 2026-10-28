@@ -55,6 +55,13 @@ export function FreeApiWorkerClient() {
     const authorizedWallet = wallet
     processing.current = true; setBatchBusy(true); setBatch(saved); setBatchNotice('Processing saved selection…')
     try {
+      if (saved.pause_reason === 'groq_rate_limit') {
+        const response = await request(`/api/admin/free-api-worker/batches/${saved.id}`, { method: 'POST',
+          headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'resume', retry_at: saved.retry_at }) })
+        const body = await response.json()
+        if (!response.ok) throw new Error(body.error === 'groq_pause_not_elapsed' ? 'Groq pause is still active.' : 'Groq pause changed. Refresh saved progress before resuming.')
+        saved = body.batch
+      }
       if (retry) {
         const response = await request(`/api/admin/free-api-worker/batches/${saved.id}`, { method: 'POST',
           headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'retry_failed' }) })
@@ -62,12 +69,14 @@ export function FreeApiWorkerClient() {
         if (!response.ok) throw new Error(body.error ?? 'Retry unavailable')
         saved = body.batch
       }
-      await runBulkSelection({ batch: saved, request,
+      const finished = await runBulkSelection({ batch: saved, request,
         stopped: () => !mounted.current || liveWallet.current !== authorizedWallet,
         onProgress: value => { if (mounted.current) setBatch(previous => mergeBulkProgress(previous, value)) },
         wait: ms => new Promise(resolve => window.setTimeout(resolve, ms)),
       })
-      if (mounted.current) setBatchNotice('Pass complete. Failed APIs remain saved for review or retry.')
+      if (mounted.current) setBatchNotice(finished.pause_reason === 'groq_rate_limit'
+        ? 'Groq rate limit reached. Progress saved; Resume is required after the displayed time.'
+        : 'Pass complete. Failed APIs remain saved for review or retry.')
     } catch (cause) {
       if (mounted.current) setBatchNotice((cause instanceof Error ? cause.message : 'Request interrupted.') + ' Progress is saved; Resume reconciles unfinished work.')
     } finally {

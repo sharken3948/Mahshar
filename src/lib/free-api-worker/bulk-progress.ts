@@ -1,13 +1,15 @@
 // Browser-safe types and progress; no credentials or server dependencies.
 export type BulkProgress = {
   id: string; mode: 'FREE' | 'PAID'; price: number | string; authorized_at: string; retry_at: string | null;
+  pause_reason?: 'groq_rate_limit' | null;
   items: { candidate_id: string; name: string; ordinal: number; status: 'pending' | 'processing' | 'published' | 'failed';
     stage: string; listing_id: string | null; last_error: string | null; lease_until: string | null; attempts: number; updated_at?: string }[]
 }
 // A slow status read must not replace a newer checkpoint from the POST response.
 export function mergeBulkProgress(previous: BulkProgress | null, incoming: BulkProgress | null): BulkProgress | null {
   if (!previous || !incoming || previous.id !== incoming.id) return incoming
-  return { ...incoming, items: incoming.items.map(item => {
+  const latest = (batch: BulkProgress) => Math.max(...batch.items.map(item => Date.parse(item.updated_at ?? batch.authorized_at)))
+  return { ...(latest(previous) > latest(incoming) ? previous : incoming), items: incoming.items.map(item => {
     const prior = previous.items.find(row => row.candidate_id === item.candidate_id)
     return prior && Date.parse(prior.updated_at ?? '') > Date.parse(item.updated_at ?? '') ? prior : item
   }) }
@@ -45,6 +47,8 @@ export async function runBulkSelection(options: {
   }
   let batch = options.batch
   while (!options.stopped()) {
+    // Provider pauses require a new, explicit Resume even after retry_at has elapsed.
+    if (batch.pause_reason === 'groq_rate_limit') return batch
     const counts = bulkCounts(batch)
     if (!counts.remaining && !counts.processing) return batch
     if (batch.retry_at && Date.parse(batch.retry_at) > Date.now()) {

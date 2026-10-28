@@ -22,7 +22,8 @@ const req = (path: string, body?: unknown) => new NextRequest(origin + path, { m
 const leak = 'SENSITIVE_PAYLOAD_DO_NOT_LOG'
 const cases = [
   [401, 'authentication', 'authentication_error'], [403, 'permission', 'permission_error'],
-  [429, 'rate_limit', 'tokens'], [500, 'upstream', 'server_error'], [502, 'upstream', 'api_error'],
+  // Durable Bulk 429 is covered by groq-pause.test.ts; it is now pending, not failed.
+  [500, 'upstream', 'server_error'], [502, 'upstream', 'api_error'],
   [503, 'upstream', 'server_error'], [504, 'upstream', 'server_error'],
   [400, 'request', 'invalid_request_error'], [404, 'request', 'invalid_request_error'],
   ['network', 'network', null], ['timeout', 'timeout', null],
