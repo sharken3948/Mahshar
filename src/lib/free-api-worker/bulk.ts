@@ -5,6 +5,7 @@ import { MarketplaceError } from '@/lib/marketplace/operation-authorization'
 import { OWNER } from './model'
 import { workerListingInput } from './listing'
 import { PublicationFailure, publishWorkerListing, type PublicationInput } from './publication'
+import { runBulkAttempt, BULK_TIMEOUT_ERROR } from './bulk-attempt'
 
 export async function bulkRpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
   const { data, error } = await createServiceClient().rpc(`free_worker_bulk_${name}`, args)
@@ -17,7 +18,7 @@ export async function bulkRpc<T>(name: string, args: Record<string, unknown>): P
 export type BulkItem = {
   candidate_id: string; ordinal: number; input: PublicationInput; status: 'pending' | 'processing' | 'failed' | 'published';
   stage: string; listing_id: string | null; attempts: number; last_error: string | null;
-  lease_until: string | null; lease_token?: string; events: unknown[]
+  lease_until: string | null; lease_token?: string; updated_at: string; events: unknown[]
 }
 export type BulkBatch = { id: string; mode: 'FREE' | 'PAID'; price: number | string; rights_confirmed: boolean; authorized_at: string; retry_at: string | null; items: BulkItem[] }
 export async function readBatch(id?: string) { return bulkRpc<BulkBatch | null>('read', { p_owner: OWNER, p_id: id ?? null }) }
@@ -35,20 +36,23 @@ export async function processNext(request: NextRequest, id: string) {
     }
   }
   try {
-    // Revalidate current eligibility; never silently expand/change the saved authorization.
-    const current = await workerListingInput(item.candidate_id, OWNER, Number(item.input.price_per_call), item.input.owner_rights_confirmed)
-    for (const key of Object.keys(item.input) as (keyof PublicationInput)[]) {
-      if (key !== 'owner_rights_confirmation' && JSON.stringify(current[key]) !== JSON.stringify(item.input[key])) {
-        throw new PublicationFailure('Candidate changed since authorization. Review it and authorize a new selection.')
+    await runBulkAttempt({ batch: id, candidate: item.candidate_id, token: item.lease_token!, deadline: Date.parse(item.lease_until!) }, async () => {
+      // Revalidate current eligibility; never silently expand/change the saved authorization.
+      const current = await workerListingInput(item.candidate_id, OWNER, Number(item.input.price_per_call), item.input.owner_rights_confirmed)
+      for (const key of Object.keys(item.input) as (keyof PublicationInput)[]) {
+        if (key !== 'owner_rights_confirmation' && JSON.stringify(current[key]) !== JSON.stringify(item.input[key])) {
+          throw new PublicationFailure('Candidate changed since authorization. Review it and authorize a new selection.')
+        }
       }
-    }
-    await publishWorkerListing(request, item.input, checkpoint)
+      await publishWorkerListing(request, item.input, checkpoint)
+    })
     if (!await bulkRpc<boolean>('finish', { ...identity, p_status: 'published' })) throw new Error('checkpoint_failed')
   } catch (error) {
     const retry = error instanceof PublicationFailure ? error.retryAfter : undefined
-    const reason = error instanceof PublicationFailure || error instanceof MarketplaceError ? error.message
+    const reason = Date.now() >= Date.parse(item.lease_until!) || error instanceof Error && error.message === BULK_TIMEOUT_ERROR ? BULK_TIMEOUT_ERROR
+      : error instanceof PublicationFailure || error instanceof MarketplaceError ? error.message
       : 'Publication interrupted. Saved listing and analysis will be reconciled on Resume.'
-    if (!await bulkRpc<boolean>('finish', { ...identity, p_status: retry ? 'pending' : 'failed', p_error: reason, p_retry: retry ?? null })) {
+    if (!await bulkRpc<boolean>('finish', { ...identity, p_status: retry && reason !== BULK_TIMEOUT_ERROR ? 'pending' : 'failed', p_error: reason, p_retry: reason === BULK_TIMEOUT_ERROR ? null : retry ?? null })) {
       throw new MarketplaceError('Progress could not be confirmed. Resume reconciles the saved listing after its lease expires.', 503)
     }
   }

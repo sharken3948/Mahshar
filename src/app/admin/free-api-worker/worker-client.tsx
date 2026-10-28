@@ -6,7 +6,7 @@ import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
 import type { Candidate } from '@/lib/free-api-worker/model'
 import type { State } from '@/lib/free-api-worker/store'
 import { BulkList, BulkProgressPanel } from './bulk-list'
-import { bulkCounts, runBulkSelection, type BulkProgress } from '@/lib/free-api-worker/bulk-progress'
+import { bulkCounts, mergeBulkProgress, runBulkSelection, type BulkProgress } from '@/lib/free-api-worker/bulk-progress'
 import styles from './worker.module.css'
 
 type Snapshot = {
@@ -37,7 +37,7 @@ export function FreeApiWorkerClient() {
       ])
       const saved = await progress.json()
       if (!progress.ok) throw new Error(saved.error ?? 'Saved Bulk List progress unavailable')
-      if (!signal?.aborted && !processing.current) setBatch(saved.batch)
+      if (!signal?.aborted) setBatch(previous => mergeBulkProgress(previous, saved.batch))
       const body = await response.json()
       if (!response.ok) throw new Error(body.error ?? 'Worker unavailable')
       if (!signal?.aborted) { setData(body); setError(''); setSelected(current => new Set([...current].filter(id => body.candidates.some((row: Candidate) => row.lead.id === id)))) }
@@ -64,7 +64,7 @@ export function FreeApiWorkerClient() {
       }
       await runBulkSelection({ batch: saved, request,
         stopped: () => !mounted.current || liveWallet.current !== authorizedWallet,
-        onProgress: value => { if (mounted.current) setBatch(value) },
+        onProgress: value => { if (mounted.current) setBatch(previous => mergeBulkProgress(previous, value)) },
         wait: ms => new Promise(resolve => window.setTimeout(resolve, ms)),
       })
       if (mounted.current) setBatchNotice('Pass complete. Failed APIs remain saved for review or retry.')

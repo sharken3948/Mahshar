@@ -22,6 +22,7 @@ import { providerAuthentication, reflectsProviderSecret } from '@/lib/marketplac
 import { PROVIDER_AUTH_TYPES, validateProviderCredential, staticAuthentication, isOAuth } from '@/lib/marketplace/provider-auth-config'
 import type { DeclaredParameter } from '@/lib/marketplace/proxy-target'
 import { LISTING_VERIFICATION_TIMEOUT_MS } from '@/lib/marketplace/listing-verification-timeout'
+import { currentBulkAttempt } from '@/lib/free-api-worker/bulk-attempt'
 
 export const runtime = 'nodejs'
 
@@ -311,6 +312,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     }
 
     const controller = new AbortController()
+    const bulkSignal = currentBulkAttempt()?.signal
     const timeoutId = setTimeout(() => controller.abort(), LISTING_VERIFICATION_TIMEOUT_MS)
     const startedAt = Date.now()
     let timedOut = false
@@ -336,7 +338,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
           headers: authenticated.headers,
           body: bodySent ?? undefined,
           redirect: 'manual',
-          signal: controller.signal,
+          signal: bulkSignal ? AbortSignal.any([controller.signal, bulkSignal]) : controller.signal,
         } }
       }, { timeoutMs: LISTING_VERIFICATION_TIMEOUT_MS })
       clearTimeout(timeoutId)

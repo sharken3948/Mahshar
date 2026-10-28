@@ -59,10 +59,14 @@ export function BulkProgressPanel({ batch, busy, notice, onResume, onRetry }: {
   batch: BulkProgress; busy: boolean; notice: string; onResume: () => void; onRetry: () => void
 }) {
   const counts = bulkCounts(batch)
+  const current = batch.items.find(item => item.status === 'processing' && Date.parse(item.lease_until ?? '') > Date.now())
+  const lastActivity = batch.items.map(item => item.updated_at ?? batch.authorized_at).sort().at(-1)
   return <section className={styles.confirm} aria-label="Saved Bulk List progress">
     <h2>Bulk List progress</h2>
     <p>{batch.mode} · {batch.price} USDC per call · {batch.items.length} authorized APIs</p>
     <p role="status">Published: {counts.published} · Failed: {counts.failed} · Processing: {counts.processing} · Remaining: {counts.remaining}</p>
+    <p>Current API: {current ? `${current.name} · ${current.stage}` : 'None'} · Last activity: {lastActivity ? new Date(lastActivity).toLocaleString() : '—'}</p>
+    <p>Each API has 60 seconds. Timed-out attempts retain their draft and completed analysis for manual Retry.</p>
     <p>Selection and progress are saved. If this page closes, reopen it and choose Resume. Completed listings and saved reviews are retained.</p>
     {batch.retry_at && Date.parse(batch.retry_at) > Date.now() && <p>Seller request limit: next attempt after {new Date(batch.retry_at).toLocaleString()}.</p>}
     {notice && <p role="status">{notice}</p>}
@@ -71,7 +75,7 @@ export function BulkProgressPanel({ batch, busy, notice, onResume, onRetry }: {
       <button disabled={busy || !!counts.processing || !counts.failed} onClick={onRetry}>Retry failed APIs</button>
     </div>
     <ul>{batch.items.map(item => <li key={item.candidate_id}>
-      {item.name}: {item.status} · {item.stage}
+      {item.name}: {item.status === 'processing' && Date.parse(item.lease_until ?? '') <= Date.now() ? 'TIMEOUT · awaiting saved-state reconciliation' : item.status} · {item.stage}
       {item.listing_id && <> · Listing {item.listing_id}</>}
       {item.last_error && <p>{item.last_error}</p>}
     </li>)}</ul>

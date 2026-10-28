@@ -6,8 +6,8 @@ import { OWNER } from '@/lib/free-api-worker/model'
 import { bulkRpc, processNext, publicBatch, readBatch, type BulkBatch } from '@/lib/free-api-worker/bulk'
 
 export const runtime = 'nodejs'
-// One API per request. Its recovery lease exceeds this maximum execution time.
-export const maxDuration = 300
+// Processing stops at 60s; reserve time only to save the terminal checkpoint.
+export const maxDuration = 90
 const validId = (id: string) => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(id)
 export const GET = withAdmin(async (_request, principal, context: { params: Promise<{ id: string }> }) => {
   if (principal.wallet !== OWNER) throw new MarketplaceError('owner_wallet_required', 403)

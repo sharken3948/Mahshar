@@ -9,6 +9,7 @@ import { redactSecrets } from '@/lib/groq-neutral'
 import { matchesWorkerListing, workerListingInput } from './listing'
 import { savedWorkerReview } from './review'
 import { OWNER } from './model'
+import { assertBulkAttempt, currentBulkAttempt } from './bulk-attempt'
 
 export type PublicationInput = Awaited<ReturnType<typeof workerListingInput>>
 export type PublicationStage = 'prepare' | 'analysis' | 'activation'
@@ -19,9 +20,10 @@ export async function publishWorkerListing(request: NextRequest, input: Publicat
   checkpoint: (stage: PublicationStage, listingId?: string) => Promise<void> = async () => {}) {
   const db = createServiceClient()
   const sellerRequest = (path: string, method: string, payload: unknown) => {
+    assertBulkAttempt()
     const headers = new Headers(request.headers)
     headers.set('content-type', 'application/json'); headers.delete('content-length')
-    return new NextRequest(new URL(path, request.url), { method, headers, body: JSON.stringify(payload) })
+    return new NextRequest(new URL(path, request.url), { method, headers, body: JSON.stringify(payload), signal: currentBulkAttempt()?.signal ?? request.signal })
   }
   const read = async () => {
     const { data, error } = await db.from('api_listings').select('*').eq('free_worker_candidate_id', input.free_worker_candidate_id).maybeSingle()
@@ -30,6 +32,7 @@ export async function publishWorkerListing(request: NextRequest, input: Publicat
     return data
   }
   const checkResponse = async (response: Response) => {
+    assertBulkAttempt()
     const result = await response.json()
     if (!response.ok) throw new PublicationFailure(result.error ?? 'Seller request failed',
       response.status === 429 ? Math.max(1, Number(response.headers.get('retry-after')) || 60) : undefined)
