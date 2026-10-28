@@ -37,3 +37,21 @@ test('ambiguous withdrawal uses calm locked-balance wording and a manual status 
  assert.ok(html.match(/<input[^>]*aria-label="Seller earnings withdrawal amount in USDC"[^>]*>/)?.[0].includes('disabled=""'))
  world.pendingWithdrawalRecovery=null;world.withdrawalRecoveryMessage=null
 })
+
+test('earnings table renders loaded Seller call rates independently from payment totals', () => {
+ const original = { sellerEarnings: world.sellerEarnings, sellCallGroups: world.sellCallGroups }
+ world.sellerEarnings = { ...original.sellerEarnings, earnings_by_api: [
+  {api_id:'star-trek',api_name:'Star Trek API',calls:1,total:.0011},
+  {api_id:'strictly-better',api_name:'Strictly Better API',calls:2,total:.0022},
+ ] }
+ world.sellCallGroups = [{api_id:'star-trek',successRate:100},{api_id:'strictly-better',successRate:100}]
+ try {
+  const html=renderToStaticMarkup(createElement(Page))
+  const table=html.split('Buyer payments by API, in USDC')[1]
+  assert.match(table,/Star Trek API/)
+  assert.match(table,/Strictly Better API/)
+  assert.equal((table.match(/100%/g) ?? []).length,2)
+  assert.match(table,/0\.0011/)
+  assert.match(table,/0\.0022/)
+ } finally { Object.assign(world,original) }
+})
