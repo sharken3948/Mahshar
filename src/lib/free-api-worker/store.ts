@@ -84,9 +84,9 @@ export class DatabaseStore implements Store {
   async candidates(): Promise<Candidate[]> {
     const rows: Candidate[] = []
     for (let offset = 0;; offset += 1000) {
-      const { data, error } = await this.db.from('free_worker_apis').select('lead,result,attempts,retry_at,removed_at,completed_at,lease_until,listing_id,published_at,historical:saved_inventory->original->lead->>id').order('id').range(offset, offset + 999)
+      const { data, error } = await this.db.from('free_worker_apis').select('lead,result,attempts,retry_at,removed_at,completed_at,lease_until,listing_id,published_at,manual_failed_at,failure_reason,recheck_until,recheck_result,historical:saved_inventory->original->lead->>id').order('id').range(offset, offset + 999)
       if (error) throw new Error('worker_storage_unavailable')
-      rows.push(...(data ?? []).map(row => ({ ...row, historical: !!row.historical, listingId: row.listing_id, publishedAt: row.published_at, retryAt: row.retry_at, removedAt: row.removed_at, completedAt: row.completed_at, leaseUntil: row.lease_until } as Candidate)))
+      rows.push(...(data ?? []).map(row => ({ ...row, manualFailedAt: row.manual_failed_at, failureReason: row.failure_reason, recheckUntil: row.recheck_until, recheckResult: row.recheck_result, historical: !!row.historical, listingId: row.listing_id, publishedAt: row.published_at, retryAt: row.retry_at, removedAt: row.removed_at, completedAt: row.completed_at, leaseUntil: row.lease_until } as Candidate)))
       if (!data || data.length < 1000) return rows
     }
   }

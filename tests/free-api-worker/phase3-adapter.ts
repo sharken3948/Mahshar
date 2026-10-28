@@ -1,11 +1,13 @@
 import { sql, createServiceClient as workerDB } from './postgres-adapter'
 import { createServiceClient as sessionDB } from '../marketplace/fixtures'
 export { sql } from './postgres-adapter'
-export const outbound = { fail: new Set<string>(), calls: new Map<string, number>(), paidCalls: 0 }
+export const outbound = { fail: new Set<string>(), calls: new Map<string, number>(), paidCalls: 0, responses: new Map<string, { status: number; body: string; type?: string }>() }
 export async function safeOutboundFetch(input: string | URL) {
   const url = String(input)
   if (!new URL(url).hostname.endsWith('.example.org')) throw new Error('Only synthetic fixture endpoints allowed')
   outbound.calls.set(url, (outbound.calls.get(url) ?? 0) + 1)
+  const response = outbound.responses.get(url)
+  if (response) return new Response(response.body, { status: response.status, headers: { 'content-type': response.type ?? 'text/html' } })
   return Response.json({ books: [{ title: 'Isolated fixture' }] }, { status: outbound.fail.has(url) ? 503 : 200 })
 }
 const quote = (value: unknown) => value == null ? 'NULL' : typeof value === 'boolean' || typeof value === 'number' ? String(value)
