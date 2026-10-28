@@ -22,10 +22,10 @@ test('validateScoreResult clamps out-of-range score to [1,10]', () => {
   assert.equal(validateScoreResult({ ...validScore, score: 7.6 }).score, 8);
 });
 
-test('validateScoreResult uses low fallback for non-numeric score', () => {
-  assert.equal(validateScoreResult({ ...validScore, score: 'ten' as unknown as number }).score, 1);
-  assert.equal(validateScoreResult({ ...validScore, score: null as unknown as number }).score, 1);
-  assert.equal(validateScoreResult({ ...validScore, score: undefined as unknown as number }).score, 1);
+test('validateScoreResult rejects absent or malformed scores instead of fabricating a low score', () => {
+  for (const score of ['ten', null, undefined, NaN, Infinity]) {
+    assert.throws(() => validateScoreResult({ ...validScore, score }), /invalid score schema/);
+  }
 });
 
 test('validateScoreResult clamps suggested_price', () => {

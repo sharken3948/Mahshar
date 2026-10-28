@@ -7,7 +7,7 @@ import { OWNER } from '@/lib/free-api-worker/model'
 import { listingPrice, matchesWorkerListing, workerListingInput } from '@/lib/free-api-worker/listing'
 import { OPERATION_AUTH_HEADER } from '@/lib/marketplace/operation-authorization'
 import { POST as createListing } from '@/app/api/apis/route'
-import { POST as verifyListing } from '@/app/api/apis/[id]/verify/route'
+import { POST as analyzeListing } from '@/app/api/ai/score/route'
 import { PATCH as activateListing } from '@/app/api/apis/[id]/route'
 
 export const runtime = 'nodejs'
@@ -44,15 +44,31 @@ export const POST = withAdmin(async (request, principal) => {
       }
       listingId = result.id
       const context = { params: Promise.resolve({ id: listingId! }) }
-      response = await verifyListing(sellerRequest(`/api/apis/${listingId}/verify`, 'POST', {}), context)
-      result = await response.json()
-      if (!response.ok || result.success !== true) { results.push({ id, listingId, success: false, error: result.error ?? 'Seller verification failed' }); continue }
+      const { data: saved, error: savedError } = await db.from('api_listings').select('*').eq('id', listingId).single()
+      if (savedError || !saved || !matchesWorkerListing(saved, input)) throw new Error('Saved listing changed; review it in Seller.')
+      // An already completed publication is reconciled without another endpoint or Groq request.
+      if (!(saved.is_active && saved.verified_at && saved.score != null && Number.isFinite(Number(saved.score))
+        && Number(saved.score) >= 1 && Number(saved.score) <= 10 && saved.category)) {
+        response = await analyzeListing(sellerRequest('/api/ai/score', 'POST', {
+          api_id: listingId, seller_wallet: OWNER, require_category: true,
+        }))
+        result = await response.json()
+        if (!response.ok || !result.endpoint_verified || !result.ai_available || result.inconclusive
+          || !result.suggestions?.category || !Number.isInteger(result.score) || !result.approved
+          || result.critical_issues?.length) {
+          results.push({ id, listingId, success: false,
+            error: result.error ?? result.blocking_issue ?? 'Groq category and API Score could not be confirmed. The listing was not published; retry analysis.',
+            ...(response.status === 429 ? { retryAfter: Math.max(1, Number(response.headers.get('retry-after')) || 60) } : {}) })
+          continue
+        }
+      }
       response = await activateListing(sellerRequest(`/api/apis/${listingId}`, 'PATCH', { seller_wallet: OWNER, is_active: true,
         price_per_call: price, owner_rights_confirmed: body.owner_rights_confirmed }), context)
       result = await response.json()
       if (!response.ok) { results.push({ id, listingId, success: false, error: result.error ?? 'Seller activation failed' }); continue }
       const { data: listing, error } = await db.from('api_listings').select('*').eq('id', listingId).single()
-      if (error || !listing?.is_active || !listing.verified_at || !matchesWorkerListing(listing, input)) throw new Error('Publication could not be confirmed. Retry to reconcile the saved listing.')
+      if (error || !listing?.is_active || !listing.verified_at || listing.score == null || !listing.category
+        || !matchesWorkerListing(listing, input)) throw new Error('Publication could not be confirmed. Retry to reconcile the saved listing.')
       results.push({ id, listingId, success: true, url: apiListingPath({ id: listingId!, name: input.name }) })
     } catch (error) {
       results.push({ id, listingId, success: false, error: error instanceof Error ? error.message : 'Publication unavailable' })
