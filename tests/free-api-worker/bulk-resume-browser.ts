@@ -5,7 +5,7 @@ import { buildSync } from 'esbuild'
 import { NextRequest } from 'next/server'
 import { alice, origin, sessionHeaders } from '../marketplace/fixtures'
 import { OWNER } from '../../src/lib/free-api-worker/model'
-import { sql } from './phase3-adapter'
+import { sql, outbound } from './phase3-adapter'
 import * as batchRoutes from '../../src/app/api/admin/free-api-worker/batches/route'
 import * as itemRoutes from '../../src/app/api/admin/free-api-worker/batches/[id]/route'
 import * as workerStatus from '../../src/app/api/admin/free-api-worker/status/route'
@@ -21,6 +21,9 @@ export async function verifyResumeBrowser(candidate: (name:string)=>{id:string},
  const js=bundle.outputFiles.find(file=>file.path.endsWith('.js'))!.text,css=bundle.outputFiles.find(file=>file.path.endsWith('.css'))?.text??''
  const headers=sessionHeaders({...alice,address:OWNER})
  let nextRequests=0,releaseResponse=()=>{},reachedCheckpoint=()=>{}
+ let releaseAnalysis=()=>{},analysisHeld=false
+ const analysisRelease=new Promise<void>(resolve=>{releaseAnalysis=resolve})
+ outbound.beforeListingWrite=async value=>{if(value.free_worker_review&&!analysisHeld){analysisHeld=true;await analysisRelease}}
  const checkpoint=new Promise<void>(resolve=>{reachedCheckpoint=resolve})
  const release=new Promise<void>(resolve=>{releaseResponse=resolve})
  const server=createServer(async(incoming,outgoing)=>{
@@ -64,7 +67,14 @@ export async function verifyResumeBrowser(candidate: (name:string)=>{id:string},
   assert.equal(await page.getByRole('button',{name:'Confirm publication',exact:true}).isDisabled(),true)
   await page.getByRole('dialog').getByRole('checkbox').check()
   await page.getByRole('button',{name:'Confirm publication',exact:true}).click()
+  const progress=page.getByRole('region',{name:'Saved Bulk List progress'})
+  await progress.getByText(/Current API: browserbulk\d+ · analysis · Last activity:/).waitFor({timeout:20000})
+  releaseAnalysis();outbound.beforeListingWrite=null
   await Promise.race([checkpoint,new Promise((_,reject)=>setTimeout(()=>reject(Error('Browser checkpoint timed out')),45000).unref())])
+  const livePanel=page.getByRole('region',{name:'Saved Bulk List progress'})
+  await livePanel.getByText('Published: 9 · Failed: 1 · Processing: 0 · Remaining: 15',{exact:true}).waitFor({timeout:15000})
+  assert.match(await livePanel.innerText(),/Current API: None · Last activity:/)
+  assert.equal(nextRequests,10,'read-only polling updates progress while POST delivery is held')
   await page.close();releaseResponse()
   assert.equal(nextRequests,10)
   page=await context.newPage();capture(page);await page.goto(base)
@@ -80,5 +90,5 @@ export async function verifyResumeBrowser(candidate: (name:string)=>{id:string},
   assert.equal(calls.get(failedName),2);assert.equal(nextRequests,26);assert.deepEqual(errors,[])
   assert.equal(sql(`SELECT count(*) FROM api_listings WHERE free_worker_candidate_id IN (${entries.map(x=>"'"+x.id+"'").join(',')}) AND is_active AND category='Data' AND score=8`),'25')
   console.log('PASS Chromium: 25 PAID APIs, rights confirmation, tab closure after 10, restored counts, explicit Resume, retry only failed API, zero duplicates')
- }finally{releaseResponse();await browser?.close();await new Promise<void>(resolve=>server.close(()=>resolve()));rmSync(temp,{recursive:true,force:true})}
+ }finally{releaseAnalysis();outbound.beforeListingWrite=null;releaseResponse();await browser?.close();await new Promise<void>(resolve=>server.close(()=>resolve()));rmSync(temp,{recursive:true,force:true})}
 }

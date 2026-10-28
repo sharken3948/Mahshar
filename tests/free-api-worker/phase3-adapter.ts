@@ -1,11 +1,17 @@
 import { sql, createServiceClient as workerDB } from './postgres-adapter'
 import { createServiceClient as sessionDB } from '../marketplace/fixtures'
 export { sql } from './postgres-adapter'
-export const outbound = { fail: new Set<string>(), calls: new Map<string, number>(), paidCalls: 0, responses: new Map<string, { status: number; body: string; type?: string }>() }
-export async function safeOutboundFetch(input: string | URL) {
+export const outbound = { fail: new Set<string>(), calls: new Map<string, number>(), paidCalls: 0, responses: new Map<string, { status: number; body: string; type?: string }>(),
+  beforeListingWrite: null as null | ((value: Record<string, unknown>) => Promise<void>),
+  afterListingWrite: null as null | ((value: Record<string, unknown>) => Promise<void>),
+  waitForEndpoint: null as null | ((url: string, init: unknown) => Promise<Response | null>),
+}
+export async function safeOutboundFetch(input: string | URL, init?: unknown) {
   const url = String(input)
   if (!new URL(url).hostname.endsWith('.example.org')) throw new Error('Only synthetic fixture endpoints allowed')
   outbound.calls.set(url, (outbound.calls.get(url) ?? 0) + 1)
+  const delayed = await outbound.waitForEndpoint?.(url, init)
+  if (delayed) return delayed
   const response = outbound.responses.get(url)
   if (response) return new Response(response.body, { status: response.status, headers: { 'content-type': response.type ?? 'text/html' } })
   return Response.json({ books: [{ title: 'Isolated fixture' }] }, { status: outbound.fail.has(url) ? 503 : 200 })
@@ -30,8 +36,9 @@ class ListingQuery {
   limit() { return this }
   insert(value: Record<string, unknown>) { this.added = value; return this }
   update(value: Record<string, unknown>) { this.patch = value; return this }
-  then(resolve: (value: any) => unknown) {
+  async then(resolve: (value: any) => unknown) {
     try {
+      if (this.added || this.patch) await outbound.beforeListingWrite?.(this.added ?? this.patch!)
       const where = this.predicates.length ? ' WHERE ' + this.predicates.join(' AND ') : ''
       let query = `SELECT ${this.columns} FROM public.api_listings${where}`
       if (this.added) {
@@ -39,6 +46,7 @@ class ListingQuery {
         query = `INSERT INTO public.api_listings (${entries.map(([key]) => field(key)).join(',')}) VALUES (${entries.map(([, value]) => quote(value)).join(',')}) RETURNING ${this.columns}`
       } else if (this.patch) query = `UPDATE public.api_listings SET ${Object.entries(this.patch).map(([key,value]) => `${field(key)}=${quote(value)}`).join(',')}${where} RETURNING ${this.columns}`
       const rows = JSON.parse(sql(`WITH result AS (${query}) SELECT coalesce(json_agg(result),'[]') FROM result`))
+      if (this.added || this.patch) await outbound.afterListingWrite?.(this.added ?? this.patch!)
       return Promise.resolve({ data: this.one ? rows[0] ?? null : rows, error: null }).then(resolve)
     } catch (error) {
       return Promise.resolve({ data: null, error: { code: 'XX000', message: String((error as { stderr?: unknown }).stderr ?? error) } }).then(resolve)

@@ -2,14 +2,18 @@ import 'server-only'
 import type { ChatCompletionCreateParamsNonStreaming as Completion } from 'groq-sdk/resources/chat/completions'
 import { groq } from '@/lib/groq-neutral'
 import { reserveResource, resourceLimit, resourceBudgetEnabled, ResourceBudgetError } from '@/lib/resource-budget'
+import { assertBulkAttempt, currentBulkAttempt } from '@/lib/free-api-worker/bulk-attempt'
 
 export type AiResource = 'match' | 'score' | 'background'
 
 /** All real inference, including retries, reserves shared capacity before contacting Groq. */
 export async function budgetedCompletion(feature: AiResource, input: Completion) {
+  assertBulkAttempt()
+  const attempt = currentBulkAttempt()
+  const options = attempt ? { signal: attempt.signal } : undefined
   // Preserve canonical SDK parameters and avoid any new database dependency
   // until actual workloads and every ceiling have been approved.
-  if (!resourceBudgetEnabled('GROQ')) return groq.chat.completions.create(input)
+  if (!resourceBudgetEnabled('GROQ')) return groq.chat.completions.create(input, options)
   if (input.messages.some(message => typeof message.content !== 'string') || input.tools?.length) throw new ResourceBudgetError(true)
   const promptBytes = Buffer.byteLength(JSON.stringify(input.messages), 'utf8')
   if (promptBytes > resourceLimit('MAHSHAR_GROQ_MAX_PROMPT_BYTES')) throw new ResourceBudgetError(false)
@@ -32,7 +36,8 @@ export async function budgetedCompletion(feature: AiResource, input: Completion)
   })
   try {
     const { max_tokens: _legacy, ...parameters } = input
-    return await groq.chat.completions.create({ ...parameters, max_completion_tokens: output })
+    assertBulkAttempt()
+    return await groq.chat.completions.create({ ...parameters, max_completion_tokens: output }, options)
   } finally {
     await release()
   }

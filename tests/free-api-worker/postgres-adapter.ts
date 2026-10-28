@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { createServiceClient as sessions } from '../marketplace/fixtures'
+import { currentBulkAttempt } from '../../src/lib/free-api-worker/bulk-attempt'
 
 export const boundary = { sleep: null as null | ((date: Date) => Promise<void>), starts: 0, failStart: false, runStep: null as null | ((generation: string) => Promise<import('../../src/lib/free-api-worker/runtime').StepResult>), run: Promise.resolve() as Promise<unknown> }
 export async function start(workflow?: (generation: string) => Promise<unknown>, args?: [string]) {
@@ -10,6 +11,11 @@ export async function start(workflow?: (generation: string) => Promise<unknown>,
 const quote = (value: unknown) => value === null ? 'NULL' : typeof value === 'boolean' ? String(value)
   : "'" + (typeof value === 'string' ? value : JSON.stringify(value)).replace(/'/g, "''") + "'"
 export function sql(query: string) {
+  const attempt = currentBulkAttempt()
+  if (attempt) {
+    const headers = { 'x-mahshar-bulk-attempt': JSON.stringify({ batch: attempt.batch, candidate: attempt.candidate, token: attempt.token }) }
+    query = `BEGIN; SET LOCAL request.headers=${quote(headers)}; ${query}; COMMIT;`
+  }
   const socket = process.env.FREE_WORKER_TEST_SOCKET, binary = process.env.FREE_WORKER_TEST_PSQL
   if (!socket?.startsWith('/tmp/mahshar-worker-replacement-') || !binary?.endsWith('/psql')) throw new Error('Disposable PostgreSQL configuration required')
   return execFileSync(binary, ['-XqAt', '-v', 'ON_ERROR_STOP=1', '-h', socket, '-p', '55476', '-U', 'worker_test', '-d', 'postgres'],

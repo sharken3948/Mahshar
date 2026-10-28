@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { bulkDatabaseFetch } from '@/lib/free-api-worker/bulk-attempt';
 
 const _rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const _rawAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -35,11 +36,13 @@ export async function createClient() {
 }
 
 export function createServiceClient() {
+  const bulkFetch = bulkDatabaseFetch();
   return createServerClient(
     SUPABASE_URL,
     SUPABASE_SERVICE_KEY,
     {
       cookies: { getAll: () => [], setAll: () => {} },
+      ...(bulkFetch ? { global: { fetch: bulkFetch } } : {}),
     }
   );
 }
