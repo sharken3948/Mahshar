@@ -5,7 +5,10 @@ import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
 import { matchListingVerificationConfiguration, normalizeExpectedStatusCodes } from '@/lib/marketplace/listing-security'
 import { decryptKey } from '@/lib/crypto'
 import { NextRequest, NextResponse } from 'next/server'
-import { scoreApi, type RealTestResult, type SetupSuggestions } from '@/lib/groq'
+import { scoreApi, ReviewInconclusiveError, type RealTestResult, type SetupSuggestions } from '@/lib/groq'
+import { GroqUnavailableError } from '@/lib/groq-neutral'
+import { ResourceBudgetError } from '@/lib/resource-budget'
+import { reviewFingerprint } from '@/lib/free-api-worker/review'
 import { createServiceClient } from '@/lib/supabase/server'
 import { validateEndpointUrl } from '@/lib/url-validation'
 import { OutboundPolicyError, safeOutboundFetch } from '@/lib/outbound-fetch'
@@ -459,6 +462,8 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
     let aiResult: Awaited<ReturnType<typeof scoreApi>> | null = null
     let aiAvailable = true
     let inconclusive = false
+    let aiFailureReason: string | null = null
+    let aiRetryAfter: number | undefined
     try {
       const safeAIField = (value: string | undefined) => value && reflectsProviderSecret(value, value, upstreamSecrets) ? '[redacted]' : value
       aiResult = await scoreApi({
@@ -473,12 +478,19 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
         example_request: safeAIField(body.example_request),
         example_response: safeAIField(body.example_response),
       }, realTestResult)
-    } catch {
+    } catch (error) {
       aiAvailable = false
       inconclusive = true
+      aiFailureReason = error instanceof ReviewInconclusiveError ? 'Groq returned an invalid review after retry.'
+        : error instanceof GroqUnavailableError ? 'Groq is not configured.'
+        : error instanceof ResourceBudgetError ? error.message
+        : error instanceof Error && /timeout|timed out/i.test(error.message) ? 'Groq request timed out.'
+        : 'Groq request failed; no valid review was saved.'
+      if (error instanceof ResourceBudgetError && !error.unavailable) aiRetryAfter = error.retryAfter
     }
 
     if (body.require_category && !aiResult?.suggestions.category) {
+      aiFailureReason ??= 'Groq did not return a valid category.'
       aiAvailable = false
       inconclusive = true
       aiResult = null
@@ -486,7 +498,16 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
 
     if (persistAnalysis && aiResult && (realTestResult.success || declaredExpected)) {
       let update = matchListingVerificationConfiguration(db.from('api_listings')
-        .update({ score: aiResult.score, ...(body.require_category ? { category: aiResult.suggestions.category } : {}) })
+        .update({ score: aiResult.score, ...(body.require_category ? {
+          category: aiResult.suggestions.category,
+          // Atomic with category/score: a lost response must not repeat a completed review.
+          free_worker_review: {
+            fingerprint: reviewFingerprint(persistedListing!), score: aiResult.score,
+            category: aiResult.suggestions.category,
+            approved: realTestResult.success && aiResult.approved && !aiResult.critical_issues.length,
+            reason: aiResult.critical_issues.join('; ').slice(0, 1200) || (aiResult.approved ? null : 'Seller review did not approve publication.'),
+          },
+        } : {}) })
         .eq('id', body.api_id).ilike('seller_wallet', authenticatedWallet), persistedListing!)
       if (body.require_category) {
         for (const key of ['name', 'description', 'category', 'score'] as const) {
@@ -496,6 +517,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
       }
       const { data, error } = await update.select('id')
       if (error || !data?.length) {
+        aiFailureReason = error ? 'Groq metadata could not be saved to the database.' : 'Listing changed during Groq analysis; saved metadata was not overwritten.'
         // Ordinary Seller analysis remains advisory. Bulk List requires ai_available
         // and a category, so it cannot activate after a failed metadata write.
         aiAvailable = false
@@ -520,6 +542,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
       suggested_price: aiResult?.suggested_price ?? null,
       approved: verified && (aiResult?.approved ?? true),
       ai_available: aiAvailable,
+      ...(body.require_category ? { analysis_failure_reason: aiFailureReason, retry_after_seconds: aiRetryAfter } : {}),
       inconclusive,
       critical_issues: blockingIssue ? [blockingIssue, ...(aiResult?.critical_issues ?? [])] : (aiResult?.critical_issues ?? []),
       warnings: responseSizeWarning

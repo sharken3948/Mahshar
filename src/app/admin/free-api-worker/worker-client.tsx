@@ -1,11 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAccount } from 'wagmi'
 import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
 import type { Candidate } from '@/lib/free-api-worker/model'
 import type { State } from '@/lib/free-api-worker/store'
-import { BulkList } from './bulk-list'
+import { BulkList, BulkProgressPanel } from './bulk-list'
+import { bulkCounts, runBulkSelection, type BulkProgress } from '@/lib/free-api-worker/bulk-progress'
 import styles from './worker.module.css'
 
 type Snapshot = {
@@ -20,11 +21,22 @@ export function FreeApiWorkerClient() {
   const [busy, setBusy] = useState(false), [view, setView] = useState('usable')
   const [selected, setSelected] = useState<Set<string>>(new Set()), [confirming, setConfirming] = useState(false)
   const [publishing, setPublishing] = useState<Candidate[] | null>(null)
+  const [batch, setBatch] = useState<BulkProgress | null>(null), [batchBusy, setBatchBusy] = useState(false), [batchNotice, setBatchNotice] = useState('')
+  const processing = useRef(false), mounted = useRef(true)
+  const liveWallet = useRef(wallet); liveWallet.current = wallet
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
+  const unfinished = batch && (bulkCounts(batch).remaining > 0 || bulkCounts(batch).processing > 0)
   const [query, setQuery] = useState(''), [page, setPage] = useState(1)
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
       const params = new URLSearchParams({ view, q: query, page: String(page) })
-      const response = await request(`/api/admin/free-api-worker/status?${params}`, { cache: 'no-store', signal })
+      const [response, progress] = await Promise.all([
+        request(`/api/admin/free-api-worker/status?${params}`, { cache: 'no-store', signal }),
+        request('/api/admin/free-api-worker/batches', { cache: 'no-store', signal }),
+      ])
+      const saved = await progress.json()
+      if (!progress.ok) throw new Error(saved.error ?? 'Saved Bulk List progress unavailable')
+      if (!signal?.aborted && !processing.current) setBatch(saved.batch)
       const body = await response.json()
       if (!response.ok) throw new Error(body.error ?? 'Worker unavailable')
       if (!signal?.aborted) { setData(body); setError(''); setSelected(current => new Set([...current].filter(id => body.candidates.some((row: Candidate) => row.lead.id === id)))) }
@@ -37,6 +49,31 @@ export function FreeApiWorkerClient() {
     return () => { controller.abort(); window.clearInterval(timer) }
   }, [load])
   useEffect(() => { setSelected(new Set()); setConfirming(false) }, [query, view, page])
+  async function runSavedBatch(saved: BulkProgress, retry = false) {
+    if (processing.current || !owner) return
+    const authorizedWallet = wallet
+    processing.current = true; setBatchBusy(true); setBatch(saved); setBatchNotice('Processing saved selection…')
+    try {
+      if (retry) {
+        const response = await request(`/api/admin/free-api-worker/batches/${saved.id}`, { method: 'POST',
+          headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'retry_failed' }) })
+        const body = await response.json()
+        if (!response.ok) throw new Error(body.error ?? 'Retry unavailable')
+        saved = body.batch
+      }
+      await runBulkSelection({ batch: saved, request,
+        stopped: () => !mounted.current || liveWallet.current !== authorizedWallet,
+        onProgress: value => { if (mounted.current) setBatch(value) },
+        wait: ms => new Promise(resolve => window.setTimeout(resolve, ms)),
+      })
+      if (mounted.current) setBatchNotice('Pass complete. Failed APIs remain saved for review or retry.')
+    } catch (cause) {
+      if (mounted.current) setBatchNotice((cause instanceof Error ? cause.message : 'Request interrupted.') + ' Progress is saved; Resume reconciles unfinished work.')
+    } finally {
+      processing.current = false
+      if (mounted.current) { setBatchBusy(false); await load() }
+    }
+  }
   async function removeSelected() {
     setBusy(true); setError('')
     try {
@@ -62,7 +99,7 @@ export function FreeApiWorkerClient() {
   return <main className={styles.main}>
     <div className={styles.header}><div><h1>Free API Worker</h1><p>Discover · Validate · Ready to List</p></div>
       <div className={styles.controls}>{(['start', 'stop', 'resume'] as const).map(action => <button key={action}
-        disabled={busy || !!publishing || !owner || (action === 'stop' ? data?.state.status !== 'running' : data?.state.status === 'running' || !!data?.progress.active)}
+        disabled={busy || batchBusy || !!publishing || !owner || (action === 'stop' ? data?.state.status !== 'running' : data?.state.status === 'running' || !!data?.progress.active)}
         onClick={() => void control(action)}>{action[0].toUpperCase() + action.slice(1)}</button>)}</div></div>
     <p className={styles.note}>Ready to List contains free, working APIs prepared for the owner's decision. It does not establish paid resale rights or publish anything to the Marketplace.</p>
     {error && <p role="alert">{error}</p>}
@@ -77,10 +114,12 @@ export function FreeApiWorkerClient() {
       <label>Search <input value={query} onChange={event => { setQuery(event.target.value); setPage(1) }} placeholder="API or provider" /></label></div>
     <div className={styles.controls}>
       <span>{selected.size} selected on this page</span>
-      <button disabled={!owner || busy || !!publishing || !selected.size || view !== 'usable'} onClick={() => setConfirming(true)}>Remove selected</button>
-      <button disabled={!owner || busy || !!publishing || confirming || !selected.size || view !== 'usable'} onClick={() => setPublishing((data?.candidates ?? []).filter(row => selected.has(row.lead.id)))}>Bulk List</button>
+      <button disabled={!owner || busy || batchBusy || !!publishing || !selected.size || view !== 'usable'} onClick={() => setConfirming(true)}>Remove selected</button>
+      <button disabled={!owner || busy || batchBusy || !!publishing || confirming || !selected.size || !!unfinished || view !== 'usable'} onClick={() => setPublishing((data?.candidates ?? []).filter(row => selected.has(row.lead.id)))}>Bulk List</button>
     </div>
-    {publishing && <BulkList candidates={publishing} onClose={() => setPublishing(null)} onComplete={load} />}
+    {publishing && <BulkList candidates={publishing} onClose={() => setPublishing(null)} onSaved={saved => { setPublishing(null); void runSavedBatch(saved) }} />}
+    {batch && <BulkProgressPanel batch={batch} busy={batchBusy || !owner} notice={batchNotice}
+      onResume={() => { void runSavedBatch(batch) }} onRetry={() => { void runSavedBatch(batch, true) }} />}
     {confirming && <div role="alertdialog" aria-modal="false" aria-labelledby="remove-title" className={styles.confirm}>
       <h2 id="remove-title">Remove {selected.size} selected candidates?</h2>
       <p>They will stay out of Ready to List on future runs. Saved evidence and Marketplace products are preserved.</p>

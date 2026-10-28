@@ -45,14 +45,14 @@ export function createServiceClient() {
   return {
     from: (table: string) => table.startsWith('free_worker_') ? new Query(table) : sessionDB.from(table),
     rpc: async (name: string, args: Record<string, unknown>) => {
-      if (!/^free_worker_(?:admit|control|claim|save|finish|release|import|remove|checkpoint|discovery_save)$/.test(name)) throw new Error('Non-Worker RPC denied')
+      if (!/^free_worker_(?:admit|control|claim|save|finish|release|import|remove|checkpoint|discovery_save|bulk_(?:read|create|claim|checkpoint|finish|retry))$/.test(name)) throw new Error('Non-Worker RPC denied')
       try {
         const values = Object.entries(args).map(([key, value]) => `${key}=>${key === 'p_ids' ? 'ARRAY[' + (value as string[]).map(quote).join(',') + ']::text[]' : quote(value)}`).join(',')
         const call = `public.${name}(${values})`
         const query = name === 'free_worker_claim' ? `SELECT coalesce(json_agg(t),'[]') FROM ${call} t` : `SELECT to_json(${call})`
         const result = sql(query)
         return { data: result ? JSON.parse(result) : null, error: null }
-      } catch (error) { return { data: null, error: { code: 'XX000', message: String((error as { stderr?: unknown }).stderr ?? error).includes('already_running') ? 'already_running' : String((error as { stderr?: unknown }).stderr ?? error).includes('work_in_flight') ? 'work_in_flight' : 'worker_storage_unavailable' } } }
+      } catch (error) { if (name.startsWith('free_worker_bulk_')) console.error('Isolated bulk RPC failed:', String((error as { stderr?: unknown }).stderr ?? error)); return { data: null, error: { code: 'XX000', message: name.startsWith('free_worker_bulk_') ? String((error as { stderr?: unknown }).stderr ?? error) : String((error as { stderr?: unknown }).stderr ?? error).includes('already_running') ? 'already_running' : String((error as { stderr?: unknown }).stderr ?? error).includes('work_in_flight') ? 'work_in_flight' : 'worker_storage_unavailable' } } }
     },
   }
 }
