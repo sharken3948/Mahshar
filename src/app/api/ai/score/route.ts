@@ -7,6 +7,7 @@ import { decryptKey } from '@/lib/crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { scoreApi, ReviewInconclusiveError, type RealTestResult, type SetupSuggestions } from '@/lib/groq'
 import { GroqUnavailableError } from '@/lib/groq-neutral'
+import { GroqAnalysisError } from '@/lib/groq-analysis-error'
 import { ResourceBudgetError } from '@/lib/resource-budget'
 import { reviewFingerprint } from '@/lib/free-api-worker/review'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -486,6 +487,7 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
       aiFailureReason = error instanceof ReviewInconclusiveError ? 'Groq returned an invalid review after retry.'
         : error instanceof GroqUnavailableError ? 'Groq is not configured.'
         : error instanceof ResourceBudgetError ? error.message
+        : error instanceof GroqAnalysisError ? error.message
         : error instanceof Error && /timeout|timed out/i.test(error.message) ? 'Groq request timed out.'
         : 'Groq request failed; no valid review was saved.'
       if (error instanceof ResourceBudgetError && !error.unavailable) aiRetryAfter = error.retryAfter

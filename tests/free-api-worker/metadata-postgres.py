@@ -4,6 +4,7 @@ import json
 import pathlib
 import subprocess
 import tempfile
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 BIN = pathlib.Path(os.environ.get('MAHSHAR_PG_BIN', '/home/gurka/.local/state/mahshar-canary/pg/lib/postgresql/16/bin'))
@@ -27,10 +28,11 @@ with tempfile.TemporaryDirectory(prefix='mahshar-worker-replacement-metadata-') 
         for migration in sorted((ROOT/'supabase/migrations').glob('*.sql'), key=lambda p: p.name.split('_', 1)[0]):
             sql(migration.read_text())
         env = dict(ENV, FREE_WORKER_TEST_SOCKET=str(root), FREE_WORKER_TEST_PSQL=str(BIN/'psql'), GROQ_API_KEY='offline-fixture')
-        result = subprocess.run(['node', '--require', './tests/free-api-worker/phase3-register.cjs', '--import', 'tsx', 'tests/free-api-worker/metadata.test.ts'], cwd=ROOT, env=env, timeout=180)
+        test_file = sys.argv[1] if len(sys.argv) > 1 else 'tests/free-api-worker/metadata.test.ts'
+        result = subprocess.run(['node', '--require', './tests/free-api-worker/phase3-register.cjs', '--import', 'tsx', test_file], cwd=ROOT, env=env, timeout=180)
         if result.returncode:
             raise RuntimeError('Metadata integration failed')
-        print('PASS disposable PostgreSQL: actual Bulk List → Seller analysis → Groq validation → category/score persistence → activation')
+        print(f'PASS disposable PostgreSQL integration: {test_file}')
         # Optional, real Groq preparation artifact. Apply it only to local snapshot fixtures.
         plan_dir = os.environ.get('MAHSHAR_METADATA_PLAN_DIR')
         if plan_dir:
