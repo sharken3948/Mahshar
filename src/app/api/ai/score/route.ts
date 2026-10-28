@@ -39,6 +39,7 @@ export interface EndpointTestDiagnostic {
 type AnalysisBody = {
   api_id?: string
   draft?: boolean
+  require_category?: boolean
   seller_wallet?: unknown
   name?: string
   category?: string
@@ -197,7 +198,8 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
   if (body.auth_key !== undefined && typeof body.auth_key !== 'string') {
     return NextResponse.json({ error: 'Invalid authentication credential' }, { status: 400 })
   }
-  if (body.draft !== undefined && typeof body.draft !== 'boolean') {
+  if (body.draft !== undefined && typeof body.draft !== 'boolean'
+    || body.require_category !== undefined && typeof body.require_category !== 'boolean') {
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
   }
 
@@ -205,6 +207,16 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
   const db = createServiceClient()
   const persistedListing = body.api_id ? await requireListingOwner(db, body.api_id, authenticatedWallet) : null
   const persistAnalysis = Boolean(persistedListing && !body.draft)
+  // Bulk publication requires real Groq metadata. Ordinary Seller analysis stays advisory.
+  if (body.require_category && (!persistedListing?.free_worker_candidate_id || body.draft)) {
+    return NextResponse.json({ error: 'Category persistence requires a saved Worker listing.' }, { status: 400 })
+  }
+  if (body.require_category && persistedListing) {
+    body.name = persistedListing.name
+    body.description = persistedListing.description
+    // The Worker draft's placeholder must not anchor the model's category recommendation.
+    body.category = ''
+  }
   if (persistedListing && !body.draft) {
     body.endpoint_url = persistedListing.endpoint_url
     body.method = persistedListing.method ?? 'GET'
@@ -466,13 +478,26 @@ export const POST = withWalletSession(async (request: NextRequest, authenticated
       inconclusive = true
     }
 
+    if (body.require_category && !aiResult?.suggestions.category) {
+      aiAvailable = false
+      inconclusive = true
+      aiResult = null
+    }
+
     if (persistAnalysis && aiResult && (realTestResult.success || declaredExpected)) {
-      const { data, error } = await matchListingVerificationConfiguration(db.from('api_listings')
-        .update({ score: aiResult.score }).eq('id', body.api_id).ilike('seller_wallet', authenticatedWallet),
-      persistedListing!).select('id')
+      let update = matchListingVerificationConfiguration(db.from('api_listings')
+        .update({ score: aiResult.score, ...(body.require_category ? { category: aiResult.suggestions.category } : {}) })
+        .eq('id', body.api_id).ilike('seller_wallet', authenticatedWallet), persistedListing!)
+      if (body.require_category) {
+        for (const key of ['name', 'description', 'category', 'score'] as const) {
+          const value = persistedListing![key]
+          update = update.filter(key, value == null ? 'is' : 'eq', value ?? null)
+        }
+      }
+      const { data, error } = await update.select('id')
       if (error || !data?.length) {
-        // Score persistence is advisory. Deterministic verification above remains
-        // authoritative and publishing must not depend on this optional write.
+        // Ordinary Seller analysis remains advisory. Bulk List requires ai_available
+        // and a category, so it cannot activate after a failed metadata write.
         aiAvailable = false
         inconclusive = true
         aiResult = null

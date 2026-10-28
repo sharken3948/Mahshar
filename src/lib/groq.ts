@@ -121,6 +121,7 @@ function setupSuggestions(value: unknown): SetupSuggestions {
 export function validateScoreResult(value: unknown): ScoreResult {
   const input = record(value);
   if (!input || typeof input.approved !== 'boolean'
+    || typeof input.score !== 'number' || !Number.isFinite(input.score)
     || typeof input.summary !== 'string' || input.summary.length < 1 || input.summary.length > 2000) {
     throw new Error('Groq returned invalid score schema');
   }
@@ -128,8 +129,7 @@ export function validateScoreResult(value: unknown): ScoreResult {
   const warnings = boundedStrings(input.warnings);
   const positives = boundedStrings(input.positives);
   if (!critical_issues || !warnings || !positives) throw new Error('Groq returned invalid score schema');
-  // Numeric fields are clamped defensively: an out-of-range model output cannot
-  // return a schema-valid pass and cannot crash the caller.
+  // Clamp real numeric scores, but never manufacture a score for missing or malformed output.
   const score = Math.round(clampNumber(input.score, 1, 10, 1));
   const suggested_price = clampNumber(input.suggested_price, 0, 1_000_000, 0);
   return {

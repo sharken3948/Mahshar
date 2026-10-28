@@ -12,6 +12,7 @@ import * as proxy from '../../src/app/api/proxy/[api_id]/route'
 import * as envelope from '../../src/app/api/proxy/route'
 import { getPublicSeoListing } from '../../src/lib/seo/public-catalog'
 import * as adminStatus from '../../src/app/api/admin/free-api-worker/status/route'
+import { groq } from '../../src/lib/groq'
 const quote = (value: unknown) => "'" + JSON.stringify(value).replace(/'/g,"''") + "'::jsonb"
 const owner = { ...alice, address: OWNER } as const
 export const output = 'isolated-validation/free-api-worker-replacement/owner-publication-control'
@@ -33,6 +34,12 @@ export function fixture(name: string, permission = 'UNKNOWN') {
 }
 async function main() {
   reset(); process.env.ADMIN_WALLETS=OWNER; ownerHeaders=sessionHeaders(owner)
+  process.env.GROQ_API_KEY = 'offline-phase3-fixture'
+  // Exercise the actual score parser and Seller persistence; only model transport is mocked.
+  ;(groq.chat.completions as unknown as { create: () => Promise<unknown> }).create = async () => ({ choices: [{ message: { content: JSON.stringify({
+    score: 8, suggested_price: 0.001, approved: true, critical_issues: [], warnings: [], positives: ['Functional fixture'],
+    summary: 'Fixture review.', suggestions: { category: 'Data' },
+  }) } }] })
   mkdirSync(output,{recursive:true})
   const source='isolated-validation/free-api-worker-replacement/discovery-phase2/listed-candidates.json'
   const sourceHash=digest(readFileSync(source)), ready=JSON.parse(readFileSync(source,'utf8')) as Candidate[]
