@@ -1,4 +1,5 @@
 import { workerListingInput } from '@/lib/free-api-worker/listing'
+import { savedWorkerReview } from '@/lib/free-api-worker/review'
 import { MAX_LISTING_BODY_BYTES } from '@/lib/marketplace/listing-body'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -78,6 +79,11 @@ export const PATCH = withWalletSession(async (request: NextRequest, wallet: stri
     throw error
   }
   assertWalletClaim(body.seller_wallet, wallet)
+  const expectedWorkerReview = body.worker_review_fingerprint
+  if (expectedWorkerReview !== undefined && (!listing.free_worker_candidate_id || typeof expectedWorkerReview !== 'string'
+    || !savedWorkerReview(listing)?.approved || savedWorkerReview(listing)?.fingerprint !== expectedWorkerReview)) {
+    return NextResponse.json({ error: 'Saved Worker review changed; review before publication.' }, { status: 409 })
+  }
   const patch: Record<string, unknown> = {}
   for (const key of ['name', 'category', 'description', 'endpoint_url', 'auth_type', 'auth_param_name', 'method', 'example_request', 'example_response']) {
     if (body[key] !== undefined) {
@@ -170,7 +176,14 @@ export const PATCH = withWalletSession(async (request: NextRequest, wallet: stri
   if (patch.is_active === true && !credentialProxyAllowed(updated)) {
     return NextResponse.json({ error: 'Verify the endpoint before activation' }, { status: 409 })
   }
-  const { data, error } = await matchListingConfiguration(db.from('api_listings').update(patch).eq('id', id).ilike('seller_wallet', wallet), listing).select('id')
+  let update = matchListingConfiguration(db.from('api_listings').update(patch).eq('id', id).ilike('seller_wallet', wallet), listing)
+  if (expectedWorkerReview !== undefined) {
+    update = update.filter('free_worker_review', 'eq', JSON.stringify(listing.free_worker_review))
+    for (const key of ['name', 'description', 'category', 'score', 'price_per_call', 'example_response', 'example_request', 'verified_at'] as const) {
+      update = update.filter(key, listing[key] == null ? 'is' : 'eq', listing[key] ?? null)
+    }
+  }
+  const { data, error } = await update.select('id')
   if (error) return NextResponse.json({ error: 'Listing update failed' }, { status: 500 })
   if (!data?.length) return NextResponse.json({ error: 'Listing changed; reload before editing' }, { status: 409 })
   return NextResponse.json({ success: true })
