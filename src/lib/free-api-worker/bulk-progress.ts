@@ -3,7 +3,8 @@ export type BulkProgress = {
   id: string; mode: 'FREE' | 'PAID'; price: number | string; authorized_at: string; retry_at: string | null;
   pause_reason?: 'groq_rate_limit' | null;
   items: { candidate_id: string; name: string; ordinal: number; status: 'pending' | 'processing' | 'published' | 'failed';
-    stage: string; listing_id: string | null; last_error: string | null; lease_until: string | null; attempts: number; updated_at?: string }[]
+    stage: string; listing_id: string | null; last_error: string | null; lease_until: string | null; attempts: number; updated_at?: string;
+    events?: { event: string; at: string }[] }[]
 }
 // A slow status read must not replace a newer checkpoint from the POST response.
 export function mergeBulkProgress(previous: BulkProgress | null, incoming: BulkProgress | null): BulkProgress | null {
@@ -23,6 +24,20 @@ export function bulkCounts(batch: BulkProgress, now = Date.now()) {
     else counts.remaining++
   }
   return counts
+}
+
+// Existing saved events survive reload/Resume; a Resume checkpoint is not a new attempt.
+export function bulkPacingUntil(batch: BulkProgress): number {
+  let finishedAt = 0
+  for (const item of batch.items) {
+    const endings = item.events?.filter(event => ['published', 'published_reconciled', 'failed', 'timeout', 'pending', 'groq_rate_limit'].includes(event.event))
+    const times = endings?.length ? endings.map(event => event.at)
+      : item.attempts > 0 && item.status !== 'processing' ? [item.updated_at ?? ''] : []
+    // An abandoned attempt ends at its lease deadline, before the next POST reconciles it.
+    if (item.status === 'processing' && item.lease_until) times.push(item.lease_until)
+    for (const at of times) finishedAt = Math.max(finishedAt, Date.parse(at) || 0)
+  }
+  return finishedAt ? finishedAt + 10_000 : 0
 }
 
 /** Only an explicit confirm/resume invokes this loop. Reloads only read saved state. */
@@ -65,6 +80,16 @@ export async function runBulkSelection(options: {
     if (batch.retry_at && Date.parse(batch.retry_at) > Date.now()) {
       await options.wait(Math.min(Date.parse(batch.retry_at) - Date.now(), 5000))
       continue
+    }
+    // Pace publication attempts, never recovery GETs or time inside the server's 60s lease.
+    if (!recovering && !counts.processing) {
+      const remaining = bulkPacingUntil(batch) - Date.now()
+      if (remaining > 0) {
+        options.onNotice?.(`Next API in ${Math.ceil(remaining / 1000)} seconds (10-second spacing). Progress is saved.`)
+        await options.wait(Math.min(remaining, 1000))
+        continue
+      }
+      options.onNotice?.('Processing saved selection…')
     }
     const path = `/api/admin/free-api-worker/batches/${batch.id}`
     // Read while another request owns the lease; only the server may expire it.
