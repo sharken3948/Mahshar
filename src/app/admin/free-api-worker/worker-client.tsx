@@ -72,6 +72,7 @@ export function FreeApiWorkerClient() {
       const finished = await runBulkSelection({ batch: saved, request,
         stopped: () => !mounted.current || liveWallet.current !== authorizedWallet,
         onProgress: value => { if (mounted.current) setBatch(previous => mergeBulkProgress(previous, value)) },
+        onNotice: message => { if (mounted.current) setBatchNotice(message) },
         wait: ms => new Promise(resolve => window.setTimeout(resolve, ms)),
       })
       if (mounted.current) setBatchNotice(finished.pause_reason === 'groq_rate_limit'
