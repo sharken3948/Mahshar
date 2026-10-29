@@ -160,3 +160,13 @@ one qualifying GET/path listing, one envelope listing, and one envelope listing
 declaring the controlled `mode=server-error` path. The harness stores only
 purchase capabilities in `.mahshar-agent-capabilities.json` with mode 0600; the
 file is gitignored. It never prints the key, payment signature, or capability.
+
+## Optional ERC-8004 identity lookup
+
+Autonomous agents can use `GET /api/agent/identity` to discover the public lookup
+contract, then supply an Arc chain/registry/agent-ID tuple and optional wallet
+comparison. This verifies public registry facts only; it does not authenticate
+the caller or bind an identity. No login, signature or browser is required.
+See [ERC-8004 V1](./erc8004-agent-identity-v1.md) for the request/response contract,
+failure semantics and security boundaries. Existing MCP and payment execution
+remain independent of identity lookup.
