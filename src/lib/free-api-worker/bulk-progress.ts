@@ -29,23 +29,34 @@ export function bulkCounts(batch: BulkProgress, now = Date.now()) {
 export async function runBulkSelection(options: {
   batch: BulkProgress; request: (url: string, init?: RequestInit) => Promise<Response>;
   stopped: () => boolean; onProgress: (batch: BulkProgress) => void; wait: (ms: number) => Promise<void>
+  onNotice?: (message: string) => void
 }) {
   async function requestBatch(path: string, init: RequestInit, timeout: number) {
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
+    let responseStatus: number | undefined
     try {
       return await Promise.race([
         (async () => {
           const response = await options.request(path, { ...init, signal: controller.signal })
+          responseStatus = response.status
           const body = await response.json()
           if (!response.ok || !body.batch) throw Object.assign(new Error(body.error ?? 'Publication paused. Resume reconciles saved progress.'), { status: response.status })
           return body.batch as BulkProgress
         })(),
-        new Promise<never>((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('Bulk request interrupted')) }, timeout) }),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => {
+          controller.abort()
+          reject(Object.assign(new Error(init.method === 'POST' ? 'Bulk processing request timed out' : 'Bulk progress recovery timed out'), { name: 'TimeoutError' }))
+        }, timeout) }),
       ])
+    } catch (error) {
+      // Preserve auth/authorization status even if its response body is absent or invalid.
+      if (responseStatus && responseStatus >= 400 && error instanceof Error) Object.assign(error, { status: responseStatus })
+      throw error
     } finally { clearTimeout(timer) }
   }
   let batch = options.batch
+  let recovering = false, failures = 0
   while (!options.stopped()) {
     // Provider pauses require a new, explicit Resume even after retry_at has elapsed.
     if (batch.pause_reason === 'groq_rate_limit') return batch
@@ -56,19 +67,34 @@ export async function runBulkSelection(options: {
       continue
     }
     const path = `/api/admin/free-api-worker/batches/${batch.id}`
+    // Read while another request owns the lease; only the server may expire it.
+    if (counts.processing) {
+      options.onNotice?.('Waiting for the active API to finish. Progress is saved.')
+      await options.wait(5000)
+      recovering = true
+    }
+    if (options.stopped()) return batch
     try {
-      batch = await requestBatch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'next' }) }, 75_000)
+      const saved = await requestBatch(path, recovering ? { cache: 'no-store' }
+        : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'next' }) }, recovering ? 10_000 : 75_000)
+      // An unchanged read is safe to continue, but must not reset an outage's retry budget.
+      if (!recovering || JSON.stringify(saved) !== JSON.stringify(batch)) failures = 0
+      batch = saved
+      recovering = false
+      options.onProgress(batch)
+      options.onNotice?.('Processing saved selection…')
     } catch (error) {
       const status = (error as { status?: number }).status
-      if (options.stopped() || status && status < 500) throw error
-      const saved = await requestBatch(path, { cache: 'no-store' }, 10_000)
-      // A lost response can conceal a completed write. Reconcile before sending another next request.
-      if (!saved.items.some(item => item.status === 'processing') && JSON.stringify(saved) === JSON.stringify(batch)) throw error
-      batch = saved
+      const transient = status !== undefined ? [500, 502, 503, 504].includes(status)
+        : error instanceof TypeError || error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name)
+      if (options.stopped() || !transient) throw error
+      if (++failures >= 5) throw new Error('Connection recovery could not complete after 5 interruptions. Saved APIs have not been discarded.')
+      const delay = Math.min(1000 * 2 ** (failures - 1), 8000)
+      options.onNotice?.(`Connection interrupted. Recovering saved progress in ${delay / 1000} seconds (${failures}/4)…`)
+      await options.wait(delay)
+      // Never replay an ambiguous POST before a successful saved-state read.
+      recovering = true
     }
-    options.onProgress(batch)
-    // A second tab may own the current request; do not hammer it or steal its lease.
-    if (bulkCounts(batch).processing) await options.wait(5000)
   }
   return batch
 }
