@@ -1,5 +1,6 @@
 import 'server-only'
 import { configuredArcRpc, getMaintenanceInventory } from './inventory'
+import { checkProtocolNotice, checkSecurityAdvisories, type MaintenanceSources } from './notices'
 import type { ArcNotice, MaintenanceCheckResult, MaintenanceDashboardDto, MaintenanceInventoryItem, MaintenanceSeverity } from './types'
 
 const MAX_JSON_BYTES = 256_000
@@ -101,9 +102,9 @@ async function checkPackage(item: MaintenanceInventoryItem, fetcher: Maintenance
   const latest = bounded(data.version, 64)
   const comparison = compareVersions(item.current, latest)
   if (!latest || comparison === null) throw new Error('package_metadata_invalid')
-  if (comparison >= 0) return { ...item, latest, status: 'current', severity: 'Info', impact: 'Installed version is current.', details: 'Official npm registry metadata reports no newer stable version.', recommended_action: 'No action required.', checked_at: checkedAt }
+  if (comparison >= 0) return { ...item, latest, status: 'current', severity: 'Info', action: 'review', impact: 'No newer stable package version was reported. Compatibility still needs review.', details: 'A version comparison does not establish protocol compatibility or the absence of security advisories.', recommended_action: 'Review protocol notices and relevant advisories before deciding whether action is necessary.', checked_at: checkedAt }
   const severity = updateSeverity(item.current, latest)
-  return { ...item, latest, status: 'update_available', severity, impact: 'A newer package version is available; the current integration remains unchanged.', details: `Official npm metadata reports ${latest}. No compatibility claim is inferred.`, recommended_action: 'Review the official release notes and test manually before any upgrade.', checked_at: checkedAt }
+  return { ...item, latest, status: 'update_available', severity, action: 'optional', impact: 'Optional update: a newer package version is available; no requirement to upgrade is inferred.', details: `Official npm metadata reports ${latest}. Compatibility and advisory applicability need separate review.`, recommended_action: 'Review the official release notes and test manually before any upgrade.', checked_at: checkedAt }
 }
 
 export function evaluateArcRelease(item: MaintenanceInventoryItem, latest: string, notes: string, checkedAt: string, configuredRpcs = configuredArcRpc().values): MaintenanceCheckResult {
@@ -212,7 +213,7 @@ async function checkGroqDeprecations(item: MaintenanceInventoryItem, fetcher: Ma
   if (!validGroqDeprecationDocument(document)) throw new Error('groq_deprecations_invalid')
   const notice = groqDeprecationForModel(document, item.current)
   if (!notice.deprecated) return { ...item, latest: 'No matching notice', status: 'current', severity: 'Info', impact: 'The configured model is not listed in the deprecated-model column of Groq’s official notice table.', details: 'Availability is checked separately against the Groq Models API.', recommended_action: 'No action required.', checked_at: checkedAt }
-  return { ...item, latest: notice.shutdown ? `Shutdown ${notice.shutdown}` : 'Deprecation listed', status: 'deprecation_notice', severity: 'Important', impact: 'Groq lists the configured Mahshar model as deprecated.', details: 'The notice is separate from live model availability and may require action before its shutdown date.', recommended_action: 'Review the official notice and test a supported replacement manually.', checked_at: checkedAt }
+  return { ...item, latest: notice.shutdown ? `Shutdown ${notice.shutdown}` : 'Deprecation listed', deadline: notice.shutdown, action: 'required', status: 'deprecation_notice', severity: 'Important', impact: 'Groq lists the configured Mahshar model as deprecated.', details: 'The notice is separate from live model availability and may require action before its shutdown date.', recommended_action: 'Review the official notice and test a supported replacement manually.', checked_at: checkedAt }
 }
 
 async function checkGroqModel(item: MaintenanceInventoryItem, fetcher: MaintenanceFetch, checkedAt: string): Promise<MaintenanceCheckResult> {
@@ -244,16 +245,22 @@ export async function checkMaintenanceUpdates(dependencies: CheckDependencies = 
   const fetcher = dependencies.fetch || globalThis.fetch.bind(globalThis)
   const checkedAt = (dependencies.now?.() || new Date()).toISOString()
   const inventory = dependencies.inventory || getMaintenanceInventory()
+  const sources: MaintenanceSources = {
+    json: (url, init) => officialJson(fetcher, url, init),
+    text: (url, contentTypes) => officialText(fetcher, url, { headers: { accept: contentTypes.join(', ') } }, contentTypes),
+  }
   const jobs = inventory.map(async item => {
     try {
       if (item.id === 'arc-node') return await checkArcRelease(item, fetcher, checkedAt)
       if (item.id === 'arc-rpc') return await checkArcStatus(item, fetcher, checkedAt)
       if (item.id === 'groq-model') return await checkGroqModel(item, fetcher, checkedAt)
       if (item.id === 'groq-deprecations') return await checkGroqDeprecations(item, fetcher, checkedAt)
+      if (['cctp-notices', 'mcp-protocol', 'erc-8004'].includes(item.id)) return await checkProtocolNotice(item, sources, checkedAt)
+      if (item.id === 'security-advisories') return await checkSecurityAdvisories(item, sources, checkedAt)
       if (item.package_name) return await checkPackage(item, fetcher, checkedAt)
       return failure(item, checkedAt)
     } catch { return failure(item, checkedAt) }
   })
-  const results = await Promise.all(jobs)
+  const results = (await Promise.all(jobs)).flat()
   return { inventory, results, summary: maintenanceSummary(results), checked_at: checkedAt }
 }
