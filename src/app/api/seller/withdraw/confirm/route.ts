@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createPublicClient, createWalletClient, http, verifyMessage, type Hex } from 'viem'
+import { createPublicClient, createWalletClient, http, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { createServiceClient } from '@/lib/supabase/server'
 import { isValidWalletAddress } from '@/lib/wallet-validation'
@@ -11,6 +11,7 @@ import { withWalletSession } from '@/lib/marketplace/server'
 import { assertWalletClaim } from '@/lib/marketplace/operation-authorization'
 import { arcPrivateMainnetHeaders } from '@circle-fin/x402-batching/client'
 import { classifyGatewayTransferStatus } from '@/lib/withdrawal-outcome'
+import { verifyWithdrawalMessage } from '@/lib/withdraw-signature'
 
 export const runtime = 'nodejs'
 
@@ -54,7 +55,7 @@ export const POST = withWalletSession(async (request: NextRequest, sessionWallet
   })
   let sigValid: boolean
   try {
-    sigValid = await verifyMessage({
+    sigValid = await verifyWithdrawalMessage({
       address: seller_wallet as `0x${string}`,
       message: authMessage,
       signature: signature as `0x${string}`,
