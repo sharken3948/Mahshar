@@ -7,6 +7,7 @@ export type MaintenanceStatus =
   | 'unknown'
 
 export type MaintenanceSeverity = 'Info' | 'Review' | 'Important' | 'Critical'
+export type MaintenanceAction = 'required' | 'optional' | 'review'
 
 export type MaintenanceCategory = 'Arc' | 'Circle' | 'AI' | 'Runtime'
 
@@ -28,6 +29,8 @@ export type MaintenanceCheckResult = MaintenanceInventoryItem & {
   details: string
   recommended_action: string
   checked_at: string
+  action?: MaintenanceAction
+  deadline?: string | null
 }
 
 export type MaintenanceSummary = {

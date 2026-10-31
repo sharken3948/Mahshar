@@ -18,6 +18,12 @@ function timeLabel(value: string | null) {
   return Number.isNaN(date.getTime()) ? 'Unknown' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
 
+function actionLabel(item: MaintenanceCheckResult) {
+  if (item.action === 'required' || item.status === 'action_required') return 'Action required'
+  if (item.action === 'optional') return 'Optional update'
+  return 'Needs review'
+}
+
 function pendingResult(item: MaintenanceInventoryItem): MaintenanceCheckResult {
   return { ...item, latest: null, status: 'unknown', severity: 'Info', impact: 'Run a manual check to compare official upstream sources.', details: item.usage, recommended_action: 'Select Check for updates when you are ready.', checked_at: '' }
 }
@@ -83,7 +89,7 @@ export function MaintenanceClient() {
             <td><code>{item.current}</code></td><td>{item.latest || '—'}</td>
             <td><span className={`${styles.chip} ${styles[item.status]}`}>{statusLabel[item.status]}</span></td>
             <td><span className={`${styles.severity} ${styles[`severity${item.severity}`]}`}>{item.severity}</span></td>
-            <td>{item.impact}</td><td>{item.checked_at ? timeLabel(item.checked_at) : 'Not checked'}</td>
+            <td>{item.impact}{item.action && <small>{actionLabel(item)}</small>}{item.deadline && <small>Deadline: {item.deadline}</small>}</td><td>{item.checked_at ? timeLabel(item.checked_at) : 'Not checked'}</td>
             <td><button type="button" onClick={() => setSelectedId(current => current === item.id ? null : item.id)} aria-expanded={selectedId === item.id}>Review</button></td>
           </tr>)}</tbody>
         </table>
@@ -95,7 +101,7 @@ export function MaintenanceClient() {
       <div className={styles.detailGrid}>
         <div><h3>Current Mahshar usage</h3><p>{selected.usage}</p><dl><dt>Installed / configured</dt><dd>{selected.current}</dd><dt>Latest / notice</dt><dd>{selected.latest || 'Not checked'}</dd></dl></div>
         <div><h3>Impact</h3><p>{selected.impact}</p><p>{selected.details}</p></div>
-        <div><h3>Manual next step</h3><p>{selected.recommended_action}</p><a href={selected.source_url} target="_blank" rel="noreferrer">Open official source</a></div>
+        <div><h3>Manual next step</h3>{selected.action && <p>{actionLabel(selected)}</p>}{selected.deadline && <p>Deadline: {selected.deadline}</p>}<p>{selected.recommended_action}</p><a href={selected.source_url} target="_blank" rel="noreferrer">Open official source</a></div>
       </div>
     </section>}
   </div>
