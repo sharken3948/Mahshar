@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   pad, parseUnits, maxUint256, formatUnits,
   createPublicClient, createWalletClient, http,
-  verifyMessage, type Hex,
+  type Hex,
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { randomBytes } from 'node:crypto'
@@ -16,6 +16,7 @@ import { PLATFORM_PRIVATE_KEY } from '@/lib/gateway'
 import { arcMainnet } from '@/lib/chains'
 import { buildWithdrawMessage, WITHDRAW_TIMESTAMP_WINDOW_SECONDS } from '@/lib/withdraw-auth-message'
 import { classifyGatewayTransferResponse } from '@/lib/withdrawal-outcome'
+import { verifyWithdrawalMessage } from '@/lib/withdraw-signature'
 
 export const runtime = 'nodejs'
 
@@ -127,7 +128,7 @@ export const POST = withWalletSession(async (request: NextRequest, sessionWallet
   })
   let sigValid: boolean
   try {
-    sigValid = await verifyMessage({
+    sigValid = await verifyWithdrawalMessage({
       address: sellerWallet as `0x${string}`,
       message: authMessage,
       signature: signature as `0x${string}`,
