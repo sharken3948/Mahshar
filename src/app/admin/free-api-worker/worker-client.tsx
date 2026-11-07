@@ -45,9 +45,22 @@ export function FreeApiWorkerClient() {
   }, [request, view, query, page])
   useEffect(() => {
     const controller = new AbortController()
-    void load(controller.signal)
-    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void load(controller.signal) }, 5000)
-    return () => { controller.abort(); window.clearInterval(timer) }
+    let refreshing = false
+    const refresh = async () => {
+      if (controller.signal.aborted || document.visibilityState !== 'visible' || refreshing) return
+      refreshing = true
+      try { await load(controller.signal) }
+      finally { refreshing = false }
+    }
+    void refresh()
+    const timer = window.setInterval(() => { void refresh() }, 30_000)
+    const onVisibilityChange = () => { if (document.visibilityState === 'visible') void refresh() }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      controller.abort()
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
   }, [load])
   useEffect(() => { setSelected(new Set()); setConfirming(false); setMovingFailed(false) }, [query, view, page])
   async function runSavedBatch(saved: BulkProgress, retry = false) {
