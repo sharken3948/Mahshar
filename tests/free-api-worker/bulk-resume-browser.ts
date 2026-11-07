@@ -9,6 +9,7 @@ import { sql, outbound } from './phase3-adapter'
 import * as batchRoutes from '../../src/app/api/admin/free-api-worker/batches/route'
 import * as itemRoutes from '../../src/app/api/admin/free-api-worker/batches/[id]/route'
 import * as workerStatus from '../../src/app/api/admin/free-api-worker/status/route'
+import * as details from '../../src/app/api/admin/free-api-worker/details/route'
 
 export async function verifyResumeBrowser(candidate: (name:string)=>{id:string}, failing:Set<string>, calls:Map<string,number>) {
  const entries=Array.from({length:25},(_,i)=>({...candidate('browserbulk'+i),name:'browserbulk'+i}))
@@ -42,6 +43,7 @@ export async function verifyResumeBrowser(candidate: (name:string)=>{id:string},
     response=incoming.method==='POST'?await itemRoutes.POST(request,{params:Promise.resolve({id:match[1]})}):await itemRoutes.GET(request,{params:Promise.resolve({id:match[1]})})
     if(action==='next'&&nextRequests===10){reachedCheckpoint();await release}
    }else if(incoming.url.includes('/batches'))response=incoming.method==='POST'?await batchRoutes.POST(request):await batchRoutes.GET(request)
+   else if(incoming.url.includes('/details'))response=await details.POST(request)
    else if(incoming.url.includes('/status'))response=await workerStatus.GET(request)
    else throw Error('Unexpected browser mutation')
    outgoing.writeHead(response.status,Object.fromEntries(response.headers));outgoing.end(await response.text())

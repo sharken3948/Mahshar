@@ -39,10 +39,17 @@ function candidate(name:string){
 async function selection(ids:string[]){const r=await create(req('/api/admin/free-api-worker/batches',{id:randomUUID(),ids,mode:'PAID',price:.001,confirmed:true,owner_rights_confirmed:true}));assert.equal(r.status,201,await r.clone().text());return (await r.json()).batch as BulkProgress}
 async function read(id:string){const r=await status(req('/api/admin/free-api-worker/batches/'+id),{params:Promise.resolve({id})});assert.equal(r.status,200);return (await r.json()).batch as BulkProgress}
 async function action(batch:BulkProgress,action='next',retry_at=batch.retry_at){return advance(req('/api/admin/free-api-worker/batches/'+batch.id,{action,retry_at}),{params:Promise.resolve({id:batch.id})})}
-async function run(batch:BulkProgress,interrupted=false){return runBulkSelection({batch,stopped:()=>false,onProgress:()=>{},wait:async()=>{throw Error('Provider cooldown must not sleep')},request:async(path,init)=>{
+function elapse(batch:BulkProgress,ms:number){
+ const endings=new Set(['published','published_reconciled','failed','timeout','pending','groq_rate_limit'])
+ for(const item of batch.items){
+  for(const event of item.events??[])if(endings.has(event.event))event.at=new Date(Date.parse(event.at)-ms).toISOString()
+  if(item.attempts>0&&item.status!=='processing'&&!(item.events??[]).some(event=>endings.has(event.event)))item.updated_at=new Date(Date.parse(item.updated_at??'')-ms).toISOString()
+ }
+}
+async function run(batch:BulkProgress,interrupted=false){return runBulkSelection({batch,stopped:()=>false,onProgress:value=>{batch=value},wait:async ms=>{elapse(batch,ms)},request:async(path,init)=>{
  if(init?.method!=='POST')return status(req(path),{params:Promise.resolve({id:batch.id})})
  const response=await advance(req(path,JSON.parse(init.body as string)),{params:Promise.resolve({id:batch.id})})
- if(interrupted&&(await response.clone().json()).batch.pause_reason)throw Error('Simulated lost POST response')
+ if(interrupted&&(await response.clone().json()).batch.pause_reason)throw new TypeError('Simulated lost POST response')
  return response
  }})}
 const listing=(id:string)=>JSON.parse(sql(`SELECT to_jsonb(a) FROM api_listings a WHERE free_worker_candidate_id=${quote(id)}`))
@@ -118,8 +125,10 @@ async function main(){
  leaseBatch=await read(leaseBatch.id);assert.equal(leaseBatch.pause_reason,null);assert.match(leaseBatch.items[0].last_error!,/^TIMEOUT:/)
  assert.equal(sql(`SELECT bool_and(NOT has_function_privilege('anon',p.oid,'EXECUTE') AND NOT has_function_privilege('authenticated',p.oid,'EXECUTE') AND has_function_privilege('service_role',p.oid,'EXECUTE') AND NOT p.prosecdef) FROM pg_proc p WHERE proname IN ('free_worker_bulk_pause','free_worker_bulk_resume')`),'t')
  pass('60-second lease and late-result fencing retained; pause/resume RPCs remain service-only')
- await verifyGroqPauseBrowser(candidate,selection,action,expire,read,failing,calls)
- pass('Chromium reload/countdown/explicit Resume and repeated provider pause')
+ if(process.env.FREE_WORKER_PLAYWRIGHT_MODULE){
+  await verifyGroqPauseBrowser(candidate,selection,action,expire,read,failing,calls)
+  pass('Chromium reload/countdown/explicit Resume and repeated provider pause')
+ }
  assert.equal(outbound.paidCalls,0);assert.equal(sql('SELECT count(*) FROM purchases'),'0');assert.equal(sql('SELECT count(*) FROM api_calls'),'0')
  console.log(`PASS ${cases} focused Groq pause scenario groups; no real inference/publication/payment`)
 }

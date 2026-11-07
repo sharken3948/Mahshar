@@ -10,6 +10,7 @@ import { sql } from './postgres-adapter'
 import { databaseStore } from '../../src/lib/free-api-worker/runtime'
 import { OWNER, usableCandidates } from '../../src/lib/free-api-worker/model'
 import * as status from '../../src/app/api/admin/free-api-worker/status/route'
+import * as details from '../../src/app/api/admin/free-api-worker/details/route'
 import * as control from '../../src/app/api/admin/free-api-worker/control/route'
 import * as removal from '../../src/app/api/admin/free-api-worker/remove/route'
 import * as bulk from '../../src/app/api/admin/free-api-worker/list/route'
@@ -47,7 +48,8 @@ export async function verifyBulkBrowser(makeFixture: (name: string, permission?:
       if (incoming.url.includes('/list')) publicationRequests++
       const request = new NextRequest(origin + incoming.url, { method: incoming.method, headers, ...(body ? { body } : {}) })
       const response = incoming.url.includes('/status') ? await status.GET(request)
-        : incoming.url.includes('/control') ? await control.POST(request) : incoming.url.includes('/list') ? await bulk.POST(request) : await removal.POST(request)
+        : incoming.url.includes('/control') ? await control.POST(request) : incoming.url.includes('/details') ? await details.POST(request)
+          : incoming.url.includes('/list') ? await bulk.POST(request) : await removal.POST(request)
       outgoing.writeHead(response.status, Object.fromEntries(response.headers)); outgoing.end(await response.text())
     } catch (error) { outgoing.statusCode = 500; outgoing.end(String(error)) }
   })

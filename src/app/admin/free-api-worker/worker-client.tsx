@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAccount } from 'wagmi'
 import { useMarketplaceSession } from '@/components/MarketplaceSessionProvider'
 import type { Candidate } from '@/lib/free-api-worker/model'
-import type { State } from '@/lib/free-api-worker/store'
+import type { CandidatePreview, State } from '@/lib/free-api-worker/store'
 import { BulkList, BulkProgressPanel } from './bulk-list'
 import { bulkCounts, mergeBulkProgress, runBulkSelection, type BulkProgress } from '@/lib/free-api-worker/bulk-progress'
 import styles from './worker.module.css'
@@ -12,7 +12,7 @@ import styles from './worker.module.css'
 type Snapshot = {
   progress: { total: number; completed: number; unfinished: number; active: number; batchSize: number }
   state: State; summary: { admitted: number; functional: number; usable: number; successPercent: number }
-  total: number; pageSize: number; candidates: Candidate[]; nextRetry: string | null
+  total: number; pageSize: number; candidates: CandidatePreview[]; nextRetry: string | null
 }
 export function FreeApiWorkerClient() {
   const { request, wallet } = useMarketplaceSession(), { address } = useAccount()
@@ -28,28 +28,37 @@ export function FreeApiWorkerClient() {
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const unfinished = batch && (bulkCounts(batch).remaining > 0 || bulkCounts(batch).processing > 0)
   const [query, setQuery] = useState(''), [page, setPage] = useState(1)
-  const load = useCallback(async (signal?: AbortSignal) => {
+  const pollCount = useRef(0)
+  const load = useCallback(async (options: { signal?: AbortSignal; stateDetails?: boolean } = {}) => {
     try {
       const params = new URLSearchParams({ view, q: query, page: String(page) })
+      if (options.stateDetails) params.set('stateDetails', 'true')
       const [response, progress] = await Promise.all([
-        request(`/api/admin/free-api-worker/status?${params}`, { cache: 'no-store', signal }),
-        request('/api/admin/free-api-worker/batches', { cache: 'no-store', signal }),
+        request(`/api/admin/free-api-worker/status?${params}`, { cache: 'no-store', signal: options.signal }),
+        request('/api/admin/free-api-worker/batches', { cache: 'no-store', signal: options.signal }),
       ])
       const saved = await progress.json()
       if (!progress.ok) throw new Error(saved.error ?? 'Saved Bulk List progress unavailable')
-      if (!signal?.aborted) setBatch(previous => mergeBulkProgress(previous, saved.batch))
+      if (!options.signal?.aborted) setBatch(previous => mergeBulkProgress(previous, saved.batch))
       const body = await response.json()
       if (!response.ok) throw new Error(body.error ?? 'Worker unavailable')
-      if (!signal?.aborted) { setData(body); setError(''); setSelected(current => new Set([...current].filter(id => body.candidates.some((row: Candidate) => row.lead.id === id)))) }
-    } catch (cause) { if (!signal?.aborted) setError(cause instanceof Error ? cause.message : 'Worker unavailable') }
+      if (!options.signal?.aborted) {
+        setData(current => current?.state.discovery && !body.state.discovery
+          ? { ...body, state: { ...body.state, discovery: current.state.discovery } } : body)
+        setError('')
+        setSelected(current => new Set([...current].filter(id => body.candidates.some((row: CandidatePreview) => row.lead.id === id))))
+      }
+    } catch (cause) { if (!options.signal?.aborted) setError(cause instanceof Error ? cause.message : 'Worker unavailable') }
   }, [request, view, query, page])
   useEffect(() => {
     const controller = new AbortController()
+    pollCount.current = 0
     let refreshing = false
     const refresh = async () => {
       if (controller.signal.aborted || document.visibilityState !== 'visible' || refreshing) return
       refreshing = true
-      try { await load(controller.signal) }
+      pollCount.current++
+      try { await load({ signal: controller.signal, stateDetails: pollCount.current === 1 || pollCount.current % 10 === 0 }) }
       finally { refreshing = false }
     }
     void refresh()
@@ -95,7 +104,7 @@ export function FreeApiWorkerClient() {
       if (mounted.current) setBatchNotice((cause instanceof Error ? cause.message : 'Request interrupted.') + ' Progress is saved; Resume reconciles unfinished work.')
     } finally {
       processing.current = false
-      if (mounted.current) { setBatchBusy(false); await load() }
+      if (mounted.current) { setBatchBusy(false); await load({ stateDetails: true }) }
     }
   }
   async function removeSelected() {
@@ -105,7 +114,7 @@ export function FreeApiWorkerClient() {
         body: JSON.stringify({ ids: [...selected], confirmed: true }) })
       const body = await response.json()
       if (!response.ok) throw new Error(body.error ?? 'Removal unavailable')
-      setSelected(new Set()); setConfirming(false); await load()
+      setSelected(new Set()); setConfirming(false); await load({ stateDetails: true })
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Removal unavailable') }
     finally { setBusy(false) }
   }
@@ -118,7 +127,7 @@ export function FreeApiWorkerClient() {
       const body = await response.json()
       if (!response.ok) throw new Error(body.error ?? 'Move unavailable')
       setFailedNotice(`${body.moved} candidates moved to Failed APIs. Drafts and saved evidence retained.`)
-      setMovingFailed(false); setSelected(new Set()); await load()
+      setMovingFailed(false); setSelected(new Set()); await load({ stateDetails: true })
     } catch (cause) { setFailedNotice(cause instanceof Error ? cause.message : 'Move unavailable') }
     finally { setBusy(false) }
   }
@@ -142,7 +151,7 @@ export function FreeApiWorkerClient() {
       if (mounted.current) setFailedNotice((cause instanceof Error ? cause.message : 'Recheck interrupted') + '. Saved state is retained. Rechecks do not restart automatically.')
     } finally {
       processing.current = false
-      if (mounted.current) { setBusy(false); await load() }
+      if (mounted.current) { setBusy(false); await load({ stateDetails: true }) }
     }
   }
   async function control(action: 'start' | 'stop' | 'resume') {
@@ -152,13 +161,26 @@ export function FreeApiWorkerClient() {
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action }) })
       const body = await response.json()
       if (!response.ok) throw new Error(body.error ?? 'Control unavailable')
-      await load()
+      await load({ stateDetails: true })
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Control unavailable') }
+    finally { setBusy(false) }
+  }
+  const details = useCallback(async (ids: string[]) => {
+    const response = await request('/api/admin/free-api-worker/details', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids }) })
+    const body = await response.json()
+    if (!response.ok) throw new Error(body.error ?? 'Candidate details unavailable')
+    return body.candidates as Candidate[]
+  }, [request])
+  async function openBulkList() {
+    setBusy(true); setError('')
+    try { setPublishing(await details([...selected])) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Candidate details unavailable') }
     finally { setBusy(false) }
   }
   return <main className={styles.main}>
     <div className={styles.header}><div><h1>Free API Worker</h1><p>Discover · Validate · Ready to List</p></div>
-      <div className={styles.controls}>{(['start', 'stop', 'resume'] as const).map(action => <button key={action}
+      <div className={styles.controls}><button disabled={busy || batchBusy} onClick={() => void load({ stateDetails: true })}>Refresh</button>{(['start', 'stop', 'resume'] as const).map(action => <button key={action}
         disabled={busy || batchBusy || !!publishing || !owner || (action === 'stop' ? data?.state.status !== 'running' : data?.state.status === 'running' || !!data?.progress.active)}
         onClick={() => void control(action)}>{action[0].toUpperCase() + action.slice(1)}</button>)}</div></div>
     <p className={styles.note}>Ready to List contains free, working APIs prepared for the owner's decision. It does not establish paid resale rights or publish anything to the Marketplace.</p>
@@ -177,7 +199,7 @@ export function FreeApiWorkerClient() {
       <button disabled={!owner || busy || batchBusy || !!publishing || !selected.size || !['usable', 'failed'].includes(view)} onClick={() => setConfirming(true)}>Remove Selected</button>
       {view === 'usable' && <button disabled={!owner || busy || batchBusy || !!publishing || confirming || !selected.size} onClick={() => setMovingFailed(true)}>Move to Failed</button>}
       {view === 'failed' && <button disabled={!owner || busy || batchBusy || confirming || !selected.size} onClick={() => void recheckSelected()}>Recheck Failed</button>}
-      <button disabled={!owner || busy || batchBusy || !!publishing || confirming || !selected.size || !!unfinished || view !== 'usable'} onClick={() => setPublishing((data?.candidates ?? []).filter(row => selected.has(row.lead.id)))}>Bulk List</button>
+      <button disabled={!owner || busy || batchBusy || !!publishing || confirming || !selected.size || !!unfinished || view !== 'usable'} onClick={() => void openBulkList()}>Bulk List</button>
     </div>
     {failedNotice && <p role="status">{failedNotice}</p>}
     {view === 'failed' && <p className={styles.note}>Only manually moved candidates appear here. Recheck refreshes selected evidence without publication or automatic retries.</p>}
@@ -198,30 +220,55 @@ export function FreeApiWorkerClient() {
     </div>}
     <CandidateTable candidates={data?.candidates ?? []} showEvidence={view !== 'usable'} selected={selected}
       selectable={owner && ['usable', 'failed'].includes(view) && !busy && !batchBusy && !confirming && !movingFailed && !publishing}
-      onSelection={setSelected} />
+      onSelection={setSelected} loadDetail={async id => (await details([id]))[0] ?? null} />
     {data?.total === 0 && <p>No candidates in this view.</p>}
     <div className={styles.controls}><button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</button>
       <span>Page {page} · {data?.total ?? 0} results</span><button disabled={!data || page * data.pageSize >= data.total} onClick={() => setPage(p => p + 1)}>Next</button></div>
   </main>
 }
 
-export function CandidateTable({ candidates, showEvidence = false, selected = new Set<string>(), selectable = false, onSelection }: {
-  candidates: Candidate[]; showEvidence?: boolean; selected?: Set<string>; selectable?: boolean; onSelection?: (ids: Set<string>) => void
+export function CandidateTable({ candidates, showEvidence = false, selected = new Set<string>(), selectable = false, onSelection, loadDetail }: {
+  candidates: Array<Candidate | CandidatePreview>; showEvidence?: boolean; selected?: Set<string>; selectable?: boolean
+  onSelection?: (ids: Set<string>) => void; loadDetail?: (id: string) => Promise<Candidate | null>
 }) {
   const allSelected = candidates.length > 0 && candidates.every(row => selected.has(row.lead.id))
   return <div className={styles.scroll}><table><thead><tr>
     <th><input type="checkbox" aria-label="Select all visible filtered candidates" disabled={!selectable || !candidates.length}
       checked={allSelected} onChange={event => onSelection?.(new Set(event.target.checked ? candidates.map(row => row.lead.id) : []))} /></th>
     <th>API</th><th>Working endpoint</th><th>Source / docs</th><th>Last successful validation</th><th>Details</th>
-  </tr></thead><tbody>{candidates.map(({ lead, result, attempts, listingId, publishedAt, manualFailedAt, failureReason, recheckUntil, recheckResult }) => <tr key={lead.id}>
-    <td><input type="checkbox" aria-label={`Select ${lead.name}`} disabled={!selectable} checked={selected.has(lead.id)}
-      onChange={event => { const next = new Set(selected); if (event.target.checked) next.add(lead.id); else next.delete(lead.id); onSelection?.(next) }} /></td>
+  </tr></thead><tbody>{candidates.map(candidate => <CandidateRow key={candidate.lead.id} candidate={candidate}
+    showEvidence={showEvidence} selected={selected.has(candidate.lead.id)} selectable={selectable}
+    onSelection={checked => { const next = new Set(selected); if (checked) next.add(candidate.lead.id); else next.delete(candidate.lead.id); onSelection?.(next) }}
+    loadDetail={loadDetail} />)}</tbody></table></div>
+}
+
+function CandidateRow({ candidate, showEvidence, selected, selectable, onSelection, loadDetail }: {
+  candidate: Candidate | CandidatePreview; showEvidence: boolean; selected: boolean; selectable: boolean
+  onSelection: (checked: boolean) => void; loadDetail?: (id: string) => Promise<Candidate | null>
+}) {
+  const [detail, setDetail] = useState<Candidate | null>('evidence' in (candidate.result ?? {}) ? candidate as Candidate : null)
+  const [detailError, setDetailError] = useState(''), [loading, setLoading] = useState(false)
+  const row = detail ?? candidate
+  const { lead, result, attempts, listingId, publishedAt, manualFailedAt, failureReason, recheckUntil } = row
+  const recheckResult = detail?.recheckResult
+  async function expand(open: boolean) {
+    if (!open || detail || loading || !loadDetail) return
+    setLoading(true); setDetailError('')
+    try { setDetail(await loadDetail(lead.id)) }
+    catch (cause) { setDetailError(cause instanceof Error ? cause.message : 'Candidate details unavailable') }
+    finally { setLoading(false) }
+  }
+  const evidence = detail?.result?.evidence ?? [], tests = detail?.result?.tests ?? []
+  return <tr>
+    <td><input type="checkbox" aria-label={`Select ${lead.name}`} disabled={!selectable} checked={selected}
+      onChange={event => onSelection(event.target.checked)} /></td>
     <td><strong>{lead.name}</strong><small>{lead.providerId}</small></td>
     <td>{result?.endpoint ? <a href={result.endpoint} target="_blank" rel="noreferrer">{result.endpoint}</a> : '—'}</td>
     <td><a href={lead.docs} target="_blank" rel="noreferrer">Documentation</a>{lead.sources.map(source => <small key={source}>
       <a href={source} target="_blank" rel="noreferrer">Source</a></small>)}</td>
     <td>{result?.lastSuccess ? new Date(result.lastSuccess).toLocaleString() : '—'}</td>
-    <td><details><summary>Saved evidence</summary>
+    <td><details onToggle={event => void expand(event.currentTarget.open)}><summary>Saved evidence</summary>
+      {loading && <p>Loading saved evidence…</p>}{detailError && <p role="alert">{detailError}</p>}
       <p>Technical: {result?.technical ?? 'Pending'} · Free access: {result?.freeAccess ?? 'UNVERIFIED'} · Attempts: {attempts}</p>
       <p>{result?.reason}</p>
       {manualFailedAt && <p>Manually moved to Failed APIs: {new Date(manualFailedAt).toLocaleString()}</p>}
@@ -235,13 +282,13 @@ export function CandidateTable({ candidates, showEvidence = false, selected = ne
       </details>}
       {listingId && <p>Marketplace listing: {listingId} · {publishedAt ? `Published ${new Date(publishedAt).toLocaleString()}` : 'Prepared draft'}</p>}
       {showEvidence && <p>Commercial permission: {result?.permission ?? 'UNKNOWN'}</p>}
-      {result && <>
+      {result && detail && <>
         <p>Terms review: {result.termsChecked ? 'Completed; see saved findings below' : 'Incomplete'}. Internal preparation does not establish paid resale rights.</p>
         <a href={result.docs} target="_blank" rel="noreferrer">Validation source</a>
-        {result.evidence.map((evidence, index) => <p key={index}><a href={evidence.url} target="_blank" rel="noreferrer">Evidence page</a>
-          <small>{evidence.note}</small><small>{evidence.checkedAt} · SHA256: {evidence.sha256}</small></p>)}
-        {result.tests.map((test, index) => <p key={index}><small>{test.url} · {test.status ?? 'No response'} · {test.reason} · SHA256: {test.sha256 ?? '—'}</small></p>)}
+        {evidence.map((item, index) => <p key={index}><a href={item.url} target="_blank" rel="noreferrer">Evidence page</a>
+          <small>{item.note}</small><small>{item.checkedAt} · SHA256: {item.sha256}</small></p>)}
+        {tests.map((test, index) => <p key={index}><small>{test.url} · {test.status ?? 'No response'} · {test.reason} · SHA256: {test.sha256 ?? '—'}</small></p>)}
       </>}
     </details></td>
-  </tr>)}</tbody></table></div>
+  </tr>
 }

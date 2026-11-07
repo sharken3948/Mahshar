@@ -9,6 +9,7 @@ import { Network } from '../../src/lib/free-api-worker/network'
 import { databaseStore, tick } from '../../src/lib/free-api-worker/runtime'
 import { groq } from '../../src/lib/groq'
 import { POST as failedAction } from '../../src/app/api/admin/free-api-worker/failed/route'
+import { POST as candidateDetails } from '../../src/app/api/admin/free-api-worker/details/route'
 import { GET as status } from '../../src/app/api/admin/free-api-worker/status/route'
 import { POST as remove } from '../../src/app/api/admin/free-api-worker/remove/route'
 import { POST as control } from '../../src/app/api/admin/free-api-worker/control/route'
@@ -65,7 +66,12 @@ async function main(){
  assert.equal((await move([a.id])).moved,1);assert.equal((await move([a.id])).moved,0)
  assert(row(a.id).manual_failed_at);assert.match(row(a.id).failure_reason,/Groq/)
  assert.deepEqual(row(a.id).result,before.result);assert.deepEqual(listing(a.id),draft)
- assert.equal((await view('usable')).total,0);assert.equal((await view('failed')).total,1)
+ assert.equal((await view('usable')).total,0);const failedView=await view('failed');assert.equal(failedView.total,1)
+ assert.ok(!('recheckResult' in failedView.candidates[0]));assert.ok(!('evidence' in failedView.candidates[0].result));assert.ok(!('tests' in failedView.candidates[0].result))
+ const detailResponse=await candidateDetails(req('/api/admin/free-api-worker/details',{ids:[a.id]}));assert.equal(detailResponse.status,200)
+ const [detail]=(await detailResponse.json()).candidates;assert.ok(detail.result.evidence.length&&detail.result.tests.length)
+ assert.equal((await candidateDetails(req('/api/admin/free-api-worker/details',{ids:[a.id]},{origin}))).status,401)
+ assert.equal((await candidateDetails(req('/api/admin/free-api-worker/details',{ids:[a.id]},sessionHeaders(bob)))).status,403)
  pass('Single move is durable and idempotent; draft, endpoint, original evidence and latest Bulk List error survive reload')
  const x=candidate('brokenendpoint'),y=candidate('authrequired'),z=candidate('prohibited')
  assert.equal((await move([x.id,y.id,z.id])).moved,3)

@@ -9,6 +9,7 @@ import type { BulkProgress } from '../../src/lib/free-api-worker/bulk-progress'
 import * as batches from '../../src/app/api/admin/free-api-worker/batches/route'
 import * as items from '../../src/app/api/admin/free-api-worker/batches/[id]/route'
 import * as worker from '../../src/app/api/admin/free-api-worker/status/route'
+import * as details from '../../src/app/api/admin/free-api-worker/details/route'
 
 export async function verifyGroqPauseBrowser(
  candidate:(name:string)=>{id:string}, selection:(ids:string[])=>Promise<BulkProgress>,
@@ -33,6 +34,7 @@ export async function verifyGroqPauseBrowser(
    let response:Response;const match=/\/batches\/([a-f0-9-]+)$/.exec(incoming.url)
    if(match){if(body)actions.push(JSON.parse(body).action);response=incoming.method==='POST'?await items.POST(request,{params:Promise.resolve({id:match[1]})}):await items.GET(request,{params:Promise.resolve({id:match[1]})})}
    else if(incoming.url.includes('/batches'))response=await batches.GET(request)
+   else if(incoming.url.includes('/details'))response=await details.POST(request)
    else if(incoming.url.includes('/status'))response=await worker.GET(request)
    else throw Error('Unexpected request')
    outgoing.writeHead(response.status,Object.fromEntries(response.headers));outgoing.end(await response.text())

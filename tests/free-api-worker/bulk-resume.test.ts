@@ -41,8 +41,15 @@ async function next(batch:BulkProgress){
 }
 async function read(id:string){const response=await status(req('/api/admin/free-api-worker/batches/'+id),{params:Promise.resolve({id})});assert.equal(response.status,200);return (await response.json()).batch as BulkProgress}
 async function retry(batch:BulkProgress){const response=await advance(req('/api/admin/free-api-worker/batches/'+batch.id,{action:'retry_failed'}),{params:Promise.resolve({id:batch.id})});assert.equal(response.status,200,await response.clone().text());return (await response.json()).batch as BulkProgress}
+function elapse(batch:BulkProgress,ms:number){
+ const endings=new Set(['published','published_reconciled','failed','timeout','pending','groq_rate_limit'])
+ for(const item of batch.items){
+  for(const event of item.events??[])if(endings.has(event.event))event.at=new Date(Date.parse(event.at)-ms).toISOString()
+  if(item.attempts>0&&item.status!=='processing'&&!(item.events??[]).some(event=>endings.has(event.event)))item.updated_at=new Date(Date.parse(item.updated_at??'')-ms).toISOString()
+ }
+}
 async function run(batch:BulkProgress){
- return runBulkSelection({batch,stopped:()=>false,onProgress:()=>{},wait:async()=>{throw Error('Unexpected fixture wait')},
+ return runBulkSelection({batch,stopped:()=>false,onProgress:value=>{batch=value},wait:async ms=>{elapse(batch,ms)},
   request:async(path,init)=>advance(req(path,JSON.parse(init!.body as string)),{params:Promise.resolve({id:batch.id})})})
 }
 const listing=(id:string)=>JSON.parse(sql(`SELECT row_to_json(t) FROM api_listings t WHERE free_worker_candidate_id=${quote(id)}`))

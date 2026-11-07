@@ -8,6 +8,7 @@ import { OWNER } from '../../src/lib/free-api-worker/model'
 import { sql } from './phase3-adapter'
 import * as failed from '../../src/app/api/admin/free-api-worker/failed/route'
 import * as status from '../../src/app/api/admin/free-api-worker/status/route'
+import * as details from '../../src/app/api/admin/free-api-worker/details/route'
 import * as batches from '../../src/app/api/admin/free-api-worker/batches/route'
 import * as remove from '../../src/app/api/admin/free-api-worker/remove/route'
 
@@ -31,6 +32,7 @@ export async function verifyFailedBrowser(candidate:(name:string)=>{id:string;en
    let response:Response
    if(incoming.url.includes('/failed')){const action=JSON.parse(body).action;if(action==='move')moves++;if(action==='recheck')rechecks++;response=await failed.POST(r)}
    else if(incoming.url.includes('/status')&&incoming.method==='GET')response=await status.GET(r)
+   else if(incoming.url.includes('/details'))response=await details.POST(r)
    else if(incoming.url.includes('/batches')&&incoming.method==='GET')response=await batches.GET(r)
    else if(incoming.url.includes('/remove'))response=await remove.POST(r)
    else throw Error('Unexpected publication/discovery request')
